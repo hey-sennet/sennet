@@ -1,0 +1,30 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Local runtime data and downloaded models
+/data/
+/models/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Rust
+/target/
+
+# JavaScript
+node_modules/
+dist/
+frontend/.svelte-kit/
+frontend/build/
+frontend/test-results/
+frontend/playwright-report/
+
+# OS files
+.DS_Store
+Thumbs.db
