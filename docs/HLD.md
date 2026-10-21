@@ -128,7 +128,8 @@ Approval requests from any task go through one policy engine:
 
 | Setting | Behavior |
 | --- | --- |
-| `ask` | Ask by voice and show a card on screen; either may answer. |
+| `ask` | Ask by voice and show a card on screen; either may answer. Codex: `approvalPolicy = untrusted`. |
+| `auto` | The agent works freely inside its sandbox and asks only to escalate. Codex: `on-request`. |
 | `allow-always` rules | Remembered decisions, e.g. "always allow `npm test` in backend". Created by saying "approve always" / tapping "Always". Scoped to project + command prefix or tool/file pattern. Viewable and revocable in Settings. |
 | `never-ask` | Full auto. Maps to the agent's own non-interactive mode (e.g. Codex `approval_policy = never` with a write-capable sandbox). Clearly marked in UI. |
 
@@ -208,8 +209,10 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
 
 ### 6.1 Capture and transport
 
-- One WebSocket per client: JSON text frames for control/events, binary frames for
-  audio. A simpler setup than separate sockets. It is adequate on a LAN or Tailscale.
+- Commands are plain HTTP (`/api/...`, with a required `X-Agent-Talk` header as CSRF
+  protection). One WebSocket per client (`/api/events`) pushes live events; on
+  reconnect the client reloads state, so missed events never matter. M2 adds binary
+  audio frames to a WebSocket. This is adequate on a LAN or Tailscale.
 - AudioWorklet captures at the device rate and downsamples once to 16 kHz mono PCM16,
   sent in 20–40 ms frames. Browser echo cancellation and noise suppression are on.
 - TTS audio returns over the same socket in short chunks, tagged with a playback
@@ -363,9 +366,12 @@ automatically.
 1. **M0 — Speech spike. Done.** Results and decisions in
    [spikes/speech](../spikes/speech/README.md): onnx-asr runtime, tier defaults
    (§5.1), single smart-turn check, full-pass finals, clause-chunked TTS.
-2. **M1 — Backend skeleton.** Package layout, config, SQLite, projects, task manager,
-   Codex adapter with events, approvals (`ask` + rules + `never-ask`) and cancel;
-   typed requests over WebSocket; minimal React client.
+2. **M1 — Backend skeleton. Done.** Package layout, config, SQLite, projects, task
+   manager (queued follow-ups, one running task per project, global limit, warm
+   sessions, restart recovery), Codex app-server adapter with item events, approvals
+   (ask/auto/never, "always" rules, destructive classification) and interrupt; HTTP
+   commands with a live event WebSocket; React client for desktop and phone. Tested
+   against a scripted fake app-server and verified with real Codex turns.
 3. **M2 — Voice loop, direct mode.** Push-to-talk end to end, voice approvals, TTS
    narration of agent results.
 4. **M3 — Front assistant.** Bundled llama-server, model catalog, tool calling,

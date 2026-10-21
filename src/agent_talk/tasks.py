@@ -1,0 +1,274 @@
+"""Task manager: runs agent turns, queues follow-ups, enforces concurrency.
+
+A task is one piece of agent work in one project: an agent thread plus the
+messages sent to it. Messages queue; each becomes one agent turn. At most one task
+runs per project (two agents editing one working tree conflict), and at most
+`max_concurrent` run overall. Agent processes stay warm for `idle_timeout_s` after
+a turn so follow-ups start instantly; after that the thread is resumed by ID.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decision, TurnPolicy
+from .approvals import Approvals
+from .config import Settings
+from .db import Database
+
+log = logging.getLogger(__name__)
+
+ACTIVE = ("running", "awaiting_approval")
+INTERRUPT_GRACE_S = 10
+TURN_STATUS = {"completed": "completed", "interrupted": "cancelled", "failed": "failed"}
+
+
+@dataclass
+class Runner:
+    session: AgentSession | None = None
+    job: asyncio.Task | None = None
+    idle_timer: asyncio.TimerHandle | None = None
+    turn_done: asyncio.Event = field(default_factory=asyncio.Event)
+    turn_result: dict = field(default_factory=dict)
+    cancelling: bool = False
+
+
+class TaskError(Exception):
+    pass
+
+
+class TaskManager:
+    def __init__(self, db: Database, settings: Settings, agents: dict[str, Agent], approvals: Approvals, publish):
+        self.db = db
+        self.settings = settings
+        self.agents = agents
+        self.approvals = approvals
+        self.publish = publish
+        self.runners: dict[int, Runner] = {}
+
+    async def start(self):
+        self.db.recover()
+        self._schedule()
+
+    async def shutdown(self):
+        for runner in self.runners.values():
+            if runner.idle_timer:
+                runner.idle_timer.cancel()
+            if runner.job:
+                runner.job.cancel()
+        await asyncio.gather(*(r.job for r in self.runners.values() if r.job), return_exceptions=True)
+        await asyncio.gather(*(r.session.close() for r in self.runners.values() if r.session),
+                             return_exceptions=True)
+
+    # Public operations
+
+    async def create(self, project_id: int, text: str) -> dict:
+        project = self.db.project(project_id)
+        if project is None:
+            raise TaskError("no such project")
+        text = _clean(text)
+        task_id = self.db.add_task(project_id, project["agent"], _title(text))
+        self.db.add_message(task_id, "user", text, "queued")
+        await self._publish_task(task_id)
+        self._schedule()
+        return self.db.task(task_id)
+
+    async def follow_up(self, task_id: int, text: str) -> dict:
+        task = self.db.task(task_id)
+        if task is None:
+            raise TaskError("no such task")
+        text = _clean(text)
+        message_id = self.db.add_message(task_id, "user", text, "queued")
+        await self.publish({"type": "message", "task_id": task_id,
+                            "message": self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)})
+        if task["status"] not in ACTIVE:
+            self.db.update_task(task_id, status="queued", error=None)
+            await self._publish_task(task_id)
+            self._schedule()
+        return self.db.task(task_id)
+
+    async def cancel(self, task_id: int) -> dict:
+        task = self.db.task(task_id)
+        if task is None:
+            raise TaskError("no such task")
+        for message in self.db.query("SELECT id FROM task_messages WHERE task_id = ? AND state = 'queued'", task_id):
+            await self._set_message_state(message["id"], "cancelled")
+        runner = self.runners.get(task_id)
+        if task["status"] in ACTIVE and runner and runner.job:
+            runner.cancelling = True
+            await self.approvals.cancel_for_task(task_id)
+            if runner.session and runner.session.alive:
+                try:
+                    await asyncio.wait_for(runner.session.interrupt(), INTERRUPT_GRACE_S)
+                except Exception:
+                    log.warning("interrupt failed for task %s; stopping the agent", task_id)
+            try:
+                await asyncio.wait_for(asyncio.shield(runner.turn_done.wait()), INTERRUPT_GRACE_S)
+            except asyncio.TimeoutError:
+                # The agent ignored the interrupt. Stop its process; the outcome is unknown.
+                runner.job.cancel()
+                await asyncio.gather(runner.job, return_exceptions=True)
+                await self._close_session(task_id)
+                self.db.update_task(task_id, status="unknown", error="agent did not stop; its process was killed")
+                await self._publish_task(task_id)
+        elif task["status"] == "queued":
+            self.db.update_task(task_id, status="cancelled")
+            await self._publish_task(task_id)
+        return self.db.task(task_id)
+
+    def snapshot(self, task_id: int) -> dict | None:
+        task = self.db.task(task_id)
+        if task is None:
+            return None
+        return {**task, "messages": self.db.messages(task_id), "events": self.db.events(task_id)}
+
+    # Scheduling
+
+    def _schedule(self):
+        running = [t for t in self.db.query("SELECT id, project_id FROM tasks WHERE status IN ('running', 'awaiting_approval')")]
+        busy_projects = {t["project_id"] for t in running}
+        slots = self.settings.tasks.max_concurrent - len(running)
+        for task in self.db.query("SELECT id, project_id FROM tasks WHERE status = 'queued' ORDER BY updated_at, id"):
+            if slots <= 0:
+                break
+            if task["project_id"] in busy_projects:
+                continue
+            busy_projects.add(task["project_id"])
+            slots -= 1
+            self.db.update_task(task["id"], status="running")
+            runner = self.runners.setdefault(task["id"], Runner())
+            if runner.idle_timer:
+                runner.idle_timer.cancel()
+                runner.idle_timer = None
+            runner.cancelling = False
+            runner.turn_done.clear()
+            runner.job = asyncio.create_task(self._run(task["id"]))
+
+    async def _run(self, task_id: int):
+        runner = self.runners[task_id]
+        await self._publish_task(task_id)
+        try:
+            while not runner.cancelling and (message := self.db.next_queued_message(task_id)):
+                await self._ensure_session(task_id)
+                if runner.cancelling:
+                    break  # cancelled while the agent was starting
+                await self._set_message_state(message["id"], "sent")
+                runner.turn_result = {}
+                await runner.session.send(message["text"])
+                if runner.cancelling:
+                    await runner.session.interrupt()  # cancelled while the turn was starting
+                await runner.turn_done.wait()
+                runner.turn_done.clear()
+                await self._set_message_state(message["id"], "done")
+                status = "cancelled" if runner.cancelling else TURN_STATUS.get(runner.turn_result.get("status"), "failed")
+                self.db.update_task(task_id, status=status, error=runner.turn_result.get("error"))
+                if status != "completed":
+                    break
+            if self.db.task(task_id)["status"] == "running":  # cancelled before any turn ran
+                self.db.update_task(task_id, status="cancelled")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            log.exception("task %s failed", task_id)
+            self.db.update_task(task_id, status="failed", error=str(error) or type(error).__name__)
+            await self._close_session(task_id)
+        finally:
+            runner.turn_done.set()
+            if self.db.task(task_id)["status"] in ACTIVE:
+                self.db.update_task(task_id, status="unknown")
+            await self._publish_task(task_id)
+            self._arm_idle_close(task_id)
+            self._schedule()
+
+    async def _ensure_session(self, task_id: int):
+        runner = self.runners[task_id]
+        if runner.session and runner.session.alive:
+            return
+        task = self.db.task(task_id)
+        project = self.db.project(task["project_id"])
+        agent = self.agents.get(task["agent"])
+        if agent is None:
+            raise TaskError(f"agent {task['agent']!r} is not available")
+        path = Path(project["path"])
+        if not path.is_dir():
+            raise TaskError(f"project directory {path} does not exist")
+        policy = TurnPolicy(mode=project["approval_mode"] or self.settings.approvals.mode,
+                            sandbox=project["sandbox"] or self.settings.approvals.sandbox)
+        runner.session = await agent.open(path, task["thread_id"], policy,
+                                          lambda event: self._on_event(task_id, event),
+                                          lambda request: self._on_approval(task_id, request))
+        if runner.session.thread_id != task["thread_id"]:
+            self.db.update_task(task_id, thread_id=runner.session.thread_id)
+
+    def _arm_idle_close(self, task_id: int):
+        runner = self.runners.get(task_id)
+        if runner and runner.session and self.db.task(task_id)["status"] not in ACTIVE:
+            loop = asyncio.get_running_loop()
+            runner.idle_timer = loop.call_later(self.settings.tasks.idle_timeout_s,
+                                                lambda: asyncio.ensure_future(self._close_session(task_id)))
+
+    async def _close_session(self, task_id: int):
+        runner = self.runners.get(task_id)
+        if runner and runner.session:
+            session, runner.session = runner.session, None
+            await session.close()
+
+    # Agent callbacks
+
+    async def _on_event(self, task_id: int, event: AgentEvent):
+        runner = self.runners[task_id]
+        if event.kind == "message_delta":
+            # Streamed text is shown live but only the completed message is stored.
+            await self.publish({"type": "delta", "task_id": task_id, **event.data})
+            return
+        if event.kind == "message":
+            message_id = self.db.add_message(task_id, "agent", event.data["text"], "done")
+            await self.publish({"type": "message", "task_id": task_id,
+                                "message": self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)})
+            return
+        event_id = self.db.add_event(task_id, event.kind, event.data)
+        await self.publish({"type": "event", "task_id": task_id,
+                            "event": {"id": event_id, "kind": event.kind, "data": event.data, "created_at": time.time()}})
+        if event.kind == "turn_completed":
+            runner.turn_result = event.data
+            runner.turn_done.set()
+
+    async def _on_approval(self, task_id: int, request: ApprovalRequest) -> Decision:
+        if self.runners[task_id].cancelling:
+            return "cancel"
+        self.db.update_task(task_id, status="awaiting_approval")
+        await self._publish_task(task_id)
+        try:
+            return await self.approvals.request(self.db.task(task_id), request)
+        finally:
+            if self.db.task(task_id)["status"] == "awaiting_approval" and not self.approvals_pending(task_id):
+                self.db.update_task(task_id, status="running")
+                await self._publish_task(task_id)
+
+    def approvals_pending(self, task_id: int) -> bool:
+        return any(self.db.approval(p.approval_id)["task_id"] == task_id for p in self.approvals.pending.values())
+
+    async def _set_message_state(self, message_id: int, state: str):
+        self.db.set_message_state(message_id, state)
+        message = self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)
+        await self.publish({"type": "message", "task_id": message["task_id"], "message": message})
+
+    async def _publish_task(self, task_id: int):
+        await self.publish({"type": "task", "task": self.db.task(task_id)})
+
+
+def _clean(text: str) -> str:
+    text = text.strip()
+    if not text:
+        raise TaskError("message is empty")
+    if len(text) > 32000:
+        raise TaskError("message is too long")
+    return text
+
+
+def _title(text: str) -> str:
+    line = text.splitlines()[0]
+    return line if len(line) <= 80 else line[:77].rstrip() + "…"
