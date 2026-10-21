@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speech Spike</title>
+<style>
+  :root { --bg: #fafaf9; --fg: #1c1917; --muted: #78716c; --line: #e7e5e4; --accent: #2563eb; --rec: #dc2626; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1917; --fg: #f5f5f4; --muted: #a8a29e; --line: #44403c; --accent: #60a5fa; --rec: #f87171; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .config { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 14px 22px; border-radius: 999px; border: 1px solid var(--line); background: var(--accent); color: white; cursor: pointer; user-select: none; touch-action: none; }
+  button.recording { background: var(--rec); }
+  label { color: var(--muted); font-size: 14px; }
+  .caption { min-height: 96px; margin: 20px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; font-size: 20px; }
+  .provisional { color: var(--muted); }
+  .final { font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  td { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  td:last-child { text-align: right; }
+  .log { margin-top: 20px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Speech spike</h1>
+  <div class="config" id="config">connecting…</div>
+  <div class="controls">
+    <button id="talk">Hold to talk</button>
+    <label><input type="checkbox" id="auto"> Tap to start, end on detected turn</label>
+  </div>
+  <div class="caption"><span id="committed"></span> <span class="provisional" id="provisional"></span></div>
+  <table>
+    <tr><td>Caption decode (last / p50)</td><td id="decode">–</td></tr>
+    <tr><td>Caption update period (last / p50)</td><td id="period">–</td></tr>
+    <tr><td>Decode window</td><td id="window">–</td></tr>
+    <tr><td>End of turn</td><td id="reason">–</td></tr>
+    <tr><td>Smart-turn checks</td><td id="checks">–</td></tr>
+    <tr><td>Final transcript pass</td><td id="final">–</td></tr>
+    <tr><td>End of turn → first reply audio</td><td id="first">–</td></tr>
+  </table>
+  <div class="log" id="log"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const worklet = `
+class Capture extends AudioWorkletProcessor {
+  constructor() { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.buf = new Int16Array(640); this.i = 0; }
+  process(inputs) {
+    const ch = inputs[0][0]; if (!ch) return true;
+    for (let k = 0; k < ch.length; k++) {
+      this.acc += ch[k]; this.n++; this.pos += 1;
+      if (this.pos >= this.ratio) {
+        this.pos -= this.ratio;
+        const v = Math.max(-1, Math.min(1, this.acc / this.n)); this.acc = 0; this.n = 0;
+        this.buf[this.i++] = v * 32767;
+        if (this.i === this.buf.length) { this.port.postMessage(this.buf.buffer, [this.buf.buffer]); this.buf = new Int16Array(640); this.i = 0; }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('capture', Capture);`;
+
+let ws, ctx, node, stream, recording = false, decodes = [], periods = [], playAt = 0, rate = 24000;
+const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = ({ data }) => {
+    if (data instanceof ArrayBuffer) return play(data);
+    const e = JSON.parse(data);
+    if (e.type === 'config') $('config').textContent = `STT ${e.device} ${e.quantization}, threads ${e.threads}, window ${e.window}s, interval ${e.interval * 1000}ms`;
+    if (e.type === 'caption') {
+      $('committed').textContent = e.committed; $('provisional').textContent = e.provisional;
+      decodes.push(e.decode_ms); periods.push(e.period_ms);
+      $('decode').textContent = `${e.decode_ms} / ${median(decodes)} ms`;
+      $('period').textContent = `${e.period_ms} / ${median(periods)} ms`;
+      $('window').textContent = `${e.window_s} s`;
+    }
+    if (e.type === 'final') {
+      stopMic();
+      $('committed').innerHTML = ''; $('provisional').textContent = '';
+      const span = document.createElement('span'); span.className = 'final'; span.textContent = e.text || '(nothing heard)'; $('committed').append(span);
+      $('reason').textContent = e.reason;
+      $('checks').textContent = e.turn_checks_ms.length ? e.turn_checks_ms.join(', ') + ' ms' : '–';
+      $('final').textContent = `${e.final_ms} ms (+${e.wait_ms} ms waiting for last caption) for ${e.utterance_s} s`;
+      log(`${e.utterance_s}s utterance, final ${e.final_ms}ms: ${e.text}`);
+    }
+    if (e.type === 'audio') { rate = e.rate; $('first').textContent = `${e.first_audio_ms} ms`; playAt = 0; }
+  };
+  ws.onclose = () => { $('config').textContent = 'disconnected — reload'; };
+}
+
+function play(buffer) {
+  const pcm = new Int16Array(buffer);
+  const audio = ctx.createBuffer(1, pcm.length, rate);
+  const out = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768;
+  const source = ctx.createBufferSource(); source.buffer = audio; source.connect(ctx.destination);
+  playAt = Math.max(playAt, ctx.currentTime + 0.02); source.start(playAt); playAt += audio.duration;
+}
+
+async function startMic() {
+  if (recording) return;
+  recording = true; decodes = []; periods = [];
+  $('talk').classList.add('recording'); $('talk').textContent = $('auto').checked ? 'Listening… (tap to stop)' : 'Release to finish';
+  ['committed', 'provisional', 'reason', 'checks', 'final', 'first', 'decode', 'period', 'window'].forEach((id) => $(id).textContent = id === 'committed' || id === 'provisional' ? '' : '–');
+  if (!ctx) {
+    ctx = new AudioContext();
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' })));
+  }
+  await ctx.resume();
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  ws.send(JSON.stringify({ type: 'start', auto: $('auto').checked }));
+  node = new AudioWorkletNode(ctx, 'capture');
+  node.port.onmessage = ({ data }) => { if (recording && ws.readyState === 1) ws.send(data); };
+  const mute = ctx.createGain(); mute.gain.value = 0;
+  ctx.createMediaStreamSource(stream).connect(node).connect(mute).connect(ctx.destination);
+}
+
+function stopMic() {
+  if (!recording) return;
+  recording = false;
+  $('talk').classList.remove('recording'); $('talk').textContent = $('auto').checked ? 'Tap to talk' : 'Hold to talk';
+  node?.disconnect(); stream?.getTracks().forEach((t) => t.stop());
+}
+
+function release() { if (recording) { ws.send(JSON.stringify({ type: 'stop' })); stopMic(); } }
+function log(text) { const d = document.createElement('div'); d.textContent = text; $('log').prepend(d); }
+
+$('talk').addEventListener('pointerdown', () => { if ($('auto').checked) recording ? release() : startMic(); else startMic(); });
+$('talk').addEventListener('pointerup', () => { if (!$('auto').checked) release(); });
+$('talk').addEventListener('pointerleave', () => { if (!$('auto').checked) release(); });
+$('auto').addEventListener('change', () => { $('talk').textContent = $('auto').checked ? 'Tap to talk' : 'Hold to talk'; });
+connect();
+</script>
+</body>
+</html>

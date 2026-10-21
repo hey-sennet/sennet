@@ -68,7 +68,7 @@ flowchart LR
 | Backend | Python 3.12+, asyncio, FastAPI/Starlette, uvicorn | Single process. Inference runs in worker threads or processes, never on the event loop. |
 | Frontend | React + TypeScript + Vite, shadcn/ui (Radix + Tailwind), PWA | Largest contributor pool and component ecosystem. The prototype's UI is the visual reference. The built assets ship inside the Python wheel. |
 | Storage | SQLite (WAL) + `config.toml` | Data under XDG data dir on Linux, `~/Library/Application Support/agent-talk` on macOS. |
-| Speech models | ONNX Runtime (CPU / CUDA / CoreML execution providers) | Installed from pip; no system packages. |
+| Speech models | ONNX Runtime (CPU / CUDA / CoreML execution providers); onnx-asr for Parakeet, kokoro-onnx for Kokoro | Installed from pip; no system packages. Our own pipeline code, not Pipecat (§6). |
 | Front LLM | Bundled `llama-server` from llama.cpp, managed subprocess | Prebuilt binaries are downloaded at setup (§5.2). |
 | Remote access | Tailscale (`tailscale serve`) | Provides HTTPS and identity. Daemon itself binds loopback only. |
 | Service | systemd `--user` unit / launchd LaunchAgent | Installed by `agent-talk service install`. Runs as the user. |
@@ -155,16 +155,35 @@ a tier. Settings shows the catalog with "fits your machine" hints. Changing a mo
 downloads it in the background and switches when ready. A "custom GGUF" option
 allows any front LLM file and is marked unsupported.
 
-Initial candidates (finalized by the M0/M2 benchmarks):
+Speech defaults (validated by the M0 spike, see
+[spikes/speech](../spikes/speech/README.md)); front LLM candidates are chosen in M3:
 
-| Role | CPU tier | GPU / Apple Silicon tier | License |
+| Role | CPU tier | GPU tier | License |
 | --- | --- | --- | --- |
-| VAD | Silero VAD | same | MIT |
-| Turn detection | Pipecat smart-turn v3 | same | BSD-2-Clause |
-| STT | Parakeet TDT 0.6B v2 (English), int8 ONNX | Parakeet TDT 0.6B v2, fp16 | CC-BY-4.0 |
-| TTS | Kokoro-82M (or Piper for very low-end) | Kokoro-82M | Apache-2.0 (Kokoro); GPL-3 espeak-ng phonemizer |
+| VAD | Silero VAD v5 | same (runs on CPU) | MIT |
+| Turn detection | smart-turn v3.2 (CPU build) | smart-turn v3.2 (GPU build) | BSD-2-Clause |
+| STT | Parakeet TDT 0.6B v2 (English), int8 | Parakeet TDT 0.6B v2, fp32 | CC-BY-4.0 |
+| TTS | Kokoro-82M v1.0, int8 (Piper for very low-end) | Kokoro-82M v1.0, fp32 | Apache-2.0 (Kokoro); GPL-3 espeak-ng phonemizer |
 | Front LLM | ~2–4B instruct GGUF, Q4 (e.g. Qwen3) | 7–14B instruct GGUF | Prefer Apache-2.0 / MIT models |
 | (none) | Direct mode: no front LLM | — | — |
+
+Runtime settings from M0:
+
+- **CPU inference uses a small fixed thread count** (default 4 per model). Using all
+  cores was 2–4× slower on a hybrid P/E-core CPU. Configurable.
+- **int8 on CPU, fp32 on GPU.** int8 Parakeet loses no accuracy (2.9% WER either way)
+  but is slow under CUDA.
+- **CUDA sessions use `cudnn_conv_algo_search=HEURISTIC`.** The default exhaustive
+  search re-tunes for every new input length, and live captions produce one per tick.
+- Apple Silicon (CoreML) and low-end CPU tiers still need measuring.
+
+Reference results (i7-12650H, RTX 4060 Laptop):
+
+| | GPU | CPU, 4 threads |
+| --- | --- | --- |
+| Caption update period | 250 ms (decode ~80 ms) | 250 ms p50, ~450 ms p95 |
+| Final transcript, ≤ 15 s utterance | 30–110 ms | 300–770 ms |
+| End of speech → first reply audio (short reply) | 0.3–0.45 s | ~1.3 s |
 
 Models are downloaded at setup, never vendored in the repository. Every attribution
 requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the app.
@@ -200,17 +219,29 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
 
 ### 6.2 Recognition
 
-- **Silero VAD** marks speech/silence per frame.
-- **smart-turn v3** runs when VAD sees a pause and decides whether the user has
-  finished speaking or is mid-thought. This replaces fixed silence timers. In
-  push-to-talk, releasing the button also ends the turn.
-- **Streaming captions:** every ~250 ms, Parakeet decodes a sliding window of the
-  most recent audio (a few seconds) rather than the whole utterance. Words that agree
+- **Silero VAD** marks speech/silence per 32 ms frame.
+- **smart-turn v3.2** runs **once per pause**, after ~200 ms of silence, and decides
+  whether the user has finished or is mid-thought. If it says "not finished", the
+  pipeline waits for speech to resume or a silence fallback (1.5–2 s). It is never
+  re-run on the same pause: more trailing silence alone pushes its score toward
+  "complete" and cut speakers off in testing.
+- **Push-to-talk (v1)** ends the turn on release; automatic end-of-turn is used by
+  conversation sessions (§6.5). M0 measured 26% (GPU) / 42% (CPU) premature cuts
+  at 1 s mid-sentence pauses on read speech. That is not good enough for open mic.
+  It needs evaluation on real spoken commands and likely a second signal, such as
+  transcript completeness, before conversation sessions ship.
+- **Streaming captions:** every 250 ms, Parakeet decodes a sliding window of the
+  most recent audio (up to 8 s) rather than the whole utterance. Words that agree
   across two consecutive passes become committed (solid); the rest are provisional.
+  The window advances at a committed word boundary, so per-tick cost stays bounded.
   The interval adapts to measured decode time, so weak CPUs update less often rather
   than falling behind.
+- **Captions are a preview only** (~10–15% WER in M0). They are never dispatched.
 - **Final pass:** at end of turn, one full-utterance decode produces the final
-  transcript.
+  transcript (2.9% WER in M0). On GPU a 60 s utterance takes ~0.4 s. On CPU a 65 s
+  pass took 4.6 s, so the CPU tier finalizes incrementally: each segment ending at a
+  VAD pause is full-passed in the background while the user keeps talking, leaving
+  only the last segment at the end.
 - No transcript review step by default. After dispatch, the user can say "cancel" or
   "stop" within a short window to retract a request before the agent starts.
 - Raw audio is never stored. Transcripts are stored with the conversation.
@@ -259,6 +290,9 @@ still use the fixed flow.
 
 - Text is split into sentences/clauses as it streams and synthesized one segment
   ahead of playback, so "stop" is responsive.
+- The first chunk of each reply is kept short (a clause, not a sentence). Kokoro
+  produces no audio until a whole chunk is synthesized (real-time factor ~0.28 on CPU),
+  and a long first sentence delayed the reply by 3.4 s in M0.
 - Code blocks, logs, URLs and markdown are never narrated. "Read details" is explicit.
 - "Stop speaking" stops audio only. "Cancel" stops agent work. These are separate actions.
 
@@ -326,10 +360,9 @@ automatically.
 
 ## 11. Milestones
 
-1. **M0 — Speech spike.** Python prototype of VAD → smart-turn → windowed Parakeet
-   streaming → final pass, and Kokoro TTS. Measure caption latency, final-transcript
-   latency, CPU/RAM on CPU-only and GPU machines. Choose the default STT runtime
-   (sherpa-onnx vs onnx-asr) and window sizes.
+1. **M0 — Speech spike. Done.** Results and decisions in
+   [spikes/speech](../spikes/speech/README.md): onnx-asr runtime, tier defaults
+   (§5.1), single smart-turn check, full-pass finals, clause-chunked TTS.
 2. **M1 — Backend skeleton.** Package layout, config, SQLite, projects, task manager,
    Codex adapter with events, approvals (`ask` + rules + `never-ask`) and cancel;
    typed requests over WebSocket; minimal React client.
@@ -347,8 +380,10 @@ automatically.
   under a subscription login (blocks M4 for Claude).
 - Which ~2–4B model gives reliable tool calling on CPU at acceptable latency, or
   whether CPU-only users should default to direct mode.
-- Whether Pipecat is worth adopting for the voice loop, given multi-task announcements
-  and our own transport. Decide in M0.
+- Turn detection good enough for open-mic sessions: real-speech evaluation and a
+  possible transcript-completeness signal (blocks M6, not v1).
+- Speech numbers for Apple Silicon (CoreML) and a low-end 4-core CPU, to set the
+  minimum supported tier.
 - Whether ACP can replace per-provider adapters.
 - espeak-ng (GPL-3) as Kokoro's phonemizer: confirm that downloading it as a separate
   component meets the license inventory goals, or find an alternative phonemizer.

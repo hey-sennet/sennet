@@ -1,0 +1,23 @@
+[project]
+name = "speech-spike"
+version = "0.0.0"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "onnxruntime-gpu[cuda,cudnn]",
+    "onnx-asr[hub]",
+    "kokoro-onnx",
+    "transformers",
+    "numpy",
+    "soundfile",
+    "jiwer",
+    "pyarrow",
+    "huggingface_hub",
+    "starlette",
+    "uvicorn[standard]",
+    "psutil",
+]
+
+[tool.uv]
+package = false
+# kokoro-onnx depends on the CPU-only build; onnxruntime-gpu provides the same module plus CUDA.
+override-dependencies = ["onnxruntime; sys_platform == 'never'"]
