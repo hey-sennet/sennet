@@ -96,7 +96,7 @@ ignored.
 | `{"type": "speech", "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `task_id` and `approval_id` say what it is about. |
 | `{"type": "speech_end", "generation": 4}` | The last segment of this generation has been sent. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
-| `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `uplink_behind`, `bad_frame`, `no_target`, `dispatch_failed`. |
+| `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
 
 `final.outcome` is one of:
 
@@ -105,6 +105,8 @@ ignored.
 - `reprompt`: an approval was being asked and the words weren't a clear answer. The prompt is repeated.
 - `stop`: the whole transcript was "stop" or "cancel" (§9).
 - `empty`: no speech found. Nothing is sent.
+- `failed`: the transcript couldn't be delivered (`no_target` or `dispatch_failed`, sent
+  just before). The text is included so the client can offer to type it instead.
 
 ## 6. Backpressure and failure
 

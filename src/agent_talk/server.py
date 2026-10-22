@@ -26,6 +26,7 @@ from .db import Database
 from .events import EventBus
 from .speech import Speech
 from .tasks import TaskError, TaskManager
+from .voice import VoiceHub, VoiceSession
 
 log = logging.getLogger(__name__)
 
@@ -74,12 +75,14 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         manager = TaskManager(db, settings, agents, approvals, bus.publish)
         app.state.db, app.state.bus, app.state.approvals, app.state.tasks = db, bus, approvals, manager
         app.state.speech, loading = _speech(settings, paths, speech)
+        app.state.voice = VoiceHub(app.state.speech, manager)
         await manager.start()
         try:
             yield
         finally:
             if loading:
                 loading.cancel()
+            app.state.voice.close()
             await manager.shutdown()
             if speech is None:  # a caller's speech is the caller's to close
                 app.state.speech.close()
@@ -183,9 +186,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     @app.websocket("/api/events")
     async def events(websocket: WebSocket):
-        origin = websocket.headers.get("origin")
-        host = websocket.headers.get("host")
-        if origin and origin.split("://", 1)[-1] != host:
+        if not _same_origin(websocket):
             await websocket.close(code=1008)
             return
         await websocket.accept()
@@ -212,6 +213,22 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             await asyncio.gather(*jobs, return_exceptions=True)
             bus.unsubscribe(subscriber)
 
+    @app.websocket("/api/voice")
+    async def voice(websocket: WebSocket):
+        if not _same_origin(websocket):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        hub: VoiceHub = websocket.app.state.voice
+        session = VoiceSession(websocket, websocket.app.state.speech, hub)
+        hub.add(session)
+        try:
+            await session.run()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            hub.remove(session)
+
     if WEB_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
 
@@ -233,3 +250,9 @@ def _speech(settings: Settings, paths: Paths, speech: Speech | None) -> tuple[Sp
     speech = Speech()
     config = settings.speech
     return speech, asyncio.ensure_future(speech.load(paths.models, config.device, config.threads, config.voice))
+
+
+def _same_origin(websocket: WebSocket) -> bool:
+    """Browsers send Origin on WebSocket upgrades; a cross-site page must not connect."""
+    origin = websocket.headers.get("origin")
+    return not origin or origin.split("://", 1)[-1] == websocket.headers.get("host")

@@ -66,6 +66,8 @@ models missing.
 - `voice_state` changes, the generation counter (+1 on `start` and `stop` only),
   `stopped`, and downlink framing (the 8-byte header).
 - Closing the socket discards the open turn and stops its speech.
+- A plain full-pass final, and the basic direct-mode target (the selected task, else a
+  new task in the project), so the socket works end to end from this step on.
 
 Tests run with Starlette's `TestClient` WebSocket and fake engines, covering each rule in
 voice-protocol §2–§7. The client's Q7 microphone work can connect from this step on.
@@ -85,14 +87,14 @@ on a LibriSpeech clip and checks the final text.
 
 ### 4. Direct mode dispatch
 
-- Pick the target: `start.task_id` as a follow-up, else a new task in `start.project_id`,
-  else `no_target`.
+- The basic target arrives in step 2: `start.task_id` as a follow-up, else a new task in
+  `start.project_id`, else `no_target`.
 - Route a leading project name or alias ("in backend, …") to that project, with the
   routing phrase removed. Matching is exact on normalised words in M2; fuzzy matching
   comes with the front assistant in M3.
 - A transcript that is only "stop" stops speech; one that is only "cancel" cancels the
   target task. Neither is dispatched.
-- Record which session dispatched to which task, for steps 5 and 6.
+- Which session dispatched to which task is recorded from step 2 on (`VoiceHub.owner`).
 
 Tests: each target rule, routing with and without a match, the stop and cancel words,
 and `dispatch_failed` when `TaskManager` raises.
