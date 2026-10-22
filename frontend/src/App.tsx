@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -77,6 +77,29 @@ export default function App() {
     else if (seenTasks.current.has(selected)) setSelected(null)
   }, [live.tasks, live.connection, selected])
 
+  const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
+
+  // The drawer follows the newest output however it grows, unless you've scrolled up to read
+  // something earlier; a new message, or another task, brings it back to the bottom.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelContentRef = useRef<HTMLDivElement>(null)
+  const pinned = useRef(true)
+  const panelTop = useRef(0)
+  const followPanel = () => {
+    const el = panelRef.current
+    if (el && pinned.current) el.scrollTop = el.scrollHeight
+  }
+  useLayoutEffect(() => {
+    pinned.current = true
+    followPanel()
+  }, [selected, detail?.messages.length])
+  useEffect(() => {
+    if (!panelContentRef.current) return
+    const observer = new ResizeObserver(followPanel)
+    observer.observe(panelContentRef.current)
+    return () => observer.disconnect()
+  }, [desktop])
+
   const openTask = (id: number) => {
     setSelected(id)
     if (desktop) setPanelOpen(true)
@@ -88,7 +111,6 @@ export default function App() {
   }
 
   const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
-  const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
   const timeline = detail && (
     <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals}
       project={live.projects.find((p) => p.id === detail.project_id)} />
@@ -191,9 +213,21 @@ export default function App() {
           >
             <ChevronLeft className={cn('size-3.5 transition-transform duration-600 ease-strata', panelOpen && 'rotate-180')} />
           </button>
-          <div className={cn('h-full w-[min(400px,34vw)] overflow-y-auto rounded-[26px] border bg-card px-6 py-6 transition-opacity duration-400 ease-strata',
+          {/* The padding keeps the scrollbar clear of the rounded corners. */}
+          <div className={cn('h-full w-[min(400px,34vw)] overflow-hidden rounded-[26px] border bg-card py-5 transition-opacity duration-400 ease-strata',
             panelOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} inert={!panelOpen}>
-            {timeline ?? <p className="text-sm text-muted-foreground">Pick a task from the list to see what it did.</p>}
+            <div ref={panelRef} className="h-full overflow-y-auto overscroll-contain px-6 py-1"
+              onScroll={(event) => {
+                // Only scrolling up lets go: output landing before this event fires leaves a gap below too.
+                const el = event.currentTarget
+                if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) pinned.current = true
+                else if (el.scrollTop < panelTop.current) pinned.current = false
+                panelTop.current = el.scrollTop
+              }}>
+              <div ref={panelContentRef}>
+                {timeline ?? <p className="text-sm text-muted-foreground">Pick a task from the list to see what it did.</p>}
+              </div>
+            </div>
           </div>
         </aside>
       )}
