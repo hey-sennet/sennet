@@ -29,7 +29,7 @@ export function Composer({ placeholder, onSend, disabled, children, autoFocus }:
   }
 
   return (
-    <div className="rounded-2xl border bg-card p-2 focus-within:border-ring/60">
+    <div className="rounded-[22px] border bg-card p-2 transition-colors duration-300 ease-strata focus-within:border-input">
       <Textarea
         value={text}
         autoFocus={autoFocus}
@@ -42,11 +42,11 @@ export function Composer({ placeholder, onSend, disabled, children, autoFocus }:
         }}
         placeholder={placeholder}
         rows={2}
-        className="max-h-60 min-h-12 resize-none border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:ring-0 dark:bg-transparent"
+        className="max-h-60 min-h-12 resize-none border-0 bg-transparent px-2 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
       />
       <div className="flex items-center justify-between gap-2 pl-1">
         <div className="min-w-0 flex-1">{children}</div>
-        <Button size="icon" className="rounded-full" aria-label="Send" disabled={!text.trim() || busy || disabled} onClick={send}>
+        <Button size="icon-lg" className="rounded-full" aria-label="Send" disabled={!text.trim() || busy || disabled} onClick={send}>
           <ArrowUp />
         </Button>
       </div>

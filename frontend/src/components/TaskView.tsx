@@ -79,7 +79,7 @@ export function TaskView({ detail, streaming, project, approvals, onBack }: {
             <p className="text-sm text-muted-foreground"><span className="animate-pulse">Working…</span></p>
           )}
           {approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} project={project} />)}
-          {detail.error && <p className="rounded-lg border border-red-400/30 bg-red-400/5 px-3 py-2 text-sm text-red-300">{detail.error}</p>}
+          {detail.error && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{detail.error}</p>}
           <div ref={bottom} />
         </div>
       </div>
@@ -119,8 +119,8 @@ function EventView({ event }: { event: TaskEvent }) {
           <Terminal className="size-3.5 shrink-0" />
           <code className="truncate font-mono text-xs">{data.command}</code>
           {data.status === 'declined' ? <X className="size-3.5 text-muted-foreground" />
-            : failed ? <span className="text-xs text-red-400">exit {data.exit_code}</span>
-            : <Check className="size-3.5 text-emerald-400" />}
+            : failed ? <span className="text-xs text-destructive">exit {data.exit_code}</span>
+            : <Check className="size-3.5 text-muted-foreground" />}
         </summary>
         {data.output_tail && (
           <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs leading-relaxed">{data.output_tail}</pre>
@@ -149,7 +149,7 @@ function EventView({ event }: { event: TaskEvent }) {
       </ol>
     )
   }
-  if (kind === 'error') return <p className="text-sm text-red-300">{data.message}{data.will_retry ? ' (retrying)' : ''}</p>
+  if (kind === 'error') return <p className="text-sm text-destructive">{data.message}{data.will_retry ? ' (retrying)' : ''}</p>
   if (kind === 'turn_completed') {
     return <p className="text-xs text-muted-foreground">{data.status === 'interrupted' ? 'Stopped' : `Turn ${data.status}`}{data.error ? `: ${data.error}` : ''}</p>
   }

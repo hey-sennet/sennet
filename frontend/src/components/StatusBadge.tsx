@@ -1,32 +1,28 @@
 import type { TaskStatus } from '@/lib/api'
+import { STATUS_LABELS } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
-const LABELS: Record<TaskStatus, string> = {
-  queued: 'Queued',
-  running: 'Working',
-  awaiting_approval: 'Needs you',
-  completed: 'Done',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-  unknown: 'Interrupted',
-}
-
+// Strata's palette: cream while working, amber when it needs you, quiet once settled.
 const TONES: Record<TaskStatus, string> = {
   queued: 'text-muted-foreground',
-  running: 'text-sky-400',
-  awaiting_approval: 'text-amber-400',
-  completed: 'text-emerald-400',
-  failed: 'text-red-400',
+  running: 'text-foreground',
+  awaiting_approval: 'text-warn',
+  completed: 'text-muted-foreground',
+  failed: 'text-destructive',
   cancelled: 'text-muted-foreground',
-  unknown: 'text-orange-400',
+  unknown: 'text-warn',
+}
+
+export function StatusDot({ status, className }: { status: TaskStatus; className?: string }) {
+  const active = status === 'running' || status === 'awaiting_approval'
+  return <span className={cn('size-1.5 shrink-0 rounded-full bg-current', TONES[status], active && 'animate-pulse', className)} aria-hidden />
 }
 
 export function StatusBadge({ status, className }: { status: TaskStatus; className?: string }) {
-  const active = status === 'running' || status === 'awaiting_approval'
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', TONES[status], className)}>
-      <span className={cn('size-1.5 rounded-full bg-current', active && 'animate-pulse')} aria-hidden />
-      {LABELS[status]}
+      <StatusDot status={status} />
+      {STATUS_LABELS[status]}
     </span>
   )
 }

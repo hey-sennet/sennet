@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button'
 import { api, type Approval, type Decision, type Project, type Task } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
+// Amber is Strata's colour for anything waiting on the user; destructive requests go red.
 const RISK: Record<Approval['risk'], { label: string; tone: string }> = {
-  read: { label: 'Read', tone: 'text-muted-foreground border-border' },
-  edit: { label: 'Edit files', tone: 'text-sky-300 border-sky-400/30' },
-  execute: { label: 'Run command', tone: 'text-amber-300 border-amber-400/30' },
-  network: { label: 'Network', tone: 'text-amber-300 border-amber-400/30' },
-  destructive: { label: 'Destructive', tone: 'text-red-300 border-red-400/40' },
+  read: { label: 'Read', tone: 'text-muted-foreground' },
+  edit: { label: 'Edit files', tone: 'text-warn' },
+  execute: { label: 'Run command', tone: 'text-warn' },
+  network: { label: 'Network', tone: 'text-warn' },
+  destructive: { label: 'Destructive', tone: 'text-destructive' },
 }
 
 export function ApprovalCard({ approval, task, project, onOpenTask }: {
@@ -22,7 +23,8 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   const risk = RISK[approval.risk]
-  const canAlways = approval.risk !== 'destructive' && approval.kind !== 'permissions'
+  const destructive = approval.risk === 'destructive'
+  const canAlways = !destructive && approval.kind !== 'permissions'
   const changes: { path: string; kind: string; diff: string }[] = approval.detail.changes ?? []
 
   const decide = async (decision: Decision) => {
@@ -36,9 +38,9 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
   }
 
   return (
-    <article className={cn('rounded-xl border bg-card p-4', approval.risk === 'destructive' ? 'border-red-400/40' : 'border-amber-400/30')}>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <span className={cn('rounded-full border px-2 py-0.5 font-medium', risk.tone)}>{risk.label}</span>
+    <article className={cn('rounded-3xl border bg-card p-5', destructive ? 'border-destructive/40' : 'border-warn/25')}>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span className={cn('eyebrow', risk.tone)}>{risk.label}</span>
         {project && <span>{project.name}</span>}
         {task && (
           <button className="truncate hover:text-foreground" onClick={onOpenTask}>
@@ -46,12 +48,13 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
           </button>
         )}
       </div>
-      <p className="mt-2 text-[15px] leading-snug">
-        Wants to <span className="font-medium">{approval.summary}</span>
+      <p className="mt-2 font-serif text-[26px] leading-[1.1] tracking-[-0.01em] text-balance">
+        Wants to <span>{approval.summary}</span>
       </p>
-      {approval.detail.reason && <p className="mt-1 text-sm text-muted-foreground">{approval.detail.reason}</p>}
+      {approval.detail.reason && <p className="mt-2 text-sm text-muted-foreground">{approval.detail.reason}</p>}
       {approval.kind === 'command' && approval.detail.command && (
-        <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs leading-relaxed">{approval.detail.command}</pre>
+        <pre className={cn('mt-3 overflow-x-auto rounded-lg px-3 py-2 font-mono text-[13px] leading-relaxed',
+          destructive ? 'bg-destructive/14 text-destructive' : 'bg-warn/14 text-warn')}>{approval.detail.command}</pre>
       )}
       {changes.length > 0 && (
         <div className="mt-3">
@@ -71,14 +74,14 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
           ))}
         </div>
       )}
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={() => decide('approve')}>Approve</Button>
+      <div className="mt-5 flex flex-wrap gap-2 [&>*]:h-10 [&>*]:rounded-full [&>*]:px-5">
+        <Button variant="warn" disabled={busy} onClick={() => decide('approve')}>Approve</Button>
+        <Button variant="outline" disabled={busy} onClick={() => decide('decline')}>Decline</Button>
         {canAlways && (
-          <Button variant="secondary" disabled={busy} onClick={() => decide('approve_always')}>
+          <Button variant="ghost" className="text-muted-foreground" disabled={busy} onClick={() => decide('approve_always')}>
             Always in {project?.name ?? 'this project'}
           </Button>
         )}
-        <Button variant="ghost" disabled={busy} onClick={() => decide('decline')}>Decline</Button>
       </div>
     </article>
   )

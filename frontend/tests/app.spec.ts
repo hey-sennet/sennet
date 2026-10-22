@@ -9,6 +9,11 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   const name = `e2e-${info.project.name}`
   const directory = path.join(home, name)
   mkdirSync(directory, { recursive: true })
+  // Everything, fonts included, is served by Agent Talk itself.
+  const external: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).origin !== new URL(info.project.use.baseURL!).origin) external.push(request.url())
+  })
 
   await page.goto('/')
   await expect(page.getByTitle('Connected')).toBeVisible()
@@ -40,4 +45,7 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   await followUp.press('Enter')
   await expect(page.getByText('You said: thanks')).toBeVisible()
   await page.screenshot({ path: `test-results/${info.project.name}.png`, fullPage: true })
+  const loaded = await page.evaluate(() => [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replaceAll('"', '')))
+  expect(loaded).toContain('Inter Variable')
+  expect(external).toEqual([])
 })

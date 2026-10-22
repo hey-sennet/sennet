@@ -10,6 +10,8 @@ import { TaskView } from '@/components/TaskView'
 import { api } from '@/lib/api'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { Strata } from '@/strata/Strata'
+import { strataPreview } from '@/strata/preview'
 
 const desktopQuery = window.matchMedia('(min-width: 768px)')
 
@@ -40,7 +42,7 @@ export default function App() {
   return (
     <div className="flex h-dvh flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4 md:px-6">
-        <button className="text-[17px] font-medium tracking-tight" onClick={() => setSelected(null)}>
+        <button className="font-serif text-[22px]" onClick={() => setSelected(null)}>
           agent talk<span className="text-muted-foreground">.</span>
         </button>
         <div className="flex items-center gap-3">
@@ -58,6 +60,7 @@ export default function App() {
               <Plus /> New task
             </Button>
           </div>
+          {selected === null && !desktop && <HomeStrata className="mx-auto mb-2 w-[min(56vw,220px)]" />}
           {selected === null && !desktop && <div className="px-3 pb-3"><NewTask live={live} onCreated={setSelected} onOpenSettings={() => setSettingsOpen(true)} /></div>}
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
             <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={setSelected} />
@@ -83,7 +86,8 @@ export default function App() {
           ) : selected === null && desktop ? (
             <div className="flex flex-1 items-center justify-center px-4">
               <div className="w-full max-w-2xl">
-                <h1 className="mb-1 text-2xl font-medium tracking-tight">What should we work on?</h1>
+                <HomeStrata className="mx-auto mb-8 w-[min(40vh,280px)]" />
+                <h1 className="mb-2 font-serif text-[44px] leading-none tracking-[-0.02em]">What should we work on?</h1>
                 <p className="mb-6 text-sm text-muted-foreground">Voice comes next. For now, type a request.</p>
                 <NewTask live={live} onCreated={setSelected} autoFocus onOpenSettings={() => setSettingsOpen(true)} />
               </div>
@@ -139,11 +143,19 @@ function NewTask({ live, onCreated, autoFocus, onOpenSettings }: {
   )
 }
 
+/** Strata at rest; M2 drives it from the voice loop. `?strata=` previews other states. */
+function HomeStrata({ className }: { className?: string }) {
+  return (
+    <Strata state={strataPreview?.state ?? 'idle'} sources={strataPreview?.sources}
+      frozenAt={strataPreview?.frozenAt} className={className} />
+  )
+}
+
 function ConnectionDot({ connection }: { connection: Connection }) {
   const label = { connecting: 'Connecting', live: 'Connected', reconnecting: 'Reconnecting' }[connection]
   return (
     <span className="flex items-center gap-2 text-xs text-muted-foreground" title={label}>
-      <span className={cn('size-2 rounded-full', connection === 'live' ? 'bg-emerald-400' : 'animate-pulse bg-amber-400')} />
+      <span className={cn('size-2 rounded-full', connection === 'live' ? 'bg-foreground/60' : 'animate-pulse bg-warn')} />
       <span className="hidden sm:inline">{label}</span>
     </span>
   )

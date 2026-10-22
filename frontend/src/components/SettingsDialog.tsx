@@ -55,7 +55,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
           {agents && Object.entries(agents).map(([name, status]) => (
             <div key={name} className="flex items-baseline justify-between gap-4 text-sm">
               <span className="font-medium capitalize">{name}</span>
-              <span className={status.installed && status.logged_in ? 'text-emerald-400' : 'text-amber-400'}>{status.detail}</span>
+              <span className={status.installed && status.logged_in ? 'text-foreground' : 'text-warn'}>{status.detail}</span>
             </div>
           ))}
         </Section>
