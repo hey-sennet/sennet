@@ -7,6 +7,7 @@ const TONES: Record<TaskStatus, string> = {
   queued: 'text-muted-foreground',
   running: 'text-foreground',
   awaiting_approval: 'text-warn',
+  background: 'text-foreground',
   completed: 'text-muted-foreground',
   failed: 'text-destructive',
   cancelled: 'text-muted-foreground',
@@ -14,7 +15,7 @@ const TONES: Record<TaskStatus, string> = {
 }
 
 export function StatusDot({ status, className }: { status: TaskStatus; className?: string }) {
-  const active = status === 'running' || status === 'awaiting_approval'
+  const active = status === 'running' || status === 'awaiting_approval' || status === 'background'
   return <span className={cn('size-1.5 shrink-0 rounded-full bg-current', TONES[status], active && 'animate-pulse', className)} aria-hidden />
 }
 

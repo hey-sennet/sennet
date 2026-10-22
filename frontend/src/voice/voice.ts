@@ -5,12 +5,14 @@
 import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
+import chime from './approval-chime.mp3'
 import { Playback, parseFrame } from './playback'
 import { VoiceSocket, type SpeechStatus, type VoiceMessage, type VoiceState } from './socket'
 
 const RELEASE_MIC_AFTER_MS = 60_000
 const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session is quiet
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
+const CHIME_S = 1.4 // approval-chime.mp3
 
 export type Target = { task_id: number } | { project_id: number } | Record<string, never>
 
@@ -204,6 +206,8 @@ export class Voice {
       this.update({ words: message.text ? { speaker: 'user', committed: message.text, provisional: '' } : null })
     }
     if (message.type === 'speech' && message.generation >= this.floor) {
+      // A reply nobody asked for (the agent's report on work it left running) chimes first.
+      if (message.cue) this.playback.cue(chime, { before: CHIME_S })
       if (message.segment === 0) this.replyText.set(++this.replies, [])
       this.replyText.get(this.replies)?.push(message.text)
       this.heard = { reply: this.replies, segment: message.segment }

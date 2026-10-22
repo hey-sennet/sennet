@@ -49,6 +49,7 @@ class Reply:
     task_id: int | None = None
     approval_id: int | None = None  # set on an approval question, which is never dropped
     cancelled: bool = False         # the approval was answered elsewhere
+    cue: bool = False               # the client chimes before it: nothing was asked for
 
 
 @dataclass
@@ -239,11 +240,13 @@ class VoiceSession:
 
     # Speech out
 
-    def speak(self, segments: list[str], task_id: int | None = None, approval_id: int | None = None):
-        """Queue a reply, spoken once no turn is open, after any reply before it."""
+    def speak(self, segments: list[str], task_id: int | None = None, approval_id: int | None = None,
+              cue: bool = False):
+        """Queue a reply, spoken once no turn is open, after any reply before it. With `cue`, the
+        client chimes first."""
         segments = [s for s in segments if s.strip()]
         if segments:
-            self.replies.put_nowait(Reply(segments, self.generation, task_id, approval_id))
+            self.replies.put_nowait(Reply(segments, self.generation, task_id, approval_id, cue=cue))
 
     async def interrupt(self):
         self.generation += 1
@@ -325,8 +328,9 @@ class VoiceSession:
                     return
                 if self.asking and reply is self.asking.reply:
                     self.asking.started = True  # once the user may have heard it, the next turn answers it
+                cue = {"cue": True} if reply.cue and index == 0 else {}
                 await self.send(type="speech", generation=generation, segment=index, text=text,
-                                task_id=reply.task_id, approval_id=reply.approval_id)
+                                task_id=reply.task_id, approval_id=reply.approval_id, **cue)
                 for frame in encode_downlink(audio, tts.rate, generation, index):
                     if self.generation != generation or reply.cancelled:
                         return

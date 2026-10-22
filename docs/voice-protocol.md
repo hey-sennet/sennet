@@ -94,7 +94,7 @@ ignored.
 | `{"type": "voice_state", "state": "listening", "turn": "t7"}` | `idle`, `listening` (turn open), `transcribing` (final pass running), `speaking`. Sent on every change. |
 | `{"type": "caption", "turn": "t7", "committed": "run the", "provisional": "tests in back"}` | Every ~250 ms while listening; the interval adapts on slow CPUs (HLD §6.2). Preview only, never dispatched. Each caption replaces the last. |
 | `{"type": "final", "turn": "t7", "text": "Run the tests in backend.", "outcome": "dispatched", "task_id": 12}` | The full-pass transcript and what happened to it (below). |
-| `{"type": "speech", "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `task_id` and `approval_id` say what it is about. |
+| `{"type": "speech", "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `task_id` and `approval_id` say what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
 | `{"type": "asking", "approval_id": 9}` | This session is now asking about the approval: its next turn answers it (§8). Nothing is spoken; the client plays the approval chime when the approval's card shows. |
 | `{"type": "speech_end", "generation": 4}` | The last segment of this generation has been sent. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
@@ -191,6 +191,10 @@ The fixed flow from HLD §4.4:
   the rest is written; the timeline hides it, and "read me the details" leaves it out.
 - A long message without one, longer than six sentences or 600 characters, is cut to
   its first four sentences.
+- A turn the agent starts itself, to report work it left running when its last turn
+  ended, answers no request. Its messages are spoken the same way on the session that
+  owns the task, if it is connected, and the first carries `cue: true`: the report can
+  come minutes later, so it opens with the chime rather than out of silence.
 - "Read me the details" (or "details", "read it all", "read the full reply") reads the
   last reply in full: the selected task's, or else the one this session last heard. With
   neither, it fails with `no_target`. The outcome is `details`.

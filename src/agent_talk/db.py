@@ -254,7 +254,7 @@ class Database:
     def recover(self):
         """After a restart: work that was in flight has an unknown outcome."""
         now = time.time()
-        self.execute("UPDATE tasks SET status = 'unknown', updated_at = ? WHERE status IN ('running', 'awaiting_approval')", now)
+        self.execute("UPDATE tasks SET status = 'unknown', updated_at = ? WHERE status IN ('running', 'awaiting_approval', 'background')", now)
         self.execute("UPDATE approvals SET status = 'cancelled', decided_by = 'restart', decided_at = ? WHERE status = 'pending'", now)
         self.execute("UPDATE task_messages SET state = 'done' WHERE state = 'sent'")
 

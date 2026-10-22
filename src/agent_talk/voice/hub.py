@@ -13,6 +13,10 @@ A long message without one is cut to its opening sentences (`summary.shorten`).
 Speech still being prepared for a task holds back its later messages, approval
 questions and failure, so they are heard in order. "Read me the details" reads
 the last reply in full, without its spoken version.
+
+A turn the agent starts itself (it finished work it left running) has no request:
+its reply is spoken on the task's owner, if connected, after the approval chime,
+since it can come minutes after anything was said.
 """
 from __future__ import annotations
 
@@ -39,8 +43,9 @@ class Pending:
     """A spoken request the agent is working on."""
 
     session: VoiceSession
-    message_id: int
+    message_id: int | None          # None for a turn the agent started
     result: dict | None = None
+    cue: bool = False               # chime before the first thing said
 
 
 class VoiceHub:
@@ -234,8 +239,17 @@ class VoiceHub:
                 self._stream(task_id, self.turns[task_id], event["item_id"], event["delta"])
         elif kind == "approval":
             self._approval(event["approval"])
+        elif kind == "event" and event["event"]["kind"] == "turn_started":
+            owner = self.owners.get(task_id)
+            if event["event"]["data"].get("by") == "agent" and owner in self.sessions and task_id not in self.turns:
+                self.turns[task_id] = Pending(owner, None, cue=True)
         elif kind == "event" and event["event"]["kind"] == "turn_completed" and task_id in self.turns:
-            self.turns[task_id].result = event["event"]["data"]
+            pending = self.turns[task_id]
+            pending.result = event["event"]["data"]
+            if pending.message_id is None:  # an agent's turn has no message to follow to its end
+                del self.turns[task_id]
+                self._forget(task_id)
+                self._reply(task_id, pending)
         elif kind == "task" and event["task"]["status"] in ("failed", "unknown", "cancelled"):
             # The turn ended without finishing its message, e.g. the agent failed to start.
             task = event["task"]
@@ -338,7 +352,8 @@ class VoiceHub:
     def _say(self, task_id: int, pending: Pending, text: str):
         if pending.session in self.sessions:
             self.heard[pending.session] = task_id
-            pending.session.speak(clauses(text), task_id=task_id)
+            pending.session.speak(clauses(text), task_id=task_id, cue=pending.cue)
+            pending.cue = False
 
     def _speech_changed(self):
         for session in list(self.sessions):

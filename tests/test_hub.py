@@ -7,9 +7,11 @@ from agent_talk.voice.hub import VoiceHub
 class Session:
     def __init__(self):
         self.spoken = []
+        self.cues = []
 
-    def speak(self, segments, task_id=None, approval_id=None):
+    def speak(self, segments, task_id=None, approval_id=None, cue=False):
         self.spoken.append((" ".join(segments), task_id))
+        self.cues.append(cue)
 
 
 def user(task_id, message_id, state):
@@ -123,4 +125,42 @@ def test_a_message_without_a_spoken_version_waits_for_its_end():
     assert session.spoken == [] and hub.streams[7]["msg1"] is None
     hub._observe(agent(7, "I'll look at the tests."))
     assert session.spoken == [("I'll look at the tests.", 7)]
+    speech.close()
+
+
+def agent_turn(task_id):
+    return {"type": "event", "task_id": task_id, "event": {"kind": "turn_started", "data": {"by": "agent"}}}
+
+
+def test_a_turn_the_agent_starts_is_spoken_on_the_owner_after_a_chime():
+    hub, session, speech = hub_with_request()
+    hub.owners[7] = session
+    hub._observe(agent_turn(7))
+    hub._observe(agent(7, "The build finished."))
+    hub._observe(agent(7, "All 12 tests pass."))
+    hub._observe(completed(7))
+    assert session.spoken == [("The build finished.", 7), ("All 12 tests pass.", 7)]
+    assert session.cues == [True, False]
+    assert 7 not in hub.turns
+    hub._observe(agent(7, "Late."))  # after the turn: not spoken
+    assert len(session.spoken) == 2
+    speech.close()
+
+
+def test_an_agent_turn_without_an_owner_is_only_shown():
+    hub, session, speech = hub_with_request()
+    hub._observe(agent_turn(7))
+    hub._observe(agent(7, "The build finished."))
+    hub._observe(completed(7))
+    assert session.spoken == []
+    speech.close()
+
+
+def test_an_agent_turn_that_fails_says_so():
+    hub, session, speech = hub_with_request()
+    hub.owners[7] = session
+    hub._observe(agent_turn(7))
+    hub._observe(completed(7, "failed", "rate limited"))
+    assert session.spoken == [("That task failed: rate limited.", 7)]
+    assert session.cues == [True]
     speech.close()

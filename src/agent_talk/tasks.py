@@ -6,6 +6,12 @@ runs per project (two agents editing one working tree conflict), and at most
 `max_concurrent` run overall. Agent processes stay warm for `idle_timeout_s` after
 a turn so follow-ups start instantly; after that the conversation is resumed from
 its resume token, when the agent can resume.
+
+An agent with `background_turns` may leave work running when its turn ends: the
+task is then `background`, its process stays up (the idle timer waits for the work
+to end), and follow-ups run as usual. When the work is done the agent may start a
+turn itself; the task runs it like any other, and sends messages queued meanwhile
+after it.
 """
 from __future__ import annotations
 
@@ -34,6 +40,7 @@ class Runner:
     turn_done: asyncio.Event = field(default_factory=asyncio.Event)
     turn_result: dict = field(default_factory=dict)
     cancelling: bool = False
+    background: list = field(default_factory=list)  # the agent's work still running after its turn
 
 
 class TaskError(Exception):
@@ -120,9 +127,11 @@ class TaskManager:
                 why = "agent did not stop" if interruptible else f"{task['agent']} can't be interrupted"
                 self.db.update_task(task_id, status="unknown", error=f"{why}; its process was stopped")
                 await self._publish_task(task_id)
-        elif task["status"] == "queued":
+        elif task["status"] in ("queued", "background"):
             self.db.update_task(task_id, status="cancelled")
             await self._publish_task(task_id)
+        if runner and runner.background:
+            await self._close_session(task_id)  # the work runs in the agent's process, and ends with it
         return self.db.task(task_id)
 
     def snapshot(self, task_id: int) -> dict | None:
@@ -155,11 +164,14 @@ class TaskManager:
             runner.turn_done.clear()
             runner.job = asyncio.create_task(self._run(task["id"]))
 
-    async def _run(self, task_id: int):
+    async def _run(self, task_id: int, agent_turn: bool = False):
+        """Run the task's queued messages, one turn each; first the turn the agent started, if `agent_turn`."""
         runner = self.runners[task_id]
         await self._publish_task(task_id)
         try:
-            while not runner.cancelling and (message := self.db.next_queued_message(task_id)):
+            status = await self._end_turn(task_id) if agent_turn else "completed"
+            while status == "completed" and not runner.cancelling and \
+                    (message := self.db.next_queued_message(task_id)):
                 await self._ensure_session(task_id)
                 if runner.cancelling:
                     break  # cancelled while the agent was starting
@@ -168,15 +180,11 @@ class TaskManager:
                 await runner.session.send(message["text"])
                 if runner.cancelling:
                     await runner.session.interrupt()  # cancelled while the turn was starting
-                await runner.turn_done.wait()
-                runner.turn_done.clear()
-                await self._set_message_state(message["id"], "done")
-                status = "cancelled" if runner.cancelling else runner.turn_result.get("status", "failed")
-                self.db.update_task(task_id, status=status, error=runner.turn_result.get("error"))
-                if status != "completed":
-                    break
+                status = await self._end_turn(task_id, message["id"])
             if self.db.task(task_id)["status"] == "running":  # cancelled before any turn ran
                 self.db.update_task(task_id, status="cancelled")
+            elif self.db.task(task_id)["status"] == "completed" and runner.background:
+                self.db.update_task(task_id, status="background")
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -190,6 +198,17 @@ class TaskManager:
             await self._publish_task(task_id)
             self._arm_idle_close(task_id)
             self._schedule()
+
+    async def _end_turn(self, task_id: int, message_id: int | None = None) -> str:
+        """Wait for the turn to end, and record how it did."""
+        runner = self.runners[task_id]
+        await runner.turn_done.wait()
+        runner.turn_done.clear()
+        if message_id is not None:
+            await self._set_message_state(message_id, "done")
+        status = "cancelled" if runner.cancelling else runner.turn_result.get("status", "failed")
+        self.db.update_task(task_id, status=status, error=runner.turn_result.get("error"))
+        return status
 
     async def _ensure_session(self, task_id: int):
         runner = self.runners[task_id]
@@ -223,8 +242,12 @@ class TaskManager:
         return agent
 
     def _arm_idle_close(self, task_id: int):
+        """Close the agent's process once it has been idle a while; never while its work runs."""
         runner = self.runners.get(task_id)
-        if runner and runner.session and self.db.task(task_id)["status"] not in ACTIVE:
+        if runner and runner.idle_timer:
+            runner.idle_timer.cancel()
+            runner.idle_timer = None
+        if runner and runner.session and not runner.background and self.db.task(task_id)["status"] not in ACTIVE:
             loop = asyncio.get_running_loop()
             runner.idle_timer = loop.call_later(self.settings.tasks.idle_timeout_s,
                                                 lambda: asyncio.ensure_future(self._close_session(task_id)))
@@ -233,6 +256,7 @@ class TaskManager:
         runner = self.runners.get(task_id)
         if runner and runner.session:
             session, runner.session = runner.session, None
+            runner.background = []
             await session.close()
 
     # Agent callbacks
@@ -256,6 +280,35 @@ class TaskManager:
         if event.kind == "turn_completed":
             runner.turn_result = event.data
             runner.turn_done.set()
+        elif event.kind == "background":
+            await self._background_changed(task_id, event.data["tasks"])
+        elif event.kind == "turn_started" and event.data["by"] == "agent":
+            await self._agent_turn(task_id)
+
+    async def _background_changed(self, task_id: int, work: list):
+        runner = self.runners[task_id]
+        runner.background = list(work)
+        status = self.db.task(task_id)["status"]
+        if not work and status == "background":
+            self.db.update_task(task_id, status="completed")
+            await self._publish_task(task_id)
+        if status not in ACTIVE and status != "queued":
+            self._arm_idle_close(task_id)
+
+    async def _agent_turn(self, task_id: int):
+        """The agent started a turn itself: run it as the task's turn, without taking a queued message."""
+        runner = self.runners[task_id]
+        if runner.job and not runner.job.done():
+            log.warning("task %s: the agent started a turn during another", task_id)
+            return
+        if runner.idle_timer:
+            runner.idle_timer.cancel()
+            runner.idle_timer = None
+        self.db.update_task(task_id, status="running", error=None)
+        runner.cancelling = False
+        runner.turn_result = {}
+        runner.turn_done.clear()
+        runner.job = asyncio.create_task(self._run(task_id, agent_turn=True))
 
     async def _on_approval(self, task_id: int, request: ApprovalRequest) -> Decision:
         if self.runners[task_id].cancelling:

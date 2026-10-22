@@ -10,7 +10,7 @@ import { StatusBadge } from './StatusBadge'
 
 type Entry = { at: number; message: Message } | { at: number; event: TaskEvent }
 
-const VISIBLE_EVENTS = new Set(['command_finished', 'file_change', 'plan', 'error', 'turn_completed'])
+const VISIBLE_EVENTS = new Set(['command_finished', 'file_change', 'plan', 'error', 'turn_completed', 'background', 'turn_started'])
 
 /**
  * A task's timeline (design/README.md): your request in a bubble, then commands with their results,
@@ -49,7 +49,7 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
       <h2 className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
       <div className="mt-2.5 flex items-center justify-between gap-3">
         <StatusBadge status={detail.status} />
-        {(active || detail.status === 'queued') && (
+        {(active || detail.status === 'queued' || detail.status === 'background') && (
           <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={cancel}>
             <Square className="fill-current" /> Stop task
           </Button>
@@ -129,6 +129,13 @@ function EventItem({ event }: { event: TaskEvent }) {
         </ol>
       </li>
     )
+  }
+  if (kind === 'background') {
+    const work = (data.tasks as { id: string; description: string }[]).map((task) => task.description)
+    return <li className="text-xs text-muted-foreground">{work.length ? `Still running: ${work.join('; ')}` : 'Background work finished'}</li>
+  }
+  if (kind === 'turn_started') {
+    return data.by === 'agent' ? <li className="text-xs text-muted-foreground">The agent picked this up again</li> : null
   }
   if (kind === 'error') return <li className="text-xs text-warn">{data.message}{data.will_retry ? ' (retrying)' : ''}</li>
   if (kind === 'turn_completed') {

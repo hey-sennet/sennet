@@ -316,9 +316,10 @@ class CodexSession:
 class CodexAgent:
     name = "codex"
     default_command = ["codex", "app-server"]
-    # Interrupts, resumes threads, and asks mid-turn in every mode.
+    # Interrupts, resumes threads, and asks mid-turn in every mode. Its work ends with its turn.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
-                                approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS)
+                                approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS,
+                                background_turns=False)
 
     def __init__(self, command: list[str]):
         self.command = command

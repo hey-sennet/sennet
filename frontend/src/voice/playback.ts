@@ -89,11 +89,13 @@ export class Playback {
   /**
    * Plays a short sound file straight away, over any speech, which dips while it plays. It isn't
    * speech: it skips the analyser and doesn't count as playing, so Strata doesn't show it as the
-   * agent talking. Silent until the context has been unlocked by a gesture.
+   * agent talking. Silent until the context has been unlocked by a gesture. With `before`, speech
+   * queued after it waits that many seconds instead, so the cue leads into it.
    */
-  cue(url: string) {
+  cue(url: string, { before }: { before?: number } = {}) {
     const context = this.context
     if (!context || context.state !== 'running') return
+    if (before) this.next = Math.max(this.next, context.currentTime + before)
     let decoded = this.cues.get(url)
     if (!decoded) {
       decoded = fetch(url).then((response) => response.arrayBuffer()).then((data) => context.decodeAudioData(data))

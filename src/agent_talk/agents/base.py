@@ -19,6 +19,8 @@ TurnStatus = Literal["completed", "cancelled", "failed"]
 ItemStatus = Literal["running", "completed", "failed", "declined"]
 ChangeKind = Literal["add", "delete", "update", "move"]
 StepStatus = Literal["pending", "active", "done"]
+# Who started a turn: the user's message, or the agent itself (see `background_turns`).
+TurnStarter = Literal["user", "agent"]
 
 # What the agent may do without asking (the approval policy, §4.4 of the HLD):
 #   ask:   asks before anything outside the agent's own trusted set
@@ -69,6 +71,10 @@ class AgentEvent:
 
     A turn may send several `message`s (commentary, then the answer); the last
     `message` before `turn_completed` is the turn's answer, and is what gets spoken.
+
+    An agent with `background_turns` may keep work running after its turn ends
+    (`background` lists it) and start a turn of its own when that work is done:
+    `turn_started` with `by: "agent"`, then the turn's events and `turn_completed`.
     """
 
     kind: str
@@ -86,6 +92,9 @@ EVENT_FIELDS: dict[str, dict[str, tuple | None]] = {
     "plan": {"steps": None},
     "error": {"message": None},
     "turn_completed": {"status": get_args(TurnStatus), "error": None},
+    "turn_started": {"by": get_args(TurnStarter)},
+    # The work still running after the turn, each {"id", "description"}; empty once it is done.
+    "background": {"tasks": None},
 }
 # Fields an adapter may add when its provider reports them. Anything else is not the contract's.
 OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
@@ -112,6 +121,10 @@ def check_event(event: AgentEvent) -> list[str]:
         for change in event.data.get("changes") or []:
             if change.get("kind") not in get_args(ChangeKind):
                 problems.append(f"file_change kind {change.get('kind')!r} is not one of {get_args(ChangeKind)}")
+    if event.kind == "background":
+        for task in event.data.get("tasks") or []:
+            if set(task) != {"id", "description"}:
+                problems.append(f"background task {task!r} isn't just an id and a description")
     if event.kind == "plan":
         for step in event.data.get("steps") or []:
             if step.get("status") not in get_args(StepStatus):
@@ -173,6 +186,7 @@ class Capabilities:
     live_approvals: bool               # asks for approval mid-turn, so `ask` mode works
     approval_modes: tuple[str, ...]    # of APPROVAL_MODES
     access_levels: tuple[str, ...]     # of ACCESS_LEVELS
+    background_turns: bool             # keeps working after its turn ends, and may start a turn itself
 
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]

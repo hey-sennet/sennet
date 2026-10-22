@@ -12,7 +12,8 @@ export type VoiceMessage =
   | { type: 'caption'; turn: string; committed: string; provisional: string }
   | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; approval_id?: number;
       decision?: string | null; confirm?: boolean }
-  | { type: 'speech'; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null }
+  | { type: 'speech'; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null
+      cue?: boolean }
   | { type: 'asking'; approval_id: number }
   | { type: 'speech_end'; generation: number }
   | { type: 'stopped'; generation: number }

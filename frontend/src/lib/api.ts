@@ -1,7 +1,8 @@
 // Types mirror src/agent_talk/db.py rows and server.py payloads. Statuses, kinds and
 // modes are the agent contract's own words (src/agent_talk/agents/base.py), never a provider's.
 
-export type TaskStatus = 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+// background: the turn is over, but work the agent started goes on (it may report it in a turn of its own).
+export type TaskStatus = 'queued' | 'running' | 'awaiting_approval' | 'background' | 'completed' | 'failed' | 'cancelled' | 'unknown'
 export type Decision = 'approve' | 'approve_always' | 'decline' | 'cancel'
 export type ApprovalMode = 'ask' | 'auto' | 'never'
 export type Access = 'read-only' | 'workspace' | 'full'
@@ -105,6 +106,7 @@ export interface Capabilities {
   live_approvals: boolean
   approval_modes: ApprovalMode[]
   access_levels: Access[]
+  background_turns: boolean
 }
 
 export interface AgentStatus {
