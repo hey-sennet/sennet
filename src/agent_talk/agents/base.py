@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable, Literal, Protocol, get_args
+from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, get_args
+
+if TYPE_CHECKING:
+    from .callbacks import CallbackServer
 
 Decision = Literal["approve", "approve_always", "decline", "cancel"]
 
@@ -221,13 +224,14 @@ class AgentSession(Protocol):
 
 
 class Agent(Protocol):
-    """An adapter, built from the command that starts its CLI (`agents.commands` in the config)."""
+    """An adapter, built from the command that starts its CLI (`agents.commands` in the config) and
+    the daemon's MCP endpoint (agents.callbacks), for a CLI that calls back into Agent Talk."""
 
     name: str
     capabilities: Capabilities
     default_command: list[str]
 
-    def __init__(self, command: list[str]): ...
+    def __init__(self, command: list[str], callbacks: CallbackServer | None = None): ...
 
     async def status(self) -> AgentStatus: ...
 

@@ -18,6 +18,7 @@ from pathlib import Path
 from .. import __version__
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
                    Capabilities, Decision, EventSink, FileChange, TurnPolicy, spoken_instructions)
+from .callbacks import CallbackServer
 
 log = logging.getLogger(__name__)
 
@@ -321,8 +322,8 @@ class CodexAgent:
                                 approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS,
                                 background_turns=False)
 
-    def __init__(self, command: list[str]):
-        self.command = command
+    def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
+        self.command = command  # Codex asks for approvals on its own pipe, not through callbacks
 
     async def status(self) -> AgentStatus:
         if not shutil.which(self.command[0]):
