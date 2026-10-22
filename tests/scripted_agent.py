@@ -71,9 +71,11 @@ class ScriptedSession:
 
 class ScriptedAgent:
     name = "scripted"
+    title = "Scripted"
     default_command = ["scripted"]
     capabilities = Capabilities(interrupt=False, resume=False, live_approvals=False, approval_modes=APPROVAL_MODES,
-                                access_levels=ACCESS_LEVELS, background_turns=True)
+                                access_levels=ACCESS_LEVELS, background_turns=True,
+                                project_config=False)
 
     def __init__(self, command: list[str] | None = None):
         self.sessions: list[ScriptedSession] = []

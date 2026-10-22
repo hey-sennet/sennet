@@ -18,6 +18,7 @@ export interface Project {
   agent: string
   approval_mode: ApprovalMode | null
   access: Access | null
+  project_config: boolean
 }
 
 export interface Task {
@@ -107,9 +108,11 @@ export interface Capabilities {
   approval_modes: ApprovalMode[]
   access_levels: Access[]
   background_turns: boolean
+  project_config: boolean
 }
 
 export interface AgentStatus {
+  title: string
   installed: boolean | null
   logged_in: boolean | null
   detail: string
@@ -154,8 +157,9 @@ export const api = {
   followUp: (id: number, text: string) => request<Task>('POST', `/api/tasks/${id}/messages`, { text }),
   cancel: (id: number) => request<Task>('POST', `/api/tasks/${id}/cancel`),
   decide: (id: number, decision: Decision) => request<Approval>('POST', `/api/approvals/${id}`, { decision }),
-  addProject: (body: { path: string; name?: string; aliases: string[] }) => request<Project>('POST', '/api/projects', body),
-  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'approval_mode'>>) =>
+  addProject: (body: { path: string; name?: string; aliases: string[]; agent?: string }) =>
+    request<Project>('POST', '/api/projects', body),
+  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'project_config'>>) =>
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
   removeRule: (id: number) => request<void>('DELETE', `/api/rules/${id}`),

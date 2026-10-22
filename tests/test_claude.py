@@ -295,3 +295,21 @@ def test_access_and_mode_reach_claude(live, tmp_path, claude_log):
     argv = claude_log("argv")[0]
     assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
     assert "Edit" in argv[argv.index("--disallowedTools"):]
+
+
+def test_a_projects_own_configuration_loads_only_when_it_opts_in(live, tmp_path, claude_log):
+    project = claude_project(live, tmp_path)
+    first = task(live, project, "hi")
+    wait_for(live, first["id"], settled())
+    response = live.patch(f"/api/projects/{project['id']}", json={"project_config": True})
+    assert response.json()["project_config"] is True
+    wait_for(live, task(live, project, "hi again")["id"], settled())
+    default, opted_in = claude_log("argv")
+    assert default[default.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" in default
+    assert opted_in[opted_in.index("--setting-sources") + 1] == "user,project,local"
+    assert "--strict-mcp-config" not in opted_in
+
+
+def test_an_agent_without_project_configuration_refuses_the_opt_in(client, project):
+    response = client.patch(f"/api/projects/{project['id']}", json={"project_config": True})
+    assert response.status_code == 400 and "no project configuration" in response.json()["detail"]

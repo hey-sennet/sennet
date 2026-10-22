@@ -53,6 +53,7 @@ class ProjectPatch(BaseModel):
     agent: str | None = None
     approval_mode: str | None = None
     access: str | None = None
+    project_config: bool | None = None
 
 
 class TaskIn(BaseModel):
@@ -122,7 +123,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         results = await asyncio.gather(*(agent.status() for agent in agents.values()), return_exceptions=True)
         return {name: {**(vars(result) if not isinstance(result, Exception)
                           else {"installed": None, "logged_in": None, "detail": str(result)}),
-                       "capabilities": asdict(agent.capabilities)}
+                       "title": agent.title, "capabilities": asdict(agent.capabilities)}
                 for (name, agent), result in zip(agents.items(), results)}
 
     @app.post("/api/projects", status_code=201)
@@ -144,6 +145,8 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                 raise HTTPException(400, f"{agent.name} doesn't support the {fields['approval_mode']!r} approval mode")
             if fields.get("access") and fields["access"] not in agent.capabilities.access_levels:
                 raise HTTPException(400, f"{agent.name} doesn't support {fields['access']!r} access")
+            if fields.get("project_config") and not agent.capabilities.project_config:
+                raise HTTPException(400, f"{agent.name} has no project configuration to opt into")
         try:
             project = projects.update(db(request), project_id, **fields)
         except projects.ProjectError as error:

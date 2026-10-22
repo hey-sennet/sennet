@@ -55,7 +55,7 @@ def update(db: Database, project_id: int, **fields) -> dict:
     project = db.project(project_id)
     if project is None:
         raise ProjectError("no such project")
-    allowed = {"name", "aliases", "agent", "approval_mode", "access"}
+    allowed = {"name", "aliases", "agent", "approval_mode", "access", "project_config"}
     if unknown := set(fields) - allowed:
         raise ProjectError(f"cannot change {', '.join(sorted(unknown))}")
     if "approval_mode" in fields and fields["approval_mode"] not in (None, *APPROVAL_MODES):
@@ -64,6 +64,8 @@ def update(db: Database, project_id: int, **fields) -> dict:
         raise ProjectError(f"access must be one of {ACCESS_LEVELS} or null")
     if "agent" in fields and fields["agent"] not in registry.NAMES:
         raise ProjectError(f"agent must be one of {registry.NAMES}")
+    if "project_config" in fields and not isinstance(fields["project_config"], bool):
+        raise ProjectError("project_config must be true or false")
     if "name" in fields or "aliases" in fields:
         fields["name"] = (fields.get("name") or project["name"]).strip()
         fields["aliases"] = [a.strip() for a in fields.get("aliases", project["aliases"]) if a.strip()]

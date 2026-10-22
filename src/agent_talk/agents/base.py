@@ -175,6 +175,8 @@ class TurnPolicy:
 
     mode: ApprovalMode
     access: Access
+    # Load the project's own agent configuration (hooks, MCP servers), which can run code unasked.
+    project_config: bool = False
 
 
 @dataclass(frozen=True)
@@ -190,6 +192,7 @@ class Capabilities:
     approval_modes: tuple[str, ...]    # of APPROVAL_MODES
     access_levels: tuple[str, ...]     # of ACCESS_LEVELS
     background_turns: bool             # keeps working after its turn ends, and may start a turn itself
+    project_config: bool               # leaves a project's own configuration out unless the project opts in
 
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
@@ -228,6 +231,7 @@ class Agent(Protocol):
     the daemon's MCP endpoint (agents.callbacks), for a CLI that calls back into Agent Talk."""
 
     name: str
+    title: str                         # as the user knows it, e.g. "Claude Code"
     capabilities: Capabilities
     default_command: list[str]
 

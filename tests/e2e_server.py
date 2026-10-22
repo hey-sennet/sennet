@@ -1,4 +1,4 @@
-"""Start Agent Talk with the fake Codex for browser tests: python tests/e2e_server.py PORT HOME.
+"""Start Agent Talk with the fake agents for browser tests: python tests/e2e_server.py PORT HOME.
 
 With AGENT_TALK_FAKE_SPEECH set, speech uses the test fakes and hears that text.
 """
@@ -19,6 +19,8 @@ shutil.rmtree(home, ignore_errors=True)
 (home / "repo").mkdir(parents=True)
 settings = Settings()
 settings.agents.commands["codex"] = [sys.executable, str(Path(__file__).with_name("fake_codex.py"))]
+settings.agents.commands["claude"] = [sys.executable, str(Path(__file__).with_name("fake_claude.py"))]
+settings.server.port = port  # where the fake Claude asks its approvals
 speech = None
 if heard := os.environ.get("AGENT_TALK_FAKE_SPEECH"):
     speech = Speech.with_engines(FakeVAD(), FakeRecognizer(heard), FakeSynthesizer())

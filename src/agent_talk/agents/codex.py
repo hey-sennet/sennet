@@ -316,11 +316,12 @@ class CodexSession:
 
 class CodexAgent:
     name = "codex"
+    title = "Codex"
     default_command = ["codex", "app-server"]
     # Interrupts, resumes threads, and asks mid-turn in every mode. Its work ends with its turn.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
                                 approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS,
-                                background_turns=False)
+                                background_turns=False, project_config=False)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
         self.command = command  # Codex asks for approvals on its own pipe, not through callbacks

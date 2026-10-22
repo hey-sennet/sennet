@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS projects (
     agent TEXT NOT NULL DEFAULT 'codex',
     approval_mode TEXT,
     access TEXT,                   -- read-only | workspace | full; null for the default
+    project_config INTEGER NOT NULL DEFAULT 0,  -- let the agent load the project's own hooks and servers
     created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
@@ -72,7 +73,7 @@ CREATE TABLE IF NOT EXISTS approval_rules (
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Rows written before version 2 hold Codex's own words; these map them to the contract's.
 _V2_ACCESS = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
@@ -104,10 +105,15 @@ class Database:
                 self._to_v2()
             if version < 3:
                 self._to_v3()
+            if version < 4:
+                self._to_v4()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
+
+    def _to_v4(self):
+        self.conn.execute("ALTER TABLE projects ADD COLUMN project_config INTEGER NOT NULL DEFAULT 0")
 
     def _to_v3(self):
         """Codex's "permissions" approval kind is the contract's "access"."""
@@ -262,6 +268,7 @@ class Database:
 def _project(row: dict | None) -> dict | None:
     if row is not None:
         row["aliases"] = json.loads(row["aliases"])
+        row["project_config"] = bool(row["project_config"])
     return row
 
 

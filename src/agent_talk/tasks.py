@@ -222,7 +222,8 @@ class TaskManager:
         if not path.is_dir():
             raise TaskError(f"project directory {path} does not exist")
         policy = TurnPolicy(mode=project["approval_mode"] or self.settings.approvals.mode,
-                            access=project["access"] or self.settings.approvals.access)
+                            access=project["access"] or self.settings.approvals.access,
+                            project_config=project["project_config"])
         capabilities = agent.capabilities
         if policy.mode not in capabilities.approval_modes:
             raise TaskError(f"{agent.name} doesn't support the {policy.mode!r} approval mode")

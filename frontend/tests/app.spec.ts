@@ -62,6 +62,38 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   expect(external).toEqual([])
 })
 
+test('add a Claude Code project, and it reports work it left running', async ({ page }, info) => {
+  const name = `claude-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  await page.goto('/')
+  await expect(page.getByTitle('Connected')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('logged in (pro plan)')).toBeVisible()
+  await dialog.getByLabel('Project directory').fill(directory)
+  await dialog.getByLabel('Spoken name').fill(name)
+  await dialog.getByLabel('Agent for the new project').selectOption({ label: 'Claude Code' })
+  await dialog.getByRole('button', { name: 'Add' }).click()
+  await expect(dialog.getByText(directory)).toBeVisible()
+  await expect(dialog.getByText("Load this project's own Claude Code settings.", { exact: false }).last()).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
+  await page.getByLabel('Project').selectOption({ label: name })
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  const composer = page.getByPlaceholder(`Ask claude to do something in ${name}`)
+  await composer.fill('bg:make build')
+  await composer.press('Enter')
+  const stage = page.getByRole('main')
+  await stage.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(stage.getByText('The background command make build finished.')).toBeVisible()
+  const timeline = await openTask(page, 'bg:make build')
+  await expect(timeline.getByText('Started it in the background.')).toBeVisible()
+  await expect(timeline.getByText('The agent picked this up again')).toBeVisible()
+})
+
 /** The selected task's timeline: picked from the opened rail into the drawer on desktop; on phones the
  * tasks sheet opens on the selected task. */
 async function openTask(page: Page, title: string) {

@@ -80,6 +80,14 @@ def permission_args(policy: TurnPolicy, cwd: Path) -> list[str]:
     return args
 
 
+def config_args(policy: TurnPolicy) -> list[str]:
+    """Without --bare, `claude -p` runs a project's hooks and connects its MCP servers with no trust
+    prompt, so they load only when the project opts in. CLAUDE.md is instructions, and always loads."""
+    if policy.project_config:
+        return ["--setting-sources", "user,project,local"]
+    return ["--setting-sources", "user", "--strict-mcp-config"]
+
+
 def _text(content) -> str:
     """A tool result's content, which is a string or a list of blocks."""
     if isinstance(content, str):
@@ -170,8 +178,7 @@ class ClaudeSession:
         args = [*command, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages", "--append-system-prompt", INSTRUCTIONS,
                 *(["--resume", token] if token else ["--session-id", self.resume_token]),
-                "--setting-sources", "user", "--strict-mcp-config",
-                "--mcp-config", json.dumps({"mcpServers": {"agent_talk": server}}),
+                *config_args(policy), "--mcp-config", json.dumps({"mcpServers": {"agent_talk": server}}),
                 "--permission-prompt-tool", PROMPT_TOOL, *permission_args(policy, self.cwd)]
         try:
             # Its own session: a Ctrl-C meant for the daemon doesn't reach it, and closing it can stop
@@ -367,11 +374,12 @@ class ClaudeSession:
 
 class ClaudeAgent:
     name = "claude"
+    title = "Claude Code"
     default_command = ["claude"]
     # SIGINT ends a turn and the process; the session resumes in the next. It asks mid-turn in every
     # mode, and may report work it left running in a turn of its own.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True, approval_modes=APPROVAL_MODES,
-                                access_levels=ACCESS_LEVELS, background_turns=True)
+                                access_levels=ACCESS_LEVELS, background_turns=True, project_config=True)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
         self.command = command

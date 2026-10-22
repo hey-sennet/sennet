@@ -54,7 +54,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
           {!agents && <p className="text-sm text-muted-foreground">Checking…</p>}
           {agents && Object.entries(agents).map(([name, status]) => (
             <div key={name} className="flex items-baseline justify-between gap-4 text-sm">
-              <span className="font-medium capitalize">{name}</span>
+              <span className="font-medium">{status.title}</span>
               <span className={status.installed && status.logged_in ? 'text-foreground' : 'text-warn'}>{status.detail}</span>
             </div>
           ))}
@@ -63,12 +63,11 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
         <Section title="Projects" hint="The spoken name and aliases are how you'll pick a project by voice.">
           <div className="flex flex-col gap-2">
             {projects.map((project) => (
-              <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'}
-                supported={agents?.[project.agent]?.capabilities.approval_modes} />
+              <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'} agents={agents} />
             ))}
             {!projects.length && <p className="text-sm text-muted-foreground">No projects yet.</p>}
           </div>
-          <AddProject />
+          <AddProject agents={agents} />
         </Section>
 
         <Section title="Remembered approvals" hint={'Created when you choose "Always". Destructive actions are always asked.'}>
@@ -105,11 +104,13 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   )
 }
 
-function ProjectRow({ project, defaultMode, supported }: {
+function ProjectRow({ project, defaultMode, agents }: {
   project: Project
   defaultMode: ApprovalMode
-  supported?: ApprovalMode[]  // what the project's agent can do; unknown until the agents load
+  agents: Record<string, AgentStatus> | null  // unknown until they load
 }) {
+  const capabilities = agents?.[project.agent]?.capabilities
+  const supported = capabilities?.approval_modes
   const mode = project.approval_mode ?? defaultMode
   const unsupported = (value: ApprovalMode | '') => !!supported && !supported.includes(value || defaultMode)
   return (
@@ -128,6 +129,12 @@ function ProjectRow({ project, defaultMode, supported }: {
           <Trash2 />
         </Button>
       </div>
+      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        Agent
+        <AgentSelect agents={agents} value={project.agent}
+          onChange={(agent) => attempt(() => api.updateProject(project.id, { agent }), 'Could not update the project')} />
+        <span>New tasks use it; tasks already started keep theirs.</span>
+      </label>
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         Approvals
         <select
@@ -148,19 +155,53 @@ function ProjectRow({ project, defaultMode, supported }: {
           <span className="basis-full text-warn">{project.agent} doesn't support this mode, so its tasks won't start.</span>
         )}
       </label>
+      {(capabilities?.project_config || project.project_config) && (
+        <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" className="mt-0.5" checked={project.project_config}
+            onChange={(event) => attempt(() => api.updateProject(project.id, { project_config: event.target.checked }),
+              'Could not update the project')} />
+          <span>
+            Load this project's own {agents?.[project.agent]?.title ?? project.agent} settings.
+            Its hooks and MCP servers then run without asking, so turn this on only for projects you trust.
+          </span>
+        </label>
+      )}
     </div>
   )
 }
 
-function AddProject() {
+function AgentSelect({ agents, value, onChange, label = 'Agent' }: {
+  agents: Record<string, AgentStatus> | null
+  value: string
+  onChange: (agent: string) => void
+  label?: string
+}) {
+  const names = agents ? Object.keys(agents) : [value]
+  return (
+    <select className="rounded-md border bg-background px-2 py-1 text-xs text-foreground" value={value}
+      disabled={!agents} onChange={(event) => onChange(event.target.value)} aria-label={label}>
+      {names.map((name) => {
+        const status = agents?.[name]
+        const ready = status?.installed && status.logged_in
+        return <option key={name} value={name}>{status?.title ?? name}{status && !ready ? ' (not set up)' : ''}</option>
+      })}
+    </select>
+  )
+}
+
+function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) {
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
   const [aliases, setAliases] = useState('')
+  const [chosen, setChosen] = useState<string | null>(null)
+  // Until one is chosen: the first agent that is set up, else the first.
+  const names = agents ? Object.keys(agents) : []
+  const agent = chosen ?? names.find((n) => agents?.[n].installed && agents[n].logged_in) ?? names[0]
   const add = async (event: React.FormEvent) => {
     event.preventDefault()
     const ok = await attempt(() => api.addProject({
       path: path.trim(), name: name.trim() || undefined,
-      aliases: aliases.split(',').map((a) => a.trim()).filter(Boolean),
+      aliases: aliases.split(',').map((a) => a.trim()).filter(Boolean), agent,
     }), 'Could not add the project')
     if (ok) {
       setPath(''); setName(''); setAliases('')
@@ -171,7 +212,11 @@ function AddProject() {
       <Input placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
       <Input placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Spoken name" />
       <Input placeholder="Aliases, comma separated" value={aliases} onChange={(e) => setAliases(e.target.value)} aria-label="Aliases" />
-      <Button type="submit" disabled={!path.trim()}>Add</Button>
+      <Button type="submit" disabled={!path.trim() || !agent}>Add</Button>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-4">
+        Agent
+        <AgentSelect agents={agents} value={agent ?? ''} onChange={setChosen} label="Agent for the new project" />
+      </label>
     </form>
   )
 }
