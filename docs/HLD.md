@@ -244,7 +244,11 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
   separate per-device WebSocket (`/api/voice`), specified in
   [voice-protocol.md](voice-protocol.md). This is adequate on a LAN or Tailscale.
 - AudioWorklet captures at the device rate and downsamples once to 16 kHz mono PCM16,
-  sent in 20–40 ms frames. Browser echo cancellation and noise suppression are on.
+  sent in 20 ms frames. Browser echo cancellation and automatic gain control are on;
+  noise suppression is off. In Q7's browser check (Kokoro speech as Chromium's fake
+  microphone, real Parakeet), noise suppression changed words in every run ("In
+  backend, add…" became "In backhand, at…"), and nothing else did. That was synthetic
+  speech; check it with real microphones and rooms.
 - TTS audio returns over the same socket in short chunks, tagged with a playback
   generation so "stop" discards stale audio immediately.
 - Bounded queues everywhere; if uplink falls behind, the utterance fails visibly rather

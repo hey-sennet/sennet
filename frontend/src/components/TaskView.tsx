@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
 import { Composer } from './Composer'
 import { StatusBadge } from './StatusBadge'
+import { TalkButton } from './TalkButton'
 
 type Entry = { at: number; message: Message } | { at: number; event: TaskEvent }
 
@@ -85,11 +86,14 @@ export function TaskView({ detail, streaming, project, approvals, onBack }: {
       </div>
 
       <div className="border-t px-4 py-3 md:px-8">
-        <div className="mx-auto max-w-3xl">
-          <Composer
-            placeholder={active ? 'Add a follow-up; it runs when this turn finishes' : 'Follow up on this task'}
-            onSend={(text) => api.followUp(detail.id, text)}
-          />
+        <div className="mx-auto flex max-w-3xl items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <Composer
+              placeholder={active ? 'Add a follow-up; it runs when this turn finishes' : 'Follow up on this task'}
+              onSend={(text) => api.followUp(detail.id, text)}
+            />
+          </div>
+          <TalkButton target={{ task_id: detail.id }} className="mb-2" />
         </div>
       </div>
     </div>

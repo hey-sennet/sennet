@@ -32,5 +32,5 @@ export function Strata({ state, sources, frozenAt, className }: {
   useEffect(() => controller.current?.setState(state), [state])
   useEffect(() => controller.current?.setSources(sources ?? {}), [sources])
 
-  return <canvas ref={canvas} aria-hidden className={cn('aspect-square', className)} />
+  return <canvas ref={canvas} aria-hidden data-state={state} className={cn('aspect-square', className)} />
 }

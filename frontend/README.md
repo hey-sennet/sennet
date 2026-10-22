@@ -7,9 +7,13 @@ The Python package serves the built client from `src/agent_talk/web/`; users nev
 npm ci
 npm run dev      # Vite on :5173, proxying /api to agent-talk serve on :7710
 npm run build    # type-check and build into ../src/agent_talk/web
-npm test         # Playwright: desktop and phone, against the server with a fake Codex
+npm test         # unit tests, then build, then Playwright on desktop and phone
+npm run test:unit  # Vitest only: src/**/*.test.ts
 ```
 
-`npm test` needs a built client and Playwright's Chromium: run `npx playwright install chromium`
+Playwright runs against the built app with a fake Codex and fake speech, and Chromium's fake
+microphone plays a generated tone, so the voice tests cover capture end to end without models.
+
+`npm test` needs Playwright's Chromium: run `npx playwright install chromium`
 here in `frontend/` (from the repo root, npx fetches a different Playwright and its browser).
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` still overrides it.

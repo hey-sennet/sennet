@@ -1,10 +1,11 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { ApprovalCard } from '@/components/ApprovalCard'
 import { Composer } from '@/components/Composer'
 import { SettingsDialog } from '@/components/SettingsDialog'
+import { TalkButton, useVoice } from '@/components/TalkButton'
 import { TaskList } from '@/components/TaskList'
 import { TaskView } from '@/components/TaskView'
 import { api } from '@/lib/api'
@@ -12,6 +13,8 @@ import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Strata } from '@/strata/Strata'
 import { strataPreview } from '@/strata/preview'
+import { voice } from '@/voice/voice'
+import { toast } from 'sonner'
 
 const desktopQuery = window.matchMedia('(min-width: 768px)')
 
@@ -30,13 +33,38 @@ export default function App() {
   const desktop = useDesktop()
   const [selected, setSelected] = useState<number | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [homeProjectId, setHomeProjectId] = useState<number | null>(null)
+  const homeProject = live.projects.find((p) => p.id === homeProjectId) ?? live.projects[0]
   const { detail, streaming } = useTaskDetail(selected, live.subscribe)
   const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
   const otherApprovals = live.approvals.filter((a) => a.task_id !== selected)
 
-  // A deleted project takes its tasks with it.
+  // A request spoken on the home view opens the task it started, as a typed one does.
+  const selectedRef = useRef(selected)
   useEffect(() => {
-    if (selected !== null && live.connection === 'live' && !live.tasks.some((t) => t.id === selected)) setSelected(null)
+    selectedRef.current = selected
+  }, [selected])
+  useEffect(() => {
+    const v = voice()
+    const offError = v.onError((message) => toast.error(message))
+    const offFinal = v.socket.on((message) => {
+      if (message.type === 'final' && message.outcome === 'dispatched' && selectedRef.current === null && message.task_id) {
+        setSelected(message.task_id)
+      }
+    })
+    return () => {
+      offError()
+      offFinal()
+    }
+  }, [])
+
+  // A deleted project takes its tasks with it. Only a task seen in the list counts as gone:
+  // a new one can be selected (from a voice turn's `final`) before its own event arrives.
+  const seenTasks = useRef(new Set<number>())
+  useEffect(() => {
+    if (selected === null || live.connection !== 'live') return
+    if (live.tasks.some((t) => t.id === selected)) seenTasks.current.add(selected)
+    else if (seenTasks.current.has(selected)) setSelected(null)
   }, [live.tasks, live.connection, selected])
 
   return (
@@ -61,7 +89,10 @@ export default function App() {
             </Button>
           </div>
           {selected === null && !desktop && <HomeStrata className="mx-auto mb-2 w-[min(56vw,220px)]" />}
-          {selected === null && !desktop && <div className="px-3 pb-3"><NewTask live={live} onCreated={setSelected} onOpenSettings={() => setSettingsOpen(true)} /></div>}
+          {selected === null && !desktop && homeProject && (
+            <div className="mb-3 flex justify-center"><TalkButton target={{ project_id: homeProject.id }} /></div>
+          )}
+          {selected === null && !desktop && <div className="px-3 pb-3"><NewTask live={live} project={homeProject} onProjectChange={setHomeProjectId} onCreated={setSelected} onOpenSettings={() => setSettingsOpen(true)} /></div>}
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
             <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={setSelected} />
           </div>
@@ -88,8 +119,11 @@ export default function App() {
               <div className="w-full max-w-2xl">
                 <HomeStrata className="mx-auto mb-8 w-[min(40vh,280px)]" />
                 <h1 className="mb-2 font-serif text-[44px] leading-none tracking-[-0.02em]">What should we work on?</h1>
-                <p className="mb-6 text-sm text-muted-foreground">Voice comes next. For now, type a request.</p>
-                <NewTask live={live} onCreated={setSelected} autoFocus onOpenSettings={() => setSettingsOpen(true)} />
+                <div className="mb-6 flex items-center justify-between gap-4">
+                  <p className="text-sm text-muted-foreground">Hold to talk, or type a request.</p>
+                  {homeProject && <TalkButton target={{ project_id: homeProject.id }} />}
+                </div>
+                <NewTask live={live} project={homeProject} onProjectChange={setHomeProjectId} onCreated={setSelected} autoFocus onOpenSettings={() => setSettingsOpen(true)} />
               </div>
             </div>
           ) : null}
@@ -102,19 +136,18 @@ export default function App() {
   )
 }
 
-function NewTask({ live, onCreated, autoFocus, onOpenSettings }: {
+function NewTask({ live, project, onProjectChange, onCreated, autoFocus, onOpenSettings }: {
   live: ReturnType<typeof useLiveState>
+  project?: ReturnType<typeof useLiveState>['projects'][number]
+  onProjectChange: (id: number) => void
   onCreated: (id: number) => void
   autoFocus?: boolean
   onOpenSettings?: () => void
 }) {
-  const [projectId, setProjectId] = useState<number | null>(null)
-  const project = live.projects.find((p) => p.id === projectId) ?? live.projects[0]
-
   if (live.connection !== 'live' && !live.projects.length) {
     return <p className="text-sm text-muted-foreground">Connecting…</p>
   }
-  if (!live.projects.length) {
+  if (!live.projects.length || !project) {
     return (
       <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
         Add a project first: a directory your agent should work in.
@@ -135,7 +168,7 @@ function NewTask({ live, onCreated, autoFocus, onOpenSettings }: {
         aria-label="Project"
         className="max-w-full truncate rounded-md bg-transparent py-1 text-sm text-muted-foreground hover:text-foreground"
         value={project.id}
-        onChange={(event) => setProjectId(Number(event.target.value))}
+        onChange={(event) => onProjectChange(Number(event.target.value))}
       >
         {live.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
@@ -143,12 +176,16 @@ function NewTask({ live, onCreated, autoFocus, onOpenSettings }: {
   )
 }
 
-/** Strata at rest; M2 drives it from the voice loop. `?strata=` previews other states. */
+const voiceSources = { user: voice().source }
+
+/** Strata, listening to the microphone while you talk. `?strata=` previews other states. */
 function HomeStrata({ className }: { className?: string }) {
-  return (
-    <Strata state={strataPreview?.state ?? 'idle'} sources={strataPreview?.sources}
-      frozenAt={strataPreview?.frozenAt} className={className} />
-  )
+  const { listening, opening } = useVoice()
+  if (strataPreview) {
+    return <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className={className} />
+  }
+  // Listening shows once the microphone is really capturing: the cue to start talking.
+  return <Strata state={listening && !opening ? 'listening' : 'idle'} sources={voiceSources} className={className} />
 }
 
 function ConnectionDot({ connection }: { connection: Connection }) {
