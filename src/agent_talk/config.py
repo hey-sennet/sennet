@@ -14,6 +14,7 @@ from pathlib import Path
 import platformdirs
 import tomli_w
 
+from .agents import registry
 from .agents.base import ACCESS_LEVELS, APPROVAL_MODES
 
 # Before M2, access levels used Codex's sandbox names under `approvals.sandbox`.
@@ -73,7 +74,9 @@ class ApprovalSettings:
 
 @dataclass
 class AgentSettings:
-    codex_command: list[str] = field(default_factory=lambda: ["codex", "app-server"])
+    # The command that starts each agent's CLI, by agent name, when it isn't the adapter's default:
+    # [agents.commands] codex = ["codex", "app-server"]
+    commands: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -108,6 +111,9 @@ class Settings:
             for key, value in values.items():
                 if section == "approvals" and key == "sandbox":
                     key, value = "access", LEGACY_SANDBOX.get(value, value)
+                if section == "agents" and key.endswith("_command"):  # before M4: codex_command
+                    settings.agents.commands[key.removesuffix("_command")] = value
+                    continue
                 if not hasattr(target, key):
                     raise ValueError(f"unknown config key {section}.{key}")
                 setattr(target, key, value)
@@ -121,6 +127,9 @@ class Settings:
             raise ValueError(f"approvals.access must be one of {ACCESS_LEVELS}")
         if self.tasks.max_concurrent < 1:
             raise ValueError("tasks.max_concurrent must be at least 1")
+        if unknown := set(self.agents.commands) - set(registry.NAMES):
+            raise ValueError(f"agents.commands has no agent called {', '.join(sorted(unknown))}; "
+                             f"agents are {registry.NAMES}")
         if self.speech.device not in DEVICES:
             raise ValueError(f"speech.device must be one of {DEVICES}")
         if self.speech.threads < 1:

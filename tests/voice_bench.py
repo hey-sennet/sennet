@@ -139,7 +139,7 @@ def bench(models: Path, device: str, runs: int, wav: Path | None = None, threads
         home = Path(home)
         (home / "repo").mkdir()
         settings = Settings()
-        settings.agents.codex_command = [sys.executable, str(FAKE_CODEX)]
+        settings.agents.commands["codex"] = [sys.executable, str(FAKE_CODEX)]
         settings.speech.device = device
         try:
             with TestClient(create_app(settings, Paths(home, home), speech=speech),

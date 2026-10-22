@@ -30,9 +30,10 @@ Access = Literal["read-only", "workspace", "full"]
 APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)
 ACCESS_LEVELS: tuple[str, ...] = get_args(Access)
 
-# Given to every agent as developer instructions. Replies are read aloud, so a long one
-# starts with a version written to be heard; the voice hub speaks it as soon as it is
-# streamed, and the timeline hides it (voice-protocol §9).
+# Given to every agent as instructions alongside its own. Replies are read aloud, so a long
+# one starts with a version written to be heard; the voice hub speaks it as soon as it is
+# streamed, and the timeline hides it (voice-protocol §9). `{ask_tool}` names the agent's
+# own tool for asking the user, when it has one, because naming it is what stops its use.
 SPOKEN_INSTRUCTIONS = """\
 The user may hear your messages read aloud by a voice interface instead of reading them.
 
@@ -52,10 +53,14 @@ writes symbols as words: "24 dollars", not "$24";
 Short messages need no spoken version. Use the tags only in your messages to the user, \
 never in files, commands, commit messages or other tool input.
 
-Don't ask the user questions while you are still working, and don't use a tool to ask them \
-(such as request_user_input_async): they can't answer until your turn ends. Work out what you \
-can, then put any questions at the end of your final message, where its spoken version ends \
-with them too."""
+Don't ask the user questions while you are still working, and don't use a tool to ask them\
+{ask_tool}: they can't answer until your turn ends. Work out what you can, then put any \
+questions at the end of your final message, where its spoken version ends with them too."""
+
+
+def spoken_instructions(ask_tool: str | None = None) -> str:
+    """SPOKEN_INSTRUCTIONS for an agent whose tool for asking the user is `ask_tool`."""
+    return SPOKEN_INSTRUCTIONS.format(ask_tool=f" (such as {ask_tool})" if ask_tool else "")
 
 
 @dataclass
@@ -82,6 +87,12 @@ EVENT_FIELDS: dict[str, dict[str, tuple | None]] = {
     "error": {"message": None},
     "turn_completed": {"status": get_args(TurnStatus), "error": None},
 }
+# Fields an adapter may add when its provider reports them. Anything else is not the contract's.
+OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "command_started": ("cwd",),          # the directory the command runs in
+    "command_finished": ("duration_ms",),
+    "error": ("will_retry",),             # the agent retries on its own, so the turn goes on
+}
 
 
 def check_event(event: AgentEvent) -> list[str]:
@@ -95,6 +106,8 @@ def check_event(event: AgentEvent) -> list[str]:
             problems.append(f"{event.kind} has no {name}")
         elif allowed is not None and event.data[name] not in allowed:
             problems.append(f"{event.kind}.{name} is {event.data[name]!r}, not one of {allowed}")
+    for name in event.data.keys() - fields.keys() - set(OPTIONAL_FIELDS.get(event.kind, ())):
+        problems.append(f"{event.kind} has a field the contract doesn't define: {name}")
     if event.kind == "file_change":
         for change in event.data.get("changes") or []:
             if change.get("kind") not in get_args(ChangeKind):
@@ -150,13 +163,16 @@ class TurnPolicy:
 
 @dataclass(frozen=True)
 class Capabilities:
-    """What an agent really supports. Unsupported behaviour is shown, not faked (HLD §4.1)."""
+    """What an agent really supports. Unsupported behaviour is shown, not faked (HLD §4.1).
 
-    interrupt: bool = True             # can stop a turn and keep the session
-    resume: bool = True                # can continue a task's conversation in a new process
-    live_approvals: bool = True        # asks for approval mid-turn, so `ask` mode works
-    approval_modes: tuple[str, ...] = APPROVAL_MODES
-    access_levels: tuple[str, ...] = ACCESS_LEVELS
+    Nothing has a default: each adapter states every capability, so none is claimed by omission.
+    """
+
+    interrupt: bool                    # can stop a turn and keep the session
+    resume: bool                       # can continue a task's conversation in a new process
+    live_approvals: bool               # asks for approval mid-turn, so `ask` mode works
+    approval_modes: tuple[str, ...]    # of APPROVAL_MODES
+    access_levels: tuple[str, ...]     # of ACCESS_LEVELS
 
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
@@ -191,8 +207,13 @@ class AgentSession(Protocol):
 
 
 class Agent(Protocol):
+    """An adapter, built from the command that starts its CLI (`agents.commands` in the config)."""
+
     name: str
     capabilities: Capabilities
+    default_command: list[str]
+
+    def __init__(self, command: list[str]): ...
 
     async def status(self) -> AgentStatus: ...
 

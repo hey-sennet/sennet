@@ -19,8 +19,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import projects
+from .agents import registry
 from .agents.base import Agent
-from .agents.codex import CodexAgent
 from .approvals import Approvals
 from .config import Paths, Settings
 from .db import Database
@@ -39,7 +39,7 @@ class ProjectIn(BaseModel):
     path: str
     name: str | None = None
     aliases: list[str] = []
-    agent: str = "codex"
+    agent: str = registry.DEFAULT
 
 
 class ProjectPatch(BaseModel):
@@ -66,7 +66,7 @@ class DecisionIn(BaseModel):
 def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None = None,
                speech: Speech | None = None) -> FastAPI:
     """`agents` and `speech` default to the real ones; tests pass fakes."""
-    agents = agents if agents is not None else {"codex": CodexAgent(settings.agents.codex_command)}
+    agents = agents if agents is not None else registry.build(settings.agents.commands)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

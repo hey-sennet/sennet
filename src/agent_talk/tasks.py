@@ -1,10 +1,11 @@
 """Task manager: runs agent turns, queues follow-ups, enforces concurrency.
 
-A task is one piece of agent work in one project: an agent thread plus the
+A task is one piece of agent work in one project: an agent conversation plus the
 messages sent to it. Messages queue; each becomes one agent turn. At most one task
 runs per project (two agents editing one working tree conflict), and at most
 `max_concurrent` run overall. Agent processes stay warm for `idle_timeout_s` after
-a turn so follow-ups start instantly; after that the thread is resumed by ID.
+a turn so follow-ups start instantly; after that the conversation is resumed from
+its resume token, when the agent can resume.
 """
 from __future__ import annotations
 

@@ -16,8 +16,8 @@ import shutil
 from pathlib import Path
 
 from .. import __version__
-from .base import (AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest, Capabilities, Decision,
-                   EventSink, FileChange, SPOKEN_INSTRUCTIONS, TurnPolicy)
+from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
+                   Capabilities, Decision, EventSink, FileChange, TurnPolicy, spoken_instructions)
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +32,8 @@ COMMAND_DECISION = {"approve": "accept", "approve_always": "accept", "decline": 
 TURN_STATUS = {"completed": "completed", "interrupted": "cancelled", "failed": "failed"}
 ITEM_STATUS = {"inProgress": "running", "completed": "completed", "failed": "failed", "declined": "declined"}
 STEP_STATUS = {"pending": "pending", "inProgress": "active", "completed": "done"}
+# Codex's tool for asking the user mid-turn, which a voice user can't answer (see SPOKEN_INSTRUCTIONS).
+INSTRUCTIONS = spoken_instructions("request_user_input_async")
 
 
 # Codex reports commands wrapped in a login shell: /bin/bash -lc 'npm test'.
@@ -201,7 +203,7 @@ class CodexSession:
             })
             await self.connection.notify("initialized")
             params = {"cwd": str(cwd), "approvalPolicy": APPROVAL_POLICY[policy.mode],
-                      "sandbox": SANDBOX[policy.access], "developerInstructions": SPOKEN_INSTRUCTIONS}
+                      "sandbox": SANDBOX[policy.access], "developerInstructions": INSTRUCTIONS}
             if thread_id:
                 result = await self.connection.request("thread/resume", {"threadId": thread_id, **params,
                                                                          "excludeTurns": True})
@@ -313,7 +315,10 @@ class CodexSession:
 
 class CodexAgent:
     name = "codex"
-    capabilities = Capabilities()  # interrupts, resumes threads, and asks mid-turn in every mode
+    default_command = ["codex", "app-server"]
+    # Interrupts, resumes threads, and asks mid-turn in every mode.
+    capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
+                                approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS)
 
     def __init__(self, command: list[str]):
         self.command = command

@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk.agents.base import SPOKEN_INSTRUCTIONS, AgentEvent, Capabilities, check_event
+from agent_talk.agents import registry
+from agent_talk.agents.base import AgentEvent, check_event, spoken_instructions
 from agent_talk.agents.codex import CodexAgent, CodexSession
 from agent_talk.config import Settings
 from agent_talk.db import SCHEMA_VERSION, Database
@@ -36,6 +37,8 @@ def test_check_event_catches_provider_words():
                                                   "changes": [{"path": "a", "kind": "rename"}]}))
     assert check_event(AgentEvent("command_finished", {"item_id": "1"}))  # fields missing
     assert check_event(AgentEvent("thinking", {}))
+    assert check_event(AgentEvent("message", {"item_id": "1", "text": "hi", "phase": "final"}))  # not the contract's
+    assert not check_event(AgentEvent("error", {"message": "slow down", "will_retry": True}))  # optional
     assert not check_event(AgentEvent("turn_completed", {"status": "cancelled", "error": None}))
 
 
@@ -77,11 +80,11 @@ def test_every_event_from_a_codex_session_conforms(client, project):
 class LimitedCodex(CodexAgent):
     def __init__(self, command, **limits):
         super().__init__(command)
-        self.capabilities = replace(Capabilities(), **limits)
+        self.capabilities = replace(CodexAgent.capabilities, **limits)
 
 
 def limited_client(settings, paths, **limits):
-    agent = LimitedCodex(settings.agents.codex_command, **limits)
+    agent = LimitedCodex(settings.agents.commands["codex"], **limits)
     return TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS)
 
 
@@ -135,7 +138,14 @@ def test_agents_report_their_capabilities(client):
 def test_agents_are_asked_for_a_version_to_be_heard(client, project, codex_log):
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi"}).json()
     wait_for(client, task["id"], finished)
-    assert codex_log("thread/start")[0]["params"]["developerInstructions"] == SPOKEN_INSTRUCTIONS
+    instructions = codex_log("thread/start")[0]["params"]["developerInstructions"]
+    assert instructions == spoken_instructions("request_user_input_async")
+    assert "<spoken></spoken>" in instructions
+
+
+def test_the_shared_spoken_instructions_name_no_tool():
+    assert "(such as" not in spoken_instructions()
+    assert "don't use a tool to ask them: they can't answer" in spoken_instructions()
 
 
 # Access levels and migrations
@@ -191,3 +201,35 @@ def test_a_new_database_starts_at_the_current_version(tmp_path):
     assert db.one("PRAGMA user_version")["user_version"] == SCHEMA_VERSION
     assert "access" in {c["name"] for c in db.query("PRAGMA table_info(projects)")}
     db.close()
+
+
+# The registry and configuration
+
+def test_every_adapter_states_its_capabilities():
+    with pytest.raises(TypeError):
+        type(CodexAgent.capabilities)()  # nothing is claimed by default
+    for adapter in registry.ADAPTERS.values():
+        assert adapter.default_command
+
+
+def test_agents_are_built_from_the_registry_with_configured_commands():
+    agents = registry.build({"codex": ["my-codex", "app-server"]})
+    assert list(agents) == list(registry.NAMES)
+    assert agents["codex"].command == ["my-codex", "app-server"]
+    assert registry.build({})["codex"].command == CodexAgent.default_command
+
+
+def test_the_old_codex_command_setting_still_loads(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[agents]\ncodex_command = ["codex-dev", "app-server"]\n')
+    settings = Settings.load(config)
+    assert settings.agents.commands == {"codex": ["codex-dev", "app-server"]}
+    settings.save(config)
+    assert Settings.load(config).agents.commands == {"codex": ["codex-dev", "app-server"]}
+
+
+def test_a_command_for_an_unknown_agent_is_a_config_error(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[agents.commands]\nnobody = ["x"]\n')
+    with pytest.raises(ValueError, match="no agent called nobody"):
+        Settings.load(config)

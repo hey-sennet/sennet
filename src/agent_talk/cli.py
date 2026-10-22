@@ -8,7 +8,7 @@ import shutil
 import sys
 
 from . import __version__, projects
-from .agents.codex import CodexAgent
+from .agents import registry
 from .config import Paths, Settings
 from .db import Database
 
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None):
     add.add_argument("path")
     add.add_argument("--name", help="spoken name (default: directory name)")
     add.add_argument("--alias", action="append", default=[], help="another name to call it by (repeatable)")
-    add.add_argument("--agent", default="codex", choices=projects.AGENTS)
+    add.add_argument("--agent", default=registry.DEFAULT, choices=registry.NAMES)
     project_commands.add_parser("list", help="list projects")
     remove = project_commands.add_parser("remove", help="unregister a project (files are not touched)")
     remove.add_argument("name")
@@ -103,10 +103,11 @@ def doctor(settings: Settings, paths: Paths) -> int:
     problems = 0
     print(f"config:   {paths.config_file}{'' if paths.config_file.exists() else ' (defaults)'}")
     print(f"data:     {paths.database}")
-    status = asyncio.run(CodexAgent(settings.agents.codex_command).status())
-    ok = status.installed and status.logged_in
-    problems += not ok
-    print(f"codex:    {'ok' if ok else 'problem'}: {status.detail}")
+    for name, agent in registry.build(settings.agents.commands).items():
+        status = asyncio.run(agent.status())
+        ok = status.installed and status.logged_in
+        problems += not ok
+        print(f"{name + ':':<9} {'ok' if ok else 'problem'}: {status.detail}")
     problems += not speech_ok(settings, paths)
     if shutil.which("tailscale"):
         print("tailscale: installed (phone access: `tailscale serve --bg 7710`)")

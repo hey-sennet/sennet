@@ -5,10 +5,10 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .agents import registry
 from .agents.base import ACCESS_LEVELS, APPROVAL_MODES
 from .db import Database
 
-AGENTS = ("codex",)
 NAME_RE = re.compile(r"^[\w][\w .-]{0,39}$")
 
 
@@ -36,12 +36,12 @@ def _check_names(db: Database, names: list[str], exclude_id: int | None = None):
 
 
 def add(db: Database, path: str, name: str | None = None, aliases: list[str] | None = None,
-        agent: str = "codex") -> dict:
+        agent: str = registry.DEFAULT) -> dict:
     directory = Path(path).expanduser().resolve()
     if not directory.is_dir():
         raise ProjectError(f"{directory} is not a directory")
-    if agent not in AGENTS:
-        raise ProjectError(f"agent must be one of {AGENTS}")
+    if agent not in registry.NAMES:
+        raise ProjectError(f"agent must be one of {registry.NAMES}")
     name = (name or directory.name).strip()
     aliases = [a.strip() for a in aliases or [] if a.strip()]
     _check_names(db, [name, *aliases])
@@ -62,8 +62,8 @@ def update(db: Database, project_id: int, **fields) -> dict:
         raise ProjectError(f"approval_mode must be one of {APPROVAL_MODES} or null")
     if "access" in fields and fields["access"] not in (None, *ACCESS_LEVELS):
         raise ProjectError(f"access must be one of {ACCESS_LEVELS} or null")
-    if "agent" in fields and fields["agent"] not in AGENTS:
-        raise ProjectError(f"agent must be one of {AGENTS}")
+    if "agent" in fields and fields["agent"] not in registry.NAMES:
+        raise ProjectError(f"agent must be one of {registry.NAMES}")
     if "name" in fields or "aliases" in fields:
         fields["name"] = (fields.get("name") or project["name"]).strip()
         fields["aliases"] = [a.strip() for a in fields.get("aliases", project["aliases"]) if a.strip()]

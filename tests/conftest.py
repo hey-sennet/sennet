@@ -16,7 +16,7 @@ HEADERS = {"X-Agent-Talk": "1"}
 @pytest.fixture
 def settings():
     settings = Settings()
-    settings.agents.codex_command = [sys.executable, str(FAKE_CODEX)]
+    settings.agents.commands["codex"] = [sys.executable, str(FAKE_CODEX)]
     return settings
 
 
