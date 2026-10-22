@@ -160,7 +160,8 @@ Approval requests from any task go through one policy engine:
 | `never` | Full auto. Maps to the agent's own non-interactive mode (e.g. Codex `approval_policy = never`). Anything beyond the access level fails. Clearly marked in UI. |
 
 Policy is set globally, then per project, then per agent. Each request is classified
-as read / edit / execute / network / destructive (`rm`, `git push`, force flags…).
+as read / edit / execute / network / destructive (`rm`, `git push`, force flags…, and
+edits that delete files).
 A per-class setting can raise the bar, e.g. destructive actions require repeating a
 confirmation phrase even when edits are approved by plain "yes".
 

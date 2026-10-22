@@ -28,7 +28,10 @@ FIXTURES = {
     "acp read": (ApprovalRequest(kind="command", command="cat README.md", read_only=True, title="Read README"),
                  "run cat README.md", "read", True),
     "acp delete": (ApprovalRequest(kind="edit", changes=[FileChange("old.py", "delete"), FileChange("a.py", "move")]),
-                   "edit old.py, a.py", "edit", True),
+                   "edit a.py and delete old.py", "destructive", False),
+    "only deletes": (ApprovalRequest(kind="edit", paths=["/r/a.py", "/r/b.py"],
+                                     changes=[FileChange("/r/a.py", "delete"), FileChange("/r/b.py", "delete")]),
+                     "delete a.py, b.py", "destructive", False),
     "acp execute destructive": (ApprovalRequest(kind="command", command="git push origin main"),
                                 "run git push origin main", "destructive", False),
     "access": (ApprovalRequest(kind="access", network=True, reason="it needs to download dependencies",
@@ -96,3 +99,12 @@ async def test_access_requests_cannot_be_approved_always(engine):
         await approvals.decide(published[-1]["id"], "approve_always")
     await approvals.decide(published[-1]["id"], "decline")
     assert await waiting == "decline"
+
+
+async def test_an_edit_rule_does_not_cover_deleting_files(engine):
+    edit = ApprovalRequest(kind="edit", changes=[FileChange("a.py", "update", DIFF)])
+    assert (await ask(engine, edit, "approve_always"))[0] == "approve_always"
+    decision, _ = await ask(engine, ApprovalRequest(kind="edit", changes=[FileChange("b.py", "update")]))
+    assert decision == "approve"  # covered by the rule, without asking
+    _, shown = await ask(engine, ApprovalRequest(kind="edit", changes=[FileChange("c.py", "delete")]), "decline")
+    assert (shown["status"], shown["risk"]) == ("pending", "destructive")  # asked

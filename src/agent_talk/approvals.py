@@ -2,8 +2,9 @@
 
 Remembered "approve always" rules are scoped to a project. Command rules match a
 command prefix (program plus subcommand, e.g. `npm test`); an edit rule allows all
-file edits in the project; a tool rule allows one tool by name. Destructive commands
-and requests for more access never get a rule and are always asked.
+file edits in the project; a tool rule allows one tool by name. Destructive commands,
+edits that delete files, and requests for more access never get a rule and are always
+asked.
 
 Everything here works on the provider-neutral ApprovalRequest; adapters have already
 unwrapped commands and judged whether they only read.
@@ -32,7 +33,7 @@ TOOL_INPUT_SHOWN = 80
 def classify(request: ApprovalRequest) -> str:
     """Risk class: read, edit, execute, network or destructive."""
     if request.kind == "edit":
-        return "edit"
+        return "destructive" if any(c.kind == "delete" for c in request.changes) else "edit"
     if request.kind == "access":
         return "network" if request.network else "execute"
     if request.kind == "command" and DESTRUCTIVE_RE.search(request.command or ""):
@@ -49,11 +50,11 @@ def describe(request: ApprovalRequest) -> str:
     if request.kind == "command":
         return f"run {request.command or 'a command'}"
     if request.kind == "edit":
-        names = [posixpath.basename(p) for p in (request.paths or [c.path for c in request.changes])]
-        if not names:
-            return "edit files"
-        shown = ", ".join(names[:3])
-        return f"edit {shown} and {len(names) - 3} more" if len(names) > 3 else f"edit {shown}"
+        deleted = [c.path for c in request.changes if c.kind == "delete"]
+        edited = [p for p in (request.paths or [c.path for c in request.changes]) if p not in deleted]
+        parts = [f"edit {_names(edited)}"] if edited else []
+        parts += [f"delete {_names(deleted)}"] if deleted else []
+        return " and ".join(parts) or "edit files"
     if request.kind == "tool":
         tool_input = (request.tool_input or "").strip().replace("\n", " ")
         if len(tool_input) > TOOL_INPUT_SHOWN:
@@ -61,6 +62,12 @@ def describe(request: ApprovalRequest) -> str:
         return f"use {request.tool or 'a tool'}" + (f": {tool_input}" if tool_input else "")
     what = "network access" if request.network else "more access"
     return f"get {what}" + (f": {request.reason}" if request.reason else "")
+
+
+def _names(paths: list[str]) -> str:
+    names = [posixpath.basename(p) for p in paths]
+    shown = ", ".join(names[:3])
+    return f"{shown} and {len(names) - 3} more" if len(names) > 3 else shown
 
 
 def detail(request: ApprovalRequest) -> dict:
