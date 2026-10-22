@@ -1,6 +1,6 @@
 # M2 backend breakdown
 
-Status: agreed. Date: 2026-10-22.
+Status: done (steps 1–7). Date: 2026-10-22.
 
 The backend half of M2: push-to-talk over `/api/voice`, direct mode, voice approvals and
 spoken replies, as specified in [voice-protocol.md](voice-protocol.md). Each step below is
@@ -134,10 +134,35 @@ other side has answered), and `decided_by: "voice"`.
 
 ### 7. Real-model check
 
-An opt-in end-to-end run on CPU and GPU: a recorded command goes in over `/api/voice`
-against the fake Codex, and the spoken reply comes back. Compare the timings with M0's
-(end of speech to first reply audio: 0.3–0.45 s on GPU, about 1.3 s on CPU) and record
-them in this doc.
+`tests/voice_bench.py` streams a spoken command over `/api/voice` in real time (20 ms
+frames, as a browser would) against the fake Codex and times each stage;
+`pytest -m models` runs it once per device as a check. Measured on 2026-10-22, the
+same machine as M0 (i7-12650H, RTX 4060 Laptop), median of 3 runs. The command was
+"In backend, run the unit tests and tell me which ones failed." (4.1 s), synthesized
+by Kokoro; the reply was the fake agent's "You said: Run the unit tests and tell me
+which ones failed."
+
+| | GPU | CPU, 4 threads | M0 |
+| --- | --- | --- | --- |
+| Release → final transcript | 58 ms | 255–590 ms | 30–110 ms GPU, 300–770 ms CPU |
+| Agent's reply → first reply audio | 125 ms | 970 ms | — |
+| Release → first audio, without the agent's own time | 0.18 s | 1.3–1.5 s | 0.3–0.45 s GPU, ~1.3 s CPU |
+| Caption period | 251 ms | 298 ms (stretched by slower decodes) | 250 ms |
+
+Both devices heard the command word for word (Parakeet spells "backend" "back-end")
+and routed it to the backend project without the routing phrase.
+
+Findings:
+
+- GPU beats M0, mostly because models warm up at load and a short reply is one
+  segment.
+- On CPU the wait is Kokoro synthesizing the reply's first chunk: 59 characters here,
+  under the 60-character first-chunk limit, so it isn't split. Cutting the first chunk
+  at 30 characters, mid-clause, measured 614 ms instead of 970 ms. Not adopted: the cut
+  costs prosody at the join, and real replies will vary. Revisit with real agent
+  replies and listening tests.
+- The command was synthetic speech. Real recordings (`--wav`) are needed before trusting
+  the CPU final-pass numbers for long or hesitant commands, and for the VAD thresholds.
 
 ## Order and parallel work
 
