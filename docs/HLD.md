@@ -211,8 +211,9 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
 
 - Commands are plain HTTP (`/api/...`, with a required `X-Agent-Talk` header as CSRF
   protection). One WebSocket per client (`/api/events`) pushes live events; on
-  reconnect the client reloads state, so missed events never matter. M2 adds binary
-  audio frames to a WebSocket. This is adequate on a LAN or Tailscale.
+  reconnect the client reloads state, so missed events never matter. Audio uses a
+  separate per-device WebSocket (`/api/voice`), specified in
+  [voice-protocol.md](voice-protocol.md). This is adequate on a LAN or Tailscale.
 - AudioWorklet captures at the device rate and downsamples once to 16 kHz mono PCM16,
   sent in 20–40 ms frames. Browser echo cancellation and noise suppression are on.
 - TTS audio returns over the same socket in short chunks, tagged with a playback
@@ -245,8 +246,9 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
   pass took 4.6 s, so the CPU tier finalizes incrementally: each segment ending at a
   VAD pause is full-passed in the background while the user keeps talking, leaving
   only the last segment at the end.
-- No transcript review step by default. After dispatch, the user can say "cancel" or
-  "stop" within a short window to retract a request before the agent starts.
+- No transcript review step by default. In M2 a request is retracted by sliding off
+  the talk control before release, or by saying "cancel" next to interrupt the task.
+  A short retraction window after dispatch is reconsidered for the front assistant (M3).
 - Raw audio is never stored. Transcripts are stored with the conversation.
 
 ### 6.3 Front assistant
