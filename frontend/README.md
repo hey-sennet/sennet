@@ -10,5 +10,6 @@ npm run build    # type-check and build into ../src/agent_talk/web
 npm test         # Playwright: desktop and phone, against the server with a fake Codex
 ```
 
-`npm test` needs a built client and a Chromium. Point `PLAYWRIGHT_CHROMIUM_EXECUTABLE`
-at an existing Chromium, or run `npx playwright install chromium`.
+`npm test` needs a built client and Playwright's Chromium: run `npx playwright install chromium`
+here in `frontend/` (from the repo root, npx fetches a different Playwright and its browser).
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` still overrides it.

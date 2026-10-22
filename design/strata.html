@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="harness.css">
+<style>
+  /* Strata: horizontal lines through a circle, lifted by the voice like a ridgeline plot.
+     Editorial: Instrument Serif for words (italic when the agent speaks), Inter for chrome. */
+  :root {
+    --bg: #100f0d; --fg: #efe8da; --accent: #efe8da; --warn: #e9a95b; --agent: #93dbe0;
+    --font-ui: 'Inter', sans-serif; --font-display: 'Instrument Serif', serif; --font-label: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
+    --display-size: 44px; --display-weight: 400; --display-tracking: -0.02em; --display-leading: 1.02;
+    --agent-style: italic;
+    --label-size: 10px; --label-weight: 500; --label-tracking: 0.18em;
+    --mark-font: 'Instrument Serif', serif; --mark-weight: 400; --mark-size: 22px; --mark-tracking: 0;
+    --align: left; --text-width: 22ch;
+  }
+  @media (min-width: 1024px) { :root { --text-width: 24ch; } }
+  body[data-state="listening"] .label { color: var(--fg); }
+  body[data-state="speaking"] .label, body[data-state="thinking"] .label { color: var(--agent); }
+  .label { transition: color 0.4s var(--ease); margin-bottom: 10px; }
+  .stage { gap: 28px; }
+</style>
+</head>
+<body>
+<script type="module">
+import { start, blend, rgba, smoothstep, clamp } from './harness.js'
+
+const LINES = 30
+const STROKE = 1.3
+const FADE = 0.65 // each line fades to nothing over this fraction of R before the circle
+const HEIGHT = 0.4 // peak lift at full voice, as a fraction of R
+const BG = '#100f0d'
+// Points and gradient stops per line. 60 and 12 look the same as 120 and 24 at phone size and
+// halve the script time per frame (see README). For measuring with ?perf, ?points= and ?stops=
+// override them, and ?flat (no gradient), ?nofill (no occluding fill) and ?noop (draw nothing)
+// show what painting each part costs.
+const tuning = new URLSearchParams(location.search)
+// Cream is your voice, glacier anything the agent does (thinking, speaking), amber needs you.
+const INK = { base: '#efe8da', thinking: '#93dbe0', speaking: '#93dbe0', approval: '#e9a95b' }
+const POINTS = +tuning.get('points') || 60
+const STOPS = +tuning.get('stops') || 12
+const heights = new Float32Array(POINTS + 1) // one line's points, reused
+
+const bell = (x, width) => Math.exp(-((x / width) ** 2))
+
+function brightnessOf(bands) {
+  let weighted = 0, total = 0
+  for (let i = 0; i < 40; i++) { weighted += bands[i] * i; total += bands[i] }
+  return total ? weighted / total / 40 : 0.3
+}
+
+// The swell reacts quickly but never jumps. Loudness drives a critically damped spring, so
+// each change eases in and out (no corners, no overshoot) while still landing within a
+// fraction of a second. Width follows the voice's brightness more slowly.
+const SPRING = 15 // stiffness in rad/s: higher reacts faster, lower is calmer
+const TRAVEL = 0.22 // seconds for the swell to roll out from its centre to the rim
+const life = { lift: null, velocity: 0, brightness: 0.3, history: [], shade: 0 }
+window.life = life // for captures and tuning
+
+/** The eased lift `ago` seconds back, so outer parts of the surface follow a moment later. */
+function liftAgo(ago) {
+  const history = life.history
+  const target = history[history.length - 1].t - ago
+  let lo = 0, hi = history.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (history[mid].t < target) lo = mid + 1
+    else hi = mid
+  }
+  if (lo === 0) return history[0].lift
+  const a = history[lo - 1], b = history[lo]
+  return a.lift + (b.lift - a.lift) * clamp((target - a.t) / (b.t - a.t || 1))
+}
+
+function evolve(frame) {
+  const { t, dt, level, bands } = frame
+  if (life.lift === null) life.lift = level
+  // Sub-step so large frame gaps stay stable.
+  const steps = Math.ceil(dt / (1 / 120))
+  for (let i = 0; i < steps; i++) {
+    const h = dt / steps
+    life.velocity += (SPRING ** 2 * (level - life.lift) - 2 * SPRING * life.velocity) * h
+    life.lift += life.velocity * h
+  }
+  life.lift = Math.max(0, life.lift)
+  life.brightness += (brightnessOf(bands) - life.brightness) * clamp(dt * 2)
+  life.history.push({ t, lift: life.lift })
+  while (life.history.length > 2 && life.history[0].t < t - TRAVEL * 1.5) life.history.shift()
+  life.shade += dt * (SHADE_REST + SHADE_VOICE * life.lift)
+}
+
+// Opacity varies across the disc from a drifting noise field, coherent across lines and along
+// each line, so soft patches of light move through the surface instead of every line being
+// equally bright. The voice drives the drift: patches creep at rest and surge as it speaks. Two crossed sine waves, each warped by noise, make a 2D field of
+// patches that always spans light and dark (summed noise alone tends to sit mid-grey). The
+// field fades out towards the rim, so the edge of the disc keeps its clean circular falloff.
+const SHADE = 0.35 // how far the dimmest patches fall, as a fraction of full opacity
+const SHADE_REST = 0.6 // drift speed with no voice
+const SHADE_VOICE = 14 // extra drift speed per unit of eased loudness
+/** `clock` is life.shade: time that runs faster while the voice is loud. */
+function shadeAt(xr, yr, clock, noise) {
+  const field = 0.5 + 0.5
+    * Math.sin(xr * 5.4 + 2.5 * noise(yr * 2.4 + clock * 0.08 + 3.3) + clock * 0.21)
+    * Math.sin(yr * 6.1 + 2.5 * noise(xr * 2.4 - clock * 0.06 + 11.7) - clock * 0.17)
+  const centre = 1 - smoothstep(0.6, 0.95, Math.sqrt(xr * xr + yr * yr))
+  // A wide window, so light and dark blend gradually instead of meeting at a hard edge.
+  return 1 - SHADE * centre * smoothstep(0.9, 0.1, field)
+}
+
+// The delayed lift depends only on distance from the centre, so each frame samples it into a
+// table once instead of searching the history at every point.
+const RINGS = 64
+const ringLift = new Float32Array(RINGS + 1)
+function sampleRings() {
+  for (let i = 0; i <= RINGS; i++) ringLift[i] = liftAgo(TRAVEL * smoothstep(0, 1, i / RINGS))
+}
+/** The eased lift at distance r (a fraction of R), interpolated from the table. */
+function liftAt(r) {
+  const p = Math.min(r, 1) * RINGS
+  const i = Math.min(RINGS - 1, p | 0)
+  return ringLift[i] + (ringLift[i + 1] - ringLift[i]) * (p - i)
+}
+
+// Thinking: rings spread from the centre like a drop in still water, fading as they widen.
+const fract = (x) => x - Math.floor(x)
+function rippleAt(r, t) {
+  let a = 0
+  for (const offset of [0, 0.5]) {
+    const ring = fract(t / 2.6 + offset)
+    a += bell(r - ring, 0.08) * (1 - ring) ** 1.5 * smoothstep(0, 0.15, ring)
+  }
+  return 0.07 * a
+}
+
+/** Height of the swell at xr, yr (fractions of R), peak 1, before scaling by loudness. */
+function shapeAt(xr, yr) {
+  return bell(xr, 0.28 + life.brightness * 0.7) * bell(yr, 0.6)
+}
+
+start({
+  draw(frame) {
+    const { ctx, w, h, dpr, cx, cy, R, t, mix } = frame
+    evolve(frame)
+    sampleRings()
+    if (tuning.has('noop')) { frame.ctx.clearRect(0, 0, frame.w, frame.h); return }
+    const level = life.lift
+    ctx.clearRect(0, 0, w, h)
+    const ink = blend(INK, mix)
+    const live = mix.listening + mix.speaking
+    const strength = 0.5 + 0.5 * Math.min(1, level * 2 * live + 0.4)
+    const fadeLength = FADE * R
+    // At rest the swell breathes: a slow, low rise and fall about every six seconds.
+    const breath = 0.035 * (0.55 + 0.45 * Math.sin(t * 2 * Math.PI / 6.2)) * (mix.idle + mix.typing + mix.tasks)
+    ctx.lineWidth = STROKE * dpr
+    ctx.lineJoin = 'round'
+    for (let k = 0; k < LINES; k++) {
+      const y = cy - R + ((k + 0.5) / LINES) * 2 * R
+      const yr = (y - cy) / R
+      const half = Math.sqrt(Math.max(0, R * R - (y - cy) ** 2))
+      if (half < 2) continue
+      const thinking = mix.thinking > 0.001
+      const steps = POINTS
+      for (let s = 0; s <= steps; s++) {
+        const x = cx - half + (s / steps) * 2 * half
+        const xr = (x - cx) / R
+        const r = Math.sqrt(xr * xr + yr * yr)
+        // The voice reaches the centre of the mound first and rolls outward from there.
+        const lift = HEIGHT * liftAt(r) * live + breath
+        // The ripple is only computed while thinking shows. Approval adds a faint wobble per line.
+        const amp = R * (lift * shapeAt(xr, yr)
+          + (thinking ? mix.thinking * rippleAt(r, t) : 0)
+          + 0.03 * mix.approval * (0.5 + 0.5 * Math.sin(t * 4 + k)) * bell(xr, 0.6))
+        // A faint, slow undulation keeps the lines from ever looking ruled.
+        const drift = R * 0.009 * (frame.noise(xr * 1.8 + t * 0.23 + k * 0.27) - 0.5) * 2
+        heights[s] = y - Math.max(0, amp) - drift
+      }
+      const x0 = cx - half, dx = (2 * half) / steps
+      // Fill under each line with the background so nearer lines occlude farther ones.
+      ctx.beginPath()
+      ctx.moveTo(x0, heights[0])
+      for (let s = 1; s <= steps; s++) ctx.lineTo(x0 + s * dx, heights[s])
+      ctx.lineTo(cx + half, y + R * 0.08)
+      ctx.lineTo(x0, y + R * 0.08)
+      ctx.closePath()
+      ctx.fillStyle = BG
+      if (!tuning.has('nofill')) ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(x0, heights[0])
+      for (let s = 1; s <= steps; s++) ctx.lineTo(x0 + s * dx, heights[s])
+      // Opacity eases to zero where the line meets the circle. The fade length is absolute
+      // (a fraction of R), so short lines near the poles never reach full strength, which
+      // gives the disc a soft spherical falloff. Along the way the shade field dims patches.
+      const gradient = ctx.createLinearGradient(cx - half, 0, cx + half, 0)
+      const span = Math.min(0.5, fadeLength / (2 * half))
+      const stops = STOPS
+      for (let i = 0; i <= stops; i++) {
+        const p = i / stops
+        const xr = (p * 2 - 1) * half / R
+        const edge = smoothstep(0, 1, Math.min(p, 1 - p) / span) * Math.min(1, half / fadeLength)
+        gradient.addColorStop(p, rgba(ink, strength * edge * shadeAt(xr, yr, life.shade, frame.noise)))
+      }
+      ctx.strokeStyle = tuning.has('flat') ? rgba(ink, strength) : gradient
+      ctx.stroke()
+    }
+  },
+})
+</script>
+</body>
+</html>

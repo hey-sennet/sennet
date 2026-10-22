@@ -1,0 +1,246 @@
+/* Shared chrome for the voice UI concepts. Concepts override the tokens in :root. */
+
+:root {
+  --bg: #0b0b0c;
+  --fg: #f3f2ef;
+  --muted: color-mix(in oklab, var(--fg) 46%, transparent);
+  --faint: color-mix(in oklab, var(--fg) 12%, transparent);
+  --hair: color-mix(in oklab, var(--fg) 8%, transparent);
+  --accent: #9cc4ff;
+  --warn: #f2b44c;
+  --surface: color-mix(in oklab, var(--fg) 5%, var(--bg));
+
+  --font-ui: system-ui, sans-serif;
+  --font-display: var(--font-ui);
+  --font-label: var(--font-ui);
+  --font-mono: ui-monospace, monospace;
+
+  --display-size: clamp(22px, 6vw, 34px);
+  --display-weight: 300;
+  --display-tracking: -0.015em;
+  --display-leading: 1.28;
+  --display-style: normal;
+  --agent-style: normal;
+
+  --label-size: 11px;
+  --label-weight: 500;
+  --label-tracking: 0.18em;
+  --label-transform: uppercase;
+
+  --mark-font: var(--font-ui);
+  --mark-weight: 500;
+  --mark-size: 17px;
+  --mark-tracking: -0.02em;
+
+  --align: center;
+  --orb: min(64vw, 40vh, 460px);
+  --text-width: 30ch;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 64px 1fr 88px;
+  grid-template-columns: 1fr;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+#field { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+.top, .stage, .dock, .rail, .sheet, .devbar { position: relative; z-index: 1; }
+
+/* Header */
+.top { display: flex; align-items: center; justify-content: space-between; padding: 0 22px; grid-row: 1; }
+.mark { font-family: var(--mark-font); font-weight: var(--mark-weight); font-size: var(--mark-size); letter-spacing: var(--mark-tracking); }
+.mark span { color: var(--muted); }
+.project {
+  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 10px;
+  border-radius: 999px; font-size: 13px; color: var(--muted); border: 1px solid var(--hair);
+  transition: color .3s var(--ease), border-color .3s var(--ease);
+}
+.project:hover { color: var(--fg); border-color: var(--faint); }
+.project i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.project svg { width: 12px; height: 12px; }
+
+/* Stage: the orb and the words beneath it */
+.stage { grid-row: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(20px, 4vh, 44px); padding: 0 24px; min-height: 0; }
+.orb-slot {
+  width: var(--orb); height: var(--orb); border-radius: 50%; flex-shrink: 0;
+  transition: width .7s var(--ease), height .7s var(--ease);
+}
+.orb-slot:focus-visible { outline: 1px solid var(--faint); outline-offset: 12px; }
+body[data-state="typing"] .orb-slot, body[data-state="tasks"] .orb-slot { width: calc(var(--orb) * 0.62); height: calc(var(--orb) * 0.62); }
+
+/* Sized in the display font so --text-width (in ch) measures the words themselves. */
+.words { font-family: var(--font-display); font-size: var(--display-size); width: min(100%, var(--text-width)); text-align: var(--align); min-height: 4.6em; transition: opacity .18s var(--ease), transform .18s var(--ease), filter .18s; }
+.words.swap { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+.label {
+  margin: 0 0 14px; font-family: var(--font-label); font-size: var(--label-size); font-weight: var(--label-weight);
+  letter-spacing: var(--label-tracking); text-transform: var(--label-transform); color: var(--muted);
+  transition: color .4s var(--ease);
+}
+body[data-state="listening"] .label, body[data-state="speaking"] .label { color: var(--accent); }
+body[data-state="approval"] .label { color: var(--warn); }
+.text p { margin: 0; }
+.said, .spoken, .lead {
+  font-family: var(--font-display); font-size: var(--display-size); font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking); line-height: var(--display-leading); font-style: var(--display-style);
+  text-wrap: balance;
+}
+.spoken { font-style: var(--agent-style); }
+.lead.quiet { color: var(--muted); }
+.w { display: inline-block; animation: word-in .55s var(--ease) both; animation-delay: calc(var(--i) * 28ms); }
+.prov { color: var(--muted); }
+.spoken .w { color: var(--muted); transition: color .35s var(--ease); }
+.spoken .w.on { color: var(--fg); }
+@keyframes word-in { from { opacity: 0; filter: blur(8px); transform: translateY(6px); } }
+
+.detail { margin-top: 12px !important; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); letter-spacing: 0; }
+.dots i { font-style: normal; animation: dot 1.4s infinite; }
+.dots i:nth-child(2) { animation-delay: .2s; }
+.dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes dot { 0%, 60%, 100% { opacity: .2; } 30% { opacity: 1; } }
+
+.cmd { margin-top: 10px !important; line-height: 1; }
+code { font-family: var(--font-mono); font-size: 15px; font-style: normal; letter-spacing: 0; padding: 6px 10px; border-radius: 8px; display: inline-block; background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn); white-space: nowrap; }
+.choices button, .hint { font-family: var(--font-ui); }
+.choices { display: flex; gap: 10px; margin-top: 22px; justify-content: var(--align); }
+.choices button { height: 40px; padding: 0 20px; border-radius: 999px; font-size: 14px; font-weight: 500; transition: transform .25s var(--spring), background .3s; }
+.choices button:active { transform: scale(.96); }
+.approve { background: var(--warn); color: #1a1406; }
+.decline { border: 1px solid var(--faint); color: var(--fg); }
+.hint { margin-top: 12px !important; font-size: 12.5px; color: var(--muted); }
+
+/* Dock: keyboard glyph that grows into a type bar, and the tasks glyph */
+.dock { grid-row: 3; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 20px 18px; }
+.glyph {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
+  color: var(--muted); border: 1px solid var(--hair); transition: color .3s var(--ease), border-color .3s var(--ease), transform .3s var(--spring);
+}
+.glyph:hover { color: var(--fg); border-color: var(--faint); }
+.glyph:active { transform: scale(.94); }
+.glyph svg { width: 20px; height: 20px; }
+.typebar {
+  display: flex; align-items: center; height: 44px; width: 44px; border-radius: 22px; overflow: hidden;
+  transition: width .6s var(--ease), background .4s var(--ease), border-color .4s var(--ease);
+  border: 1px solid transparent;
+}
+.typebar .kbd { border-color: var(--hair); }
+.typebar input {
+  flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--fg);
+  font: 15px var(--font-ui); opacity: 0; transition: opacity .3s var(--ease) .15s; padding: 0 4px;
+}
+.typebar input::placeholder { color: var(--muted); }
+.typebar .send { width: 34px; height: 34px; margin-right: 4px; border-radius: 50%; display: grid; place-items: center; background: var(--fg); color: var(--bg); opacity: 0; transform: scale(.6); transition: opacity .3s var(--ease) .2s, transform .45s var(--spring) .2s; flex-shrink: 0; }
+.typebar .send svg { width: 16px; height: 16px; stroke-width: 2; }
+body[data-state="typing"] .typebar { width: min(100%, 560px); background: var(--surface); border-color: var(--hair); }
+body[data-state="typing"] .typebar .kbd { border-color: transparent; color: var(--fg); }
+body[data-state="typing"] .typebar input, body[data-state="typing"] .typebar .send { opacity: 1; transform: none; }
+body[data-state="typing"] .dock { justify-content: center; }
+body[data-state="typing"] .tasks-glyph { position: absolute; right: 20px; opacity: 0; pointer-events: none; }
+.tasks-glyph { position: relative; transition: opacity .3s var(--ease), color .3s, border-color .3s; }
+.tasks-glyph .count { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tasks-glyph::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); border: 2px solid var(--bg); }
+
+/* Tasks: a bottom sheet on phones, a quiet rail on wide screens */
+.task { display: flex; gap: 12px; align-items: flex-start; padding: 12px 4px; }
+.task i { width: 7px; height: 7px; border-radius: 50%; margin-top: 7px; flex-shrink: 0; background: var(--muted); }
+.task[data-status="working"] i { background: var(--accent); animation: pulse 1.6s infinite; }
+.task[data-status="needs you"] i { background: var(--warn); }
+.task p { margin: 0; font-size: 14px; line-height: 1.35; }
+.task small { color: var(--muted); font-size: 12px; }
+@keyframes pulse { 50% { opacity: .35; } }
+.sheet {
+  position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 3; padding: 10px 18px 18px; border-radius: 26px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent); backdrop-filter: blur(24px); border: 1px solid var(--hair);
+  transform: translateY(110%); transition: transform .65s var(--ease);
+}
+.sheet .grab { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--faint); margin: 0 auto 6px; }
+.sheet { max-height: 86vh; overflow-y: auto; }
+.sheet-detail { display: none; padding-top: 4px; }
+body.task-open .sheet-list { display: none; }
+body.task-open .sheet-detail { display: block; }
+.sheet .back { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 14px -4px; font-size: 13px; color: var(--muted); }
+.sheet .back svg { width: 14px; height: 14px; }
+.sheet .back:hover { color: var(--fg); }
+body[data-state="tasks"] .sheet { transform: none; }
+.rail { display: none; }
+
+/* Desktop task panel: the selected task's request, what the agent did, and its reply. */
+.panel { display: none; }
+.panel-meta { margin: 0; font-size: 12px; color: var(--muted); }
+[data-detail] h2 { margin: 4px 0 0; font: 400 26px/1.1 var(--font-display); letter-spacing: -0.01em; }
+.panel-status { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.panel-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.panel-status[data-status="working"] i { background: var(--accent); animation: pulse 1.6s infinite; }
+.panel-status[data-status="needs you"] { color: var(--warn); }
+.panel-status[data-status="needs you"] i { background: var(--warn); }
+
+/* A task's approval, at the end of its timeline in the task panel and sheet. */
+.ask { margin: 0; padding: 16px 18px 18px; border-radius: 20px; border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent); background: color-mix(in oklab, var(--warn) 5%, var(--surface)); }
+.timeline .here .ask { margin: 4px 0 0; flex: 1; }
+.ask-label { margin: 0; font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase; color: var(--warn); }
+.ask-lead { margin: 10px 0 0; font: 400 22px/1.1 var(--font-display); letter-spacing: -0.01em; color: var(--fg); }
+.ask-cmd { display: inline-block; margin-top: 10px; padding: 5px 9px; border-radius: 8px; font: 13px var(--font-mono); color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, transparent); }
+.ask-choices { display: flex; gap: 8px; margin-top: 14px; }
+.ask-choices button { height: 34px; padding: 0 16px; border-radius: 999px; font-size: 13px; font-weight: 500; }
+.timeline { list-style: none; margin: 28px 0 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 18px; border-left: 1px solid var(--hair); }
+.timeline li { font-size: 13px; line-height: 1.45; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.timeline .mono { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); }
+.timeline small { font-size: 12px; color: var(--muted); }
+.timeline .failed small { color: var(--warn); }
+.timeline .you { font: 400 20px/1.2 var(--font-display); letter-spacing: -0.01em; }
+.timeline .agent { font: italic 400 20px/1.2 var(--font-display); letter-spacing: -0.01em; }
+
+@media (min-width: 1024px) {
+  body { grid-template-columns: 280px 1fr; }
+  .top { grid-column: 1 / -1; padding: 0 32px; }
+  .stage, .dock { grid-column: 2; }
+  .rail { display: block; grid-row: 2 / 4; grid-column: 1; padding: 8px 20px 24px 32px; opacity: .8; }
+  .rail-title { font-family: var(--font-label); font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: var(--label-transform); color: var(--muted); margin: 8px 0 4px; }
+  .tasks-glyph { display: none; }
+  .sheet { display: none; }
+  .dock { justify-content: center; padding-bottom: 28px; }
+  :root { --orb: min(36vw, 44vh, 460px); --display-size: 34px; --text-width: 26ch; }
+}
+
+/* On wide screens the task panel is a side drawer: collapsed to a tab at the right edge, and
+   opening it widens the third column, so the stage (and the disc) glide left to make room. */
+@media (min-width: 1280px) {
+  body { grid-template-columns: 280px 1fr 0px; transition: grid-template-columns .6s var(--ease); }
+  body.panel-open { grid-template-columns: 280px 1fr 424px; }
+  .rail .task { padding: 12px 10px; margin: 0 -10px; border-radius: 14px; cursor: pointer; transition: background .3s var(--ease); }
+  .rail .task.on { background: var(--surface); }
+  .panel { display: block; position: relative; z-index: 2; grid-row: 2 / 4; grid-column: 3; width: 400px; margin-bottom: 24px; }
+  .panel-body {
+    height: 100%; padding: 24px 26px; overflow-y: auto; border-radius: 26px;
+    background: var(--surface); border: 1px solid var(--hair);
+    opacity: 0; transition: opacity .4s var(--ease);
+  }
+  body.panel-open .panel-body { opacity: 1; }
+  .panel-toggle {
+    position: absolute; top: 50%; left: -40px; width: 28px; height: 64px; margin-top: -32px;
+    display: grid; place-items: center; border-radius: 14px; color: var(--muted);
+    border: 1px solid var(--hair); background: var(--bg);
+    transition: color .3s var(--ease), border-color .3s var(--ease), left .6s var(--ease);
+  }
+  .panel-toggle:hover { color: var(--fg); border-color: var(--faint); }
+  .panel-toggle svg { width: 14px; height: 14px; transition: transform .6s var(--ease); }
+  body.panel-open .panel-toggle { left: -42px; }
+  body.panel-open .panel-toggle svg { transform: rotate(180deg); }
+}
+
+/* Dev toolbar (hidden in screenshots) */
+.devbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: color-mix(in oklab, var(--surface) 85%, transparent); border: 1px solid var(--hair); z-index: 5; backdrop-filter: blur(12px); }
+.devbar button { font-size: 11px; padding: 5px 9px; border-radius: 999px; color: var(--muted); font-family: ui-monospace, monospace; }
+.devbar button:hover, .devbar button.on { color: var(--fg); background: var(--faint); }
+@media (max-width: 700px) { .devbar { top: auto; bottom: 96px; flex-wrap: wrap; justify-content: center; width: calc(100% - 24px); } }
+.perf { position: fixed; bottom: 8px; left: 8px; z-index: 5; font: 11px ui-monospace, monospace; color: var(--muted); pointer-events: none; }

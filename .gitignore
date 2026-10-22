@@ -21,3 +21,9 @@ src/agent_talk/web/
 .DS_Store
 Thumbs.db
 .e2e-home/
+
+# Created by editor Rust tooling (rust-analyzer flycheck)
+/target/
+
+# Design captures (stills and clips are generated locally, never committed)
+design/out/
