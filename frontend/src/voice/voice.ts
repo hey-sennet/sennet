@@ -6,12 +6,20 @@ import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
 import { Playback, parseFrame } from './playback'
-import { VoiceSocket, type SpeechStatus, type VoiceMessage } from './socket'
+import { VoiceSocket, type SpeechStatus, type VoiceMessage, type VoiceState } from './socket'
 
 const RELEASE_MIC_AFTER_MS = 60_000
+const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session is quiet
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
 
 export type Target = { task_id: number } | { project_id: number } | Record<string, never>
+
+/** The words under the disc: yours while you talk, the agent's as it speaks them. */
+export interface Words {
+  speaker: 'user' | 'agent'
+  committed: string
+  provisional: string
+}
 
 export interface VoiceSnapshot {
   connected: boolean
@@ -19,6 +27,8 @@ export interface VoiceSnapshot {
   listening: boolean             // a turn is open on this device
   opening: boolean               // the microphone is starting: listening, but nothing captured yet
   speaking: boolean              // a reply is playing on this device
+  state: VoiceState              // the server's voice_state for this session
+  words: Words | null
 }
 
 export class Voice {
@@ -33,7 +43,14 @@ export class Voice {
   private outputRate = 24000
   private latest = 0 // the highest playback generation seen
   private floor = 0  // frames below this generation are stale
-  private snapshot: VoiceSnapshot = { connected: false, stt: null, listening: false, opening: false, speaking: false }
+  // Each reply's segment texts, in arrival order; frames belong to the latest `speech` message.
+  private replies = 0
+  private readonly replyText = new Map<number, string[]>()
+  private heard: { reply: number; segment: number } | null = null
+  private wordsTimer: ReturnType<typeof setTimeout> | null = null
+  private snapshot: VoiceSnapshot = {
+    connected: false, stt: null, listening: false, opening: false, speaking: false, state: 'idle', words: null,
+  }
   private readonly subscribers = new Set<() => void>()
   private readonly errorSubscribers = new Set<(message: string) => void>()
 
@@ -41,7 +58,7 @@ export class Voice {
     this.socket.onOpenChange = (connected) => {
       // A closed socket ends its session: the rest of the reply isn't spoken (§6).
       if (!connected) this.playback.silence()
-      this.update({ connected, ...(connected ? {} : { stt: null }) })
+      this.update({ connected, ...(connected ? {} : { stt: null, state: 'idle' }) })
     }
     this.socket.on((message) => this.receive(message))
     this.socket.onAudio((data) => this.hear(data))
@@ -82,7 +99,7 @@ export class Voice {
     this.interrupt()
     this.turn = turn
     this.holdMic()
-    this.update({ listening: true })
+    this.update({ listening: true, words: { speaker: 'user', committed: '', provisional: '' } })
     try {
       await this.openMic()
     } catch (error) {
@@ -122,6 +139,10 @@ export class Voice {
   private interrupt() {
     this.floor = this.latest + 1
     this.playback.silence()
+    this.replyText.clear()
+    this.heard = null
+    const words = this.snapshot.words
+    if (words?.speaker === 'agent' && words.provisional) this.update({ words: { ...words, provisional: '' } })
   }
 
   private endTurn() {
@@ -171,6 +192,18 @@ export class Voice {
       this.latest = Math.max(this.latest, message.generation)
     }
     if (message.type === 'stopped') this.floor = Math.max(this.floor, message.generation)
+    if (message.type === 'voice_state') this.update({ state: message.state })
+    if (message.type === 'caption' && message.turn === this.turn) {
+      this.update({ words: { speaker: 'user', committed: message.committed, provisional: message.provisional } })
+    }
+    if (message.type === 'final') {
+      this.update({ words: message.text ? { speaker: 'user', committed: message.text, provisional: '' } : null })
+    }
+    if (message.type === 'speech' && message.generation >= this.floor) {
+      if (message.segment === 0) this.replyText.set(++this.replies, [])
+      this.replyText.get(this.replies)?.push(message.text)
+      this.heard = { reply: this.replies, segment: message.segment }
+    }
     if (message.type === 'voice_error') {
       if (message.turn && message.turn === this.turn) this.endTurn()
       this.fail(message.message)
@@ -181,7 +214,20 @@ export class Voice {
     const frame = parseFrame(data)
     if (!frame) return
     this.latest = Math.max(this.latest, frame.generation)
-    if (frame.generation >= this.floor) this.playback.play(frame.samples, this.outputRate)
+    if (frame.generation < this.floor) return
+    // The first frame of a segment shows its words as it starts playing.
+    const heard = this.heard
+    const first = heard && heard.segment === frame.segment ? heard : null
+    if (first) this.heard = null
+    this.playback.play(frame.samples, this.outputRate, first ? () => this.spoken(first.reply, first.segment) : undefined)
+  }
+
+  /** A segment started playing: its reply so far is said, the segments queued behind it are not yet. */
+  private spoken(reply: number, segment: number) {
+    for (const old of this.replyText.keys()) if (old < reply) this.replyText.delete(old)
+    const segments = this.replyText.get(reply) ?? []
+    this.update({ words: { speaker: 'agent', committed: segments.slice(0, segment + 1).join(' '),
+      provisional: segments.slice(segment + 1).join(' ') } })
   }
 
   private fail(message: string) {
@@ -190,6 +236,17 @@ export class Voice {
 
   private update(change: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...change }
+    const { listening, speaking, state, words } = this.snapshot
+    const quiet = !listening && !speaking && state === 'idle'
+    if (quiet && words && !this.wordsTimer) {
+      this.wordsTimer = setTimeout(() => {
+        this.wordsTimer = null
+        this.update({ words: null })
+      }, WORDS_LINGER_MS)
+    } else if (!quiet && this.wordsTimer) {
+      clearTimeout(this.wordsTimer)
+      this.wordsTimer = null
+    }
     for (const onChange of this.subscribers) onChange()
   }
 }

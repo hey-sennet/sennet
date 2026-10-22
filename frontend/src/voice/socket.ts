@@ -2,12 +2,13 @@
 // Reconnects by itself; each new connection is a new session, starting at generation 0.
 
 export type SpeechStatus = 'ready' | 'loading' | 'unavailable'
+export type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking'
 
 export type VoiceMessage =
   | { type: 'ready'; session: string; generation: number; output: { rate: number }
       speech: { stt: SpeechStatus; tts: SpeechStatus } }
   | { type: 'speech_status'; speech: { stt: SpeechStatus; tts: SpeechStatus } }
-  | { type: 'voice_state'; state: 'idle' | 'listening' | 'transcribing' | 'speaking'; turn: string | null }
+  | { type: 'voice_state'; state: VoiceState; turn: string | null }
   | { type: 'caption'; turn: string; committed: string; provisional: string }
   | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; approval_id?: number;
       decision?: string | null; confirm?: boolean }

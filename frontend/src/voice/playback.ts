@@ -32,6 +32,7 @@ export class Playback {
   private context: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private readonly sources = new Set<AudioBufferSourceNode>()
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>()
   private next = 0 // when the next chunk starts, in context time
   onPlayingChange: (playing: boolean) => void = () => {}
 
@@ -51,8 +52,8 @@ export class Playback {
     if (this.context.state === 'suspended') void this.context.resume()
   }
 
-  /** Queues `samples` straight after whatever is already queued. */
-  play(samples: Float32Array<ArrayBuffer>, rate: number) {
+  /** Queues `samples` straight after whatever is already queued; `onStart` runs as they begin. */
+  play(samples: Float32Array<ArrayBuffer>, rate: number, onStart?: () => void) {
     const context = this.context
     if (!context || !samples.length) return
     const buffer = context.createBuffer(1, samples.length, rate)
@@ -63,6 +64,13 @@ export class Playback {
     const at = Math.max(this.next, context.currentTime + (this.sources.size ? 0 : LEAD_S))
     source.start(at)
     this.next = at + buffer.duration
+    if (onStart) {
+      const timer = setTimeout(() => {
+        this.timers.delete(timer)
+        onStart()
+      }, (at - context.currentTime) * 1000)
+      this.timers.add(timer)
+    }
     source.onended = () => {
       source.disconnect()
       if (this.sources.delete(source) && !this.sources.size) this.onPlayingChange(false)
@@ -80,6 +88,8 @@ export class Playback {
       source.disconnect()
     }
     this.sources.clear()
+    for (const timer of this.timers) clearTimeout(timer)
+    this.timers.clear()
     this.next = 0
     if (was) this.onPlayingChange(false)
   }

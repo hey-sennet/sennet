@@ -15,7 +15,7 @@ export function Caption({ committed, provisional = '', speaker = 'user', classNa
   const solid = split(committed)
   const light = split(provisional)
   return (
-    <p className={cn('font-serif text-[clamp(30px,8vw,44px)] leading-[1.02] tracking-[-0.02em] text-balance',
+    <p data-speaker={speaker} className={cn('font-serif text-[clamp(30px,8vw,44px)] leading-[1.02] tracking-[-0.02em] text-balance',
       speaker === 'agent' && 'italic', className)}>
       {[...solid, ...light].map((word, i) => (
         <span key={i}>

@@ -30,7 +30,8 @@ test('hold to talk starts a task from what was said', async ({ page }, info) => 
   await page.mouse.down()
   await expect(page.locator('canvas[data-state="listening"]').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /Listening/ }).first()).toHaveAttribute('aria-pressed', 'true')
-  await page.waitForTimeout(1200) // microphone audio streams to the server meanwhile
+  // Microphone audio streams to the server meanwhile, and what it hears shows under the disc.
+  await expect(page.locator('[data-speaker="user"]', { hasText: HEARD })).toBeVisible()
   await page.mouse.up()
 
   // The spoken request opens its task, as a typed one does, and the agent answers it.

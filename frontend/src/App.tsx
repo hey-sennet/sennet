@@ -3,6 +3,7 @@ import { Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { ApprovalCard } from '@/components/ApprovalCard'
+import { Caption } from '@/components/Caption'
 import { Composer } from '@/components/Composer'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { TalkButton, useVoice } from '@/components/TalkButton'
@@ -13,6 +14,7 @@ import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Strata } from '@/strata/Strata'
 import { strataPreview } from '@/strata/preview'
+import { strataState } from '@/voice/strata'
 import { voice } from '@/voice/voice'
 import { toast } from 'sonner'
 
@@ -88,7 +90,12 @@ export default function App() {
               <Plus /> New task
             </Button>
           </div>
-          {selected === null && !desktop && <HomeStrata className="mx-auto mb-2 w-[min(56vw,220px)]" />}
+          {selected === null && !desktop && (
+            <>
+              <HomeStrata approvalPending={live.approvals.length > 0} className="mx-auto mb-2 w-[min(56vw,220px)]" />
+              <VoiceWords className="mb-4 px-4 text-center" />
+            </>
+          )}
           {selected === null && !desktop && homeProject && (
             <div className="mb-3 flex justify-center"><TalkButton target={{ project_id: homeProject.id }} /></div>
           )}
@@ -117,8 +124,10 @@ export default function App() {
           ) : selected === null && desktop ? (
             <div className="flex flex-1 items-center justify-center px-4">
               <div className="w-full max-w-2xl">
-                <HomeStrata className="mx-auto mb-8 w-[min(40vh,280px)]" />
-                <h1 className="mb-2 font-serif text-[44px] leading-none tracking-[-0.02em]">What should we work on?</h1>
+                <HomeStrata approvalPending={live.approvals.length > 0} className="mx-auto mb-8 w-[min(40vh,280px)]" />
+                <VoiceWords className="mb-2">
+                  <h1 className="mb-2 font-serif text-[44px] leading-none tracking-[-0.02em]">What should we work on?</h1>
+                </VoiceWords>
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <p className="text-sm text-muted-foreground">Hold to talk, or type a request.</p>
                   {homeProject && <TalkButton target={{ project_id: homeProject.id }} />}
@@ -178,15 +187,20 @@ function NewTask({ live, project, onProjectChange, onCreated, autoFocus, onOpenS
 
 const voiceSources = { user: voice().source, agent: voice().playback.source }
 
-/** Strata, listening while you talk and speaking while a reply plays. `?strata=` previews other states. */
-function HomeStrata({ className }: { className?: string }) {
-  const { listening, opening, speaking } = useVoice()
+/** Strata, following the voice session (docs/voice-protocol.md §10). `?strata=` previews other states. */
+function HomeStrata({ approvalPending, className }: { approvalPending: boolean; className?: string }) {
+  const snapshot = useVoice()
   if (strataPreview) {
     return <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className={className} />
   }
-  // Listening shows once the microphone is really capturing: the cue to start talking.
-  const state = listening && !opening ? 'listening' : speaking && !listening ? 'speaking' : 'idle'
-  return <Strata state={state} sources={voiceSources} className={className} />
+  return <Strata state={strataState(snapshot, { approvalPending })} sources={voiceSources} className={className} />
+}
+
+/** What you or the agent are saying, or `children` when nobody has spoken lately. */
+function VoiceWords({ className, children }: { className?: string; children?: React.ReactNode }) {
+  const { words } = useVoice()
+  if (!words || !(words.committed || words.provisional)) return children ?? null
+  return <Caption committed={words.committed} provisional={words.provisional} speaker={words.speaker} className={className} />
 }
 
 function ConnectionDot({ connection }: { connection: Connection }) {
