@@ -54,7 +54,7 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
           </button>
         )}
       </div>
-      <p className="mt-2 font-serif text-[26px] leading-[1.1] tracking-[-0.01em] text-balance">
+      <p className="mt-2 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">
         Wants to <span>{approval.summary}</span>
       </p>
       {approval.detail.title && <p className="mt-2 text-sm">{approval.detail.title}</p>}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
+import { Markdown } from './Markdown'
 import { StatusBadge } from './StatusBadge'
 
 type Entry = { at: number; message: Message } | { at: number; event: TaskEvent }
@@ -12,8 +13,8 @@ type Entry = { at: number; message: Message } | { at: number; event: TaskEvent }
 const VISIBLE_EVENTS = new Set(['command_finished', 'file_change', 'plan', 'error', 'turn_completed'])
 
 /**
- * A task's timeline (design/README.md): your request in serif, then commands with their results,
- * files edited and the agent's reply in italic. The task's own approvals sit at the end.
+ * A task's timeline (design/README.md): your request in a bubble, then commands with their results,
+ * files edited and the agent's reply set for reading. The task's own approvals sit at the end.
  */
 export function TaskDetail({ detail, streaming, project, approvals }: {
   detail: Detail
@@ -45,7 +46,7 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{project?.name ?? 'Removed project'} · {detail.agent}</p>
-      <h2 className="mt-1 font-serif text-[26px] leading-[1.1] tracking-[-0.01em] text-balance">{detail.title}</h2>
+      <h2 className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
       <div className="mt-2.5 flex items-center justify-between gap-3">
         <StatusBadge status={detail.status} />
         {(active || detail.status === 'queued') && (
@@ -59,7 +60,7 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
         {entries.map((entry) =>
           'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} /> : <EventItem key={`e${entry.event.id}`} event={entry.event} />,
         )}
-        {streaming && <li className="font-serif text-[20px] leading-[1.2] tracking-[-0.01em] whitespace-pre-wrap text-muted-foreground italic">{streaming}</li>}
+        {streaming && <li><Markdown className="font-serif text-[16px] leading-[1.6] text-muted-foreground">{streaming}</Markdown></li>}
         {active && !streaming && !approvals.length && (
           <li className="text-xs text-muted-foreground"><span className="animate-pulse">Working…</span></li>
         )}
@@ -70,13 +71,18 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
   )
 }
 
+/** Your messages sit in a bubble on the right, like a chat; the agent's replies run as prose. */
 function MessageItem({ message }: { message: Message }) {
+  const faded = cn(message.state === 'queued' && 'opacity-60', message.state === 'cancelled' && 'line-through opacity-40')
+  if (message.role === 'agent') {
+    return <li className={faded}><Markdown className="font-serif text-[16px] leading-[1.6]">{message.text}</Markdown></li>
+  }
   return (
-    <li className={cn('font-serif text-[20px] leading-[1.2] tracking-[-0.01em] whitespace-pre-wrap',
-      message.role === 'agent' && 'italic',
-      message.state === 'queued' && 'opacity-60', message.state === 'cancelled' && 'line-through opacity-40')}>
-      {message.text}
-      {message.state === 'queued' && <span className="mt-1 block font-sans text-xs not-italic text-muted-foreground">Queued</span>}
+    <li className={cn('mt-2 ml-10 self-end first:mt-0', faded)}>
+      <p className="rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 font-serif text-[16px] leading-[1.5] whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {message.text}
+      </p>
+      {message.state === 'queued' && <span className="mt-1 block text-right text-xs text-muted-foreground">Queued</span>}
     </li>
   )
 }

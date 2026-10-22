@@ -10,6 +10,7 @@ import { usePushToTalk } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
 import { useDecide } from './ApprovalCard'
 import { Caption } from './Caption'
+import { plainText } from './Markdown'
 
 const voiceSources = { user: voice().source, agent: voice().playback.source }
 
@@ -67,7 +68,7 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
       </div>
     )
   } else if (task && lastReply(detail)) {
-    body = <Lead agent className="line-clamp-5">{lastReply(detail)}</Lead>
+    body = <Lead agent className="line-clamp-4">{plainText(lastReply(detail)!)}</Lead>
   } else {
     body = <Lead quiet>{task ? task.title : 'What should we work on?'}</Lead>
   }
@@ -104,8 +105,9 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
 
 function Lead({ children, quiet, agent, className }: { children: ReactNode; quiet?: boolean; agent?: boolean; className?: string }) {
   return (
-    <p className={cn('animate-word-in font-serif text-[clamp(26px,6vw,34px)] leading-[1.08] tracking-[-0.015em] text-balance',
-      quiet && 'text-muted-foreground', agent && 'italic', className)}>
+    <p className={cn('animate-word-in font-serif [overflow-wrap:anywhere]',
+      agent ? 'text-[clamp(19px,4.5vw,23px)] leading-[1.4] italic' : 'text-[clamp(26px,6vw,34px)] leading-[1.18] tracking-[-0.01em] text-balance',
+      quiet && 'text-muted-foreground', className)}>
       {children}
     </p>
   )
@@ -118,7 +120,7 @@ function StageApproval({ approval, project }: { approval: Approval; project?: Pr
   const destructive = approval.risk === 'destructive'
   return (
     <div className="animate-word-in">
-      <p className="font-serif text-[clamp(26px,6vw,34px)] leading-[1.08] tracking-[-0.015em] text-balance">
+      <p className="font-serif text-[clamp(26px,6vw,34px)] leading-[1.18] tracking-[-0.01em] text-balance">
         {project?.name ?? 'The agent'} wants to {approval.summary}
       </p>
       {shown && (
