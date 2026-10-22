@@ -70,7 +70,7 @@ The 4B ran beside the daemon's GPU speech (4 GB), which left room for only part 
 
 ### 2. A routing assistant, tried and removed
 
-Built in four commits, then reverted (`80b3aae`, `18d6dda`, `fc39a8f`, `a58999e`):
+Built in four commits, then reverted (`7fba32b`, `594a5bf`, `aa92a61`, `3a05754`):
 a conversation table and context builder, tools (`start_task`, `follow_up`,
 `cancel_task`, `task_status`, `read_details`) with names resolved in code, a turn loop
 with one dispatch per turn and a direct-mode fallback, and `POST /api/assistant`.
