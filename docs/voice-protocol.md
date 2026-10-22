@@ -53,7 +53,8 @@ of captions.
 All integers are little-endian.
 
 **Uplink (client → server): raw PCM, no header.** 16 kHz mono PCM16, 20 ms per frame
-(640 bytes) recommended; the server accepts any whole number of samples from 10 to 100 ms.
+(640 bytes) recommended; the server accepts any whole number of samples up to 100 ms, so
+the last frame of a turn may be a partial one.
 Frames are only valid between `start` and `end` (§4) and belong to that turn. WebSocket
 ordering is enough, so the frames carry no turn id or timestamp. Frames outside a turn
 are ignored and counted in debug logs.

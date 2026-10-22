@@ -75,14 +75,15 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         manager = TaskManager(db, settings, agents, approvals, bus.publish)
         app.state.db, app.state.bus, app.state.approvals, app.state.tasks = db, bus, approvals, manager
         app.state.speech, loading = _speech(settings, paths, speech)
-        app.state.voice = VoiceHub(app.state.speech, manager)
+        app.state.voice = VoiceHub(app.state.speech, manager, bus)
+        app.state.voice.start()
         await manager.start()
         try:
             yield
         finally:
             if loading:
                 loading.cancel()
-            app.state.voice.close()
+            await app.state.voice.close()
             await manager.shutdown()
             if speech is None:  # a caller's speech is the caller's to close
                 app.state.speech.close()

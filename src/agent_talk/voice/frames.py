@@ -10,7 +10,6 @@ AUDIO = 1
 HEADER = struct.Struct("<BBHI")  # version, kind, segment, playback generation
 
 INPUT_RATE = 16000
-MIN_FRAME_SAMPLES = INPUT_RATE // 100   # 10 ms
 MAX_FRAME_SAMPLES = INPUT_RATE // 10    # 100 ms
 CHUNK_S = 0.1                           # downlink audio per frame
 
@@ -20,12 +19,14 @@ class BadFrame(ValueError):
 
 
 def decode_uplink(data: bytes) -> np.ndarray:
-    """Raw 16 kHz mono PCM16 → float32. Rejects odd lengths and frames outside 10–100 ms."""
+    """Raw 16 kHz mono PCM16 → float32. Rejects odd lengths, empty frames and frames over 100 ms.
+
+    Short frames are fine: a client's last frame of a turn is usually a partial one."""
     if len(data) % 2:
         raise BadFrame("frames must hold whole 16-bit samples")
     samples = len(data) // 2
-    if not MIN_FRAME_SAMPLES <= samples <= MAX_FRAME_SAMPLES:
-        raise BadFrame(f"frames must be 10 to 100 ms ({MIN_FRAME_SAMPLES}-{MAX_FRAME_SAMPLES} samples)")
+    if not 0 < samples <= MAX_FRAME_SAMPLES:
+        raise BadFrame(f"frames must hold 1 to {MAX_FRAME_SAMPLES} samples (up to 100 ms)")
     return np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768
 
 

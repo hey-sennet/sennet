@@ -357,7 +357,8 @@ def test_bad_messages_are_reported(voice):
 
 def test_decode_uplink_checks_sizes():
     assert len(frames.decode_uplink(SPEECH_FRAME)) == 320
-    for size in (1, 100, 3202):
+    assert len(frames.decode_uplink(b"\x00" * 100)) == 50  # a partial last frame
+    for size in (0, 1, 3202):
         with pytest.raises(frames.BadFrame):
             frames.decode_uplink(b"\x00" * size)
 
@@ -413,6 +414,56 @@ def test_a_reply_waits_for_the_turn_to_end(client, voice, speech, project):
     kinds = [m["type"] for m in seen]
     assert kinds.index("final") < kinds.index("speech")
     assert seen[kinds.index("speech")]["generation"] == 1
+
+
+# Spoken replies
+
+def nothing_spoken(voice):
+    """True when no speech arrived before a fresh round trip."""
+    voice.send(type="stop")
+    seen = voice.until("stopped")
+    return not [m for m in seen if m["type"] in ("speech", "speech_end")]
+
+
+def test_the_reply_is_spoken_on_the_device_that_asked(client, voice, speech, project):
+    speech.tts.gate.set()
+    with client.websocket_connect("/api/voice") as other_socket:
+        other = Voice(other_socket)
+        voice.talk(project_id=project["id"])
+        task_id = voice.next("final")["task_id"]
+        spoken = voice.next("speech")
+        assert (spoken["text"], spoken["task_id"]) == ("You said: run the tests in backend.", task_id)
+        voice.next("speech_end")
+        assert nothing_spoken(other)
+
+
+def test_typed_requests_are_not_spoken(client, voice, speech, project):
+    speech.tts.gate.set()
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
+    wait_for(client, task["id"], lambda t: t["status"] == "completed")
+    assert nothing_spoken(voice)
+
+
+def test_a_failed_turn_says_so(client, voice, speech, project):
+    speech.tts.gate.set()
+    speech.stt.transcript = "crash"
+    voice.talk(project_id=project["id"])
+    spoken = [voice.next("speech")["text"]]
+    while (message := voice.receive())["type"] != "speech_end":
+        if message["type"] == "speech":
+            spoken.append(message["text"])
+    assert " ".join(spoken) == "That task failed: agent process exited."
+
+
+def test_a_cancelled_turn_is_not_spoken(client, voice, speech, project):
+    speech.tts.gate.set()
+    speech.stt.transcript = "hang"
+    voice.talk(project_id=project["id"])
+    task_id = voice.next("final")["task_id"]
+    wait_for(client, task_id, lambda t: t["status"] == "running")
+    client.post(f"/api/tasks/{task_id}/cancel")
+    wait_for(client, task_id, lambda t: t["status"] == "cancelled")
+    assert nothing_spoken(voice)
 
 
 def test_a_closed_socket_drops_its_turn(client, project):

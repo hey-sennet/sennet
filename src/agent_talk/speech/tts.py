@@ -8,6 +8,7 @@ from hexgrad/Kokoro-82M's config.json, Apache-2.0), and the model turns them int
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from pathlib import Path
 
@@ -18,6 +19,11 @@ from .runtime import ort, providers, session_options
 RATE = 24000
 MAX_PHONEMES = 510
 VOCAB = json.loads((Path(__file__).parent / "kokoro_vocab.json").read_text(encoding="utf-8"))
+
+# With punctuation preserved, phonemizer warns about a word-count mismatch on nearly
+# every line; it is harmless for synthesis. Its own logger is reset on each call.
+_quiet = logging.getLogger(__name__ + ".phonemizer")
+_quiet.setLevel(logging.ERROR)
 
 # espeak-ng keeps process-global state; concurrent calls corrupt each other's phonemes.
 _espeak_lock = threading.Lock()
@@ -35,7 +41,8 @@ def phonemize(text: str) -> str:
             EspeakWrapper.set_library(espeakng_loader.get_library_path())
             EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
             _espeak_ready = True
-        phonemes = phonemizer.phonemize(text.strip(), "en-us", preserve_punctuation=True, with_stress=True)
+        phonemes = phonemizer.phonemize(text.strip(), "en-us", preserve_punctuation=True, with_stress=True,
+                                        logger=_quiet)
     # Newlines are not in the vocabulary; without this, lines run together with no pause.
     return " ".join("".join(p for p in phonemes if p in VOCAB).split())
 
