@@ -1,6 +1,7 @@
 """Voice approvals: the fixed flow from HLD §4.4 (docs/voice-protocol.md §8).
 
-An approval is read out with its project and the exact action. Only a clear answer
+An approval is read out with its project and what it wants to do; a command
+itself is never read out, since the card shows it. Only a clear answer
 counts: yes, no, always or cancel, and "confirm" after a yes for anything
 destructive. Anything else repeats the question. Pending approvals never time out
 into approval.
@@ -21,7 +22,6 @@ ALWAYS = {"always", "approve always", "always approve", "yes always", "always al
 CANCEL = {"cancel", "cancel it", "cancel that", "cancel the task"}
 CONFIRM = {"confirm", "confirmed", "i confirm"}
 
-COMMAND_SPOKEN = 200   # characters of a command read out; the card has the rest
 TOOL_INPUT_SPOKEN = 60
 
 
@@ -37,14 +37,11 @@ def answer(text: str) -> str | None:
 
 
 def prompt(approval: dict, project: str) -> list[str]:
-    """What to say to ask for an approval: the project, the exact action, then the question."""
+    """What to say to ask for an approval: the project, then the action."""
     detail = approval["detail"]
     kind = approval["kind"]
     if kind == "command":
-        command = detail.get("command") or "a command"
-        if len(command) > COMMAND_SPOKEN:
-            command = command[:COMMAND_SPOKEN].rsplit(" ", 1)[0] + ", and more. The whole command is on the card"
-        action = f"wants to run {command}."  # verbatim: this is the one place code is read out
+        action = "wants to run a command."  # commands read badly aloud; the card has it
     elif kind == "edit":
         action = f"wants to {approval['summary']}."
     elif kind == "tool":
@@ -58,7 +55,6 @@ def prompt(approval: dict, project: str) -> list[str]:
     segments = [f"{project} {action}"]
     if approval["risk"] == "destructive":
         segments.append("This could be hard to undo.")
-    segments.append("Approve?")
     return segments
 
 

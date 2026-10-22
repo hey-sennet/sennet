@@ -121,7 +121,7 @@ queues behind the first in the same generation.
 
 - On an `approval` event with status `pending`, find the owning session and queue the
   approval there, oldest first. Ask it between turns only.
-- The prompt: the task's name and the exact action, with commands read verbatim.
+- The prompt: the task's name and the action; commands are not read out, the card shows them.
 - While an approval is being asked, the session's next turn answers it:
   yes/approve, no/decline, always (only when the card would offer Always), or cancel.
   Anything else gets `reprompt`. A destructive request needs "confirm" after "yes".

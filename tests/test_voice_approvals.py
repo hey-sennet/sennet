@@ -38,11 +38,10 @@ def open_gate(speech):
     speech.tts.gate.set()
 
 
-def test_the_question_names_the_project_and_the_command(client, voice, speech, project):
+def test_the_question_names_the_project_not_the_command(client, voice, speech, project):
     question = ask_to_run(voice, speech, project)
-    assert question["text"] == "backend wants to run npm test."
+    assert question["text"] == "backend wants to run a command."
     assert question["approval_id"] == pending_approval(client)["id"]
-    assert voice.next("speech")["text"] == "Approve?"
 
 
 def test_yes_approves_and_the_reply_follows(client, voice, speech, project):
@@ -135,7 +134,7 @@ def test_a_turn_before_the_question_plays_is_a_request(client, voice, speech, pr
     final = voice.next("final", turn="hold")
     assert final["outcome"] == "dispatched"  # the question hadn't been heard yet
     speech.tts.gate.set()
-    assert voice.next("speech")["text"] == "backend wants to run npm test."  # and is asked after the turn
+    assert voice.next("speech")["text"] == "backend wants to run a command."  # and is asked after the turn
 
 
 def test_approvals_are_asked_one_at_a_time(client, voice, speech, project, tmp_path):
@@ -144,11 +143,11 @@ def test_approvals_are_asked_one_at_a_time(client, voice, speech, project, tmp_p
     other = client.post("/api/projects", json={"path": str(other_dir), "name": "site"}).json()
     say(voice, speech, "run:ls", project_id=project["id"])
     say(voice, speech, "run:pwd", project_id=other["id"])
-    assert heard(voice)[0] == "backend wants to run ls."
+    assert heard(voice)[0] == "backend wants to run a command."
     assert say(voice, speech, "Yes.")["decision"] == "approve"
     replies = [heard(voice) for _ in range(3)]  # "Approved.", the next question, "Ran it." in some order
     assert ["Approved."] == replies[0]
-    assert ["site wants to run pwd.", "Approve?"] in replies
+    assert ["site wants to run a command."] in replies
 
 
 def test_only_the_owning_device_is_asked(client, voice, speech, project):

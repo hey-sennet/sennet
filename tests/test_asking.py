@@ -22,19 +22,14 @@ def approval(kind, risk="execute", **detail):
             "detail": {**base, **detail}, "can_always": True}
 
 
-def test_a_command_is_read_out_verbatim():
+def test_a_command_is_not_read_out():
     assert prompt(approval("command", command="npm test -- --watch"), "Backend") == [
-        "Backend wants to run npm test -- --watch.", "Approve?"]
+        "Backend wants to run a command."]
 
 
 def test_destructive_requests_say_so():
     assert prompt(approval("command", "destructive", command="git push origin main"), "Backend") == [
-        "Backend wants to run git push origin main.", "This could be hard to undo.", "Approve?"]
-
-
-def test_a_long_command_points_to_the_card():
-    spoken = prompt(approval("command", command="echo " + "word " * 80), "Backend")[0]
-    assert spoken.endswith("and more. The whole command is on the card.") and len(spoken) < 280
+        "Backend wants to run a command.", "This could be hard to undo."]
 
 
 def test_edits_use_the_engine_summary():

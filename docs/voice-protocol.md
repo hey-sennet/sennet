@@ -146,10 +146,9 @@ The fixed flow from HLD §4.4, in direct mode:
   only the card shows. The card and the voice are both live; whichever answers first
   wins, and the other side follows the `approval` event on `/api/events`.
 - The question is `speech` with `approval_id` set, built from the provider-neutral
-  approval: the project, then the exact action, then "Approve?". "backend wants to run
-  git push origin main. This could be hard to undo. Approve?" Commands are read out
-  verbatim, which is the one exception to not narrating code; one over 200 characters
-  is cut short and points to the card. Edits use the engine's summary, tools are named
+  approval: the project, then the action. "backend wants to run a command. This could
+  be hard to undo." A command itself is never read out
+  (they are long and read badly); the card shows it. Edits use the engine's summary, tools are named
   plainly (an MCP tool `mcp__github__create_issue` is "github create issue"), and access
   requests give the agent's reason.
 - A question is never dropped. A stop or a new turn holds it back, and it is put again

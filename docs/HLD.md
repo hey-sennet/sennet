@@ -166,7 +166,8 @@ A per-class setting can raise the bar, e.g. destructive actions require repeatin
 confirmation phrase even when edits are approved by plain "yes".
 
 Voice approval is a fixed flow, not free chat. The assistant reads back the task and
-exact action ("Backend wants to run `git push origin main`. Approve?"). Only a clear
+the kind of action ("Backend wants to run a command."); the exact command is
+on the card. Only a clear
 yes/no/always is accepted; anything else re-prompts. Pending approvals never time out
 into approval. Every decision, and who/what made it, is logged.
 
