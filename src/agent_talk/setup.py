@@ -160,14 +160,15 @@ async def _self_test(paths: Paths, device: str, threads: int, voice: str) -> int
         started = time.perf_counter()
         audio = await speech.run("tts", speech.tts.synthesize, SELF_TEST)
         tts_ms = (time.perf_counter() - started) * 1000
-        heard_audio = _resample(audio, speech.tts.rate, 16000)
+        rate = speech.tts.rate
+        heard_audio = _resample(audio, rate, 16000)
         started = time.perf_counter()
         heard = await speech.run("stt", speech.stt.text, heard_audio)
         stt_ms = (time.perf_counter() - started) * 1000
     finally:
         speech.close()
 
-    print(f"  spoke \"{SELF_TEST}\" ({len(audio) / speech.tts.rate:.1f} s of audio) in {tts_ms:.0f} ms")
+    print(f"  spoke \"{SELF_TEST}\" ({len(audio) / rate:.1f} s of audio) in {tts_ms:.0f} ms")
     print(f"  heard \"{heard}\" in {stt_ms:.0f} ms")
     if _words(heard) != _words(SELF_TEST):
         print("The transcript didn't match. Speech works, but check your models and device.", file=sys.stderr)
