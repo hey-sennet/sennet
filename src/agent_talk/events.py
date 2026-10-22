@@ -24,11 +24,15 @@ class Subscriber:
             return None
         get = asyncio.ensure_future(self.queue.get())
         dropped = asyncio.ensure_future(self.dropped.wait())
-        done, _ = await asyncio.wait({get, dropped}, return_when=asyncio.FIRST_COMPLETED)
-        dropped.cancel()
+        try:
+            done, _ = await asyncio.wait({get, dropped}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            # Also when the caller is cancelled (the client disconnected), so neither is left pending.
+            dropped.cancel()
+            if not get.done():
+                get.cancel()
         if get in done:
             return get.result()
-        get.cancel()
         return None
 
 
