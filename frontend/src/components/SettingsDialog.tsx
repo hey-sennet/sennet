@@ -4,7 +4,9 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { refreshAgents, useAgents } from '@/lib/agents'
 import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type State } from '@/lib/api'
+import { ModelPicker } from './ModelPicker'
 
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
   { value: '', label: 'Default' },
@@ -36,10 +38,10 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
   rules: Rule[]
   settings: State['settings'] | null
 }) {
-  const [agents, setAgents] = useState<Record<string, AgentStatus> | null>(null)
+  const agents = useAgents()
 
   useEffect(() => {
-    if (open) api.agents().then(setAgents).catch(() => setAgents(null))
+    if (open) void refreshAgents()
   }, [open])
 
   return (
@@ -135,6 +137,15 @@ function ProjectRow({ project, defaultMode, agents }: {
           onChange={(agent) => attempt(() => api.updateProject(project.id, { agent }), 'Could not update the project')} />
         <span>New tasks use it; tasks already started keep theirs.</span>
       </label>
+      {!!agents?.[project.agent]?.models.length && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          Model
+          <ModelPicker agent={agents[project.agent]} model={project.model} effort={project.effort}
+            onChange={(model, effort) => attempt(() => api.updateProject(project.id, { model, effort }),
+              'Could not update the project')} />
+          <span className="basis-full">For new tasks here. Each task can change its own.</span>
+        </div>
+      )}
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         Approvals
         <select

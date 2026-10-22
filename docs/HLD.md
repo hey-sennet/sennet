@@ -92,8 +92,8 @@ The contract is in `src/agent_talk/agents/base.py`. An adapter provides `status(
 (installed, logged in), `capabilities`, and `open(cwd, resume_token, policy, on_event,
 on_approval)`, which returns a session with `send(text)`, `interrupt()` and `close()`.
 Capabilities declare what the CLI really supports (interruption, resume, live
-approvals, which approval modes and access levels, work that outlives a turn, and a
-project configuration to opt into); unsupported behaviour is shown in the UI, not
+approvals, which approval modes and access levels, work that outlives a turn, a
+project configuration to opt into, and whether the model changes between turns); unsupported behaviour is shown in the UI, not
 faked. Without interrupt, cancelling stops the process; without resume, a new process
 starts a new conversation.
 
@@ -124,6 +124,11 @@ follow-ups run as usual, the process isn't closed for idleness, and cancelling s
 it, which ends the work. The agent's own turn runs like any other, messages queued
 during it go after it, and its reply is spoken on the task's owner after the approval
 chime. Background work doesn't survive a restart.
+
+Each adapter lists its models and their reasoning efforts (`models()`). A project sets
+a default model and effort, a task may override them, and a change applies from the
+task's next turn: between turns for an agent with `live_model_change`, otherwise by
+reopening the session on the same conversation.
 
 Adapters whose CLI calls back into Agent Talk (Claude Code's permission prompts) use
 the daemon's MCP endpoint, `/mcp/<secret>`: one secret per session, local requests

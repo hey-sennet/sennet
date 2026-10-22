@@ -1,6 +1,7 @@
 # M4: more agents
 
-Status: Claude Code adapter done (steps 1 to 7), awaiting review; Gemini CLI next.
+Status: Claude Code adapter done (steps 1 to 7); model and effort selection (step 8)
+awaiting review; Gemini CLI next.
 Date: 2026-10-22.
 
 M4 adds adapters beyond Codex: Claude Code first, then Gemini CLI. The generic layer was
@@ -189,6 +190,38 @@ project and follows a background report.
 
 Done. HLD §4.1, §4.2, §11 and §12, the README, voice-protocol §5 and §9, and this
 breakdown.
+
+### 8. Model and effort
+
+Each agent lists the models the user may pick (`Agent.models`): Codex from
+`model/list` (hidden models left out, the default marked, each with its effort levels),
+kept ten minutes since asking takes a process; Claude Code has no list, so its adapter
+offers the `opus`, `sonnet`, `haiku` and `fable` aliases with efforts `low` to `max`,
+none marked as the default (that depends on the plan and the user's settings). Fable
+needs usage credits on some plans and says so in its reply.
+
+A project has a model and effort for new tasks, and a task can override both; null
+follows the next level up, and finally the CLI's own choice. A task that picks its own
+model takes that model's default effort, not the project's; the project's choice only
+applies to tasks of the same agent, and changing a project's agent or model clears what
+belonged to the old one. The server refuses ids the agent doesn't list, and checks an
+effort alone against the model in use. Schema version 5.
+
+A change applies from the task's next turn. Codex sends model and effort with each
+`turn/start` (`live_model_change`), so the session stays warm. Claude Code takes them at
+start, so the task manager reopens the session with `--resume`; not while background
+work runs, which the restart would end: the change waits for it. A resumed conversation
+keeps the model it last used, in both CLIs, so going back to "Default" names it
+outright: Codex's listed default with its default effort, `--model default` for Claude.
+On a new conversation "Default" passes nothing, leaving the user's own CLI settings in
+charge.
+
+The client shows the picker under the task's status ("From your next message" while it
+works) and as each project's default in Settings. Not yet by voice.
+
+Checked on the real CLIs: a Claude task switched from haiku to sonnet on the same
+session, and a Codex task from `gpt-6.1-sol`/low to `gpt-6-luna`/high between turns,
+both confirmed in the CLIs' own session logs.
 
 ### Checked against the real CLI
 

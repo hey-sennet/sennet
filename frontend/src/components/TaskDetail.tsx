@@ -2,10 +2,12 @@ import { useMemo } from 'react'
 import { Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useAgents } from '@/lib/agents'
 import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
 import { Markdown } from './Markdown'
+import { ModelPicker } from './ModelPicker'
 import { StatusBadge } from './StatusBadge'
 
 type Entry = { at: number; message: Message } | { at: number; event: TaskEvent }
@@ -23,6 +25,10 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
   approvals: Approval[]
 }) {
   const active = detail.status === 'running' || detail.status === 'awaiting_approval'
+  const agents = useAgents()
+  // The project's choice is the task's default, while the project still uses the task's agent.
+  const inherited = project && project.agent === detail.agent
+    ? { model: project.model, effort: project.effort, from: `${project.name}'s default` } : undefined
 
   const entries = useMemo<Entry[]>(() => {
     const messages: Entry[] = detail.messages.map((message) => ({ at: message.created_at, message }))
@@ -34,6 +40,14 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
       .map((event) => ({ at: event.created_at, event }))
     return [...messages, ...events].sort((a, b) => a.at - b.at)
   }, [detail.messages, detail.events])
+
+  const choose = async (model: string | null, effort: string | null) => {
+    try {
+      await api.chooseModel(detail.id, model, effort)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not change the model')
+    }
+  }
 
   const cancel = async () => {
     try {
@@ -54,6 +68,11 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
             <Square className="fill-current" /> Stop task
           </Button>
         )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <ModelPicker agent={agents?.[detail.agent]} model={detail.model} effort={detail.effort} inherited={inherited}
+          onChange={choose} />
+        {(active || detail.status === 'background') && <span>From your next message</span>}
       </div>
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">

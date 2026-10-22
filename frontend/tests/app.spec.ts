@@ -92,6 +92,14 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   const timeline = await openTask(page, 'bg:make build')
   await expect(timeline.getByText('Started it in the background.')).toBeVisible()
   await expect(timeline.getByText('The agent picked this up again')).toBeVisible()
+
+  // The task's model, from its next message: Claude restarts on the same conversation.
+  await expect(timeline.getByLabel('Model')).toHaveValue('')
+  await timeline.getByLabel('Model').selectOption({ label: 'Sonnet' })
+  await expect(timeline.getByLabel('Model')).toHaveValue('sonnet')
+  await timeline.getByLabel('Effort').selectOption('high')
+  await expect(timeline.getByLabel('Effort')).toHaveValue('high')
+  await page.screenshot({ path: `test-results/${info.project.name}-model.png` })
 })
 
 /** The selected task's timeline: picked from the opened rail into the drawer on desktop; on phones the

@@ -19,6 +19,8 @@ export interface Project {
   approval_mode: ApprovalMode | null
   access: Access | null
   project_config: boolean
+  model: string | null // the agent's model id for new tasks; null for the agent's default
+  effort: string | null
 }
 
 export interface Task {
@@ -28,6 +30,8 @@ export interface Task {
   title: string
   status: TaskStatus
   resume_token: string | null
+  model: string | null // overrides the project's; null follows it
+  effort: string | null
   error: string | null
   created_at: number
   updated_at: number
@@ -109,6 +113,15 @@ export interface Capabilities {
   access_levels: Access[]
   background_turns: boolean
   project_config: boolean
+  live_model_change: boolean
+}
+
+export interface ModelOption {
+  id: string
+  title: string
+  efforts: string[]
+  default_effort: string | null
+  default: boolean
 }
 
 export interface AgentStatus {
@@ -117,6 +130,7 @@ export interface AgentStatus {
   logged_in: boolean | null
   detail: string
   capabilities: Capabilities
+  models: ModelOption[]
 }
 
 export type ServerEvent =
@@ -159,7 +173,9 @@ export const api = {
   decide: (id: number, decision: Decision) => request<Approval>('POST', `/api/approvals/${id}`, { decision }),
   addProject: (body: { path: string; name?: string; aliases: string[]; agent?: string }) =>
     request<Project>('POST', '/api/projects', body),
-  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'project_config'>>) =>
+  chooseModel: (id: number, model: string | null, effort: string | null) =>
+    request<Task>('PATCH', `/api/tasks/${id}`, { model, effort }),
+  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'project_config' | 'model' | 'effort'>>) =>
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
   removeRule: (id: number) => request<void>('DELETE', `/api/rules/${id}`),
