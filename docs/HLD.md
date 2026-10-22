@@ -393,5 +393,4 @@ automatically.
 - Speech numbers for Apple Silicon (CoreML) and a low-end 4-core CPU, to set the
   minimum supported tier.
 - Whether ACP can replace per-provider adapters.
-- espeak-ng (GPL-3) as Kokoro's phonemizer: confirm that downloading it as a separate
-  component meets the license inventory goals, or find an alternative phonemizer.
+
