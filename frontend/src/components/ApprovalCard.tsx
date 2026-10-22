@@ -14,20 +14,9 @@ const RISK: Record<Approval['risk'], { label: string; tone: string }> = {
   destructive: { label: 'Destructive', tone: 'text-destructive' },
 }
 
-export function ApprovalCard({ approval, task, project, onOpenTask }: {
-  approval: Approval
-  task?: Task
-  project?: Project
-  onOpenTask?: () => void
-}) {
+/** Sends a decision; `busy` stays on after success, since the approval leaves the list. */
+export function useDecide(approval: Approval) {
   const [busy, setBusy] = useState(false)
-  const [open, setOpen] = useState(false)
-  const risk = RISK[approval.risk]
-  const destructive = approval.risk === 'destructive'
-  const changes = approval.detail.changes ?? []
-  const shown = approval.kind === 'command' ? approval.detail.command
-    : approval.kind === 'tool' ? [approval.detail.tool, approval.detail.tool_input].filter(Boolean).join('\n') : null
-
   const decide = async (decision: Decision) => {
     setBusy(true)
     try {
@@ -37,6 +26,22 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
       setBusy(false)
     }
   }
+  return { busy, decide }
+}
+
+export function ApprovalCard({ approval, task, project, onOpenTask }: {
+  approval: Approval
+  task?: Task
+  project?: Project
+  onOpenTask?: () => void
+}) {
+  const { busy, decide } = useDecide(approval)
+  const [open, setOpen] = useState(false)
+  const risk = RISK[approval.risk]
+  const destructive = approval.risk === 'destructive'
+  const changes = approval.detail.changes ?? []
+  const shown = approval.kind === 'command' ? approval.detail.command
+    : approval.kind === 'tool' ? [approval.detail.tool, approval.detail.tool_input].filter(Boolean).join('\n') : null
 
   return (
     <article className={cn('rounded-3xl border bg-card p-5', destructive ? 'border-destructive/40' : 'border-warn/25')}>

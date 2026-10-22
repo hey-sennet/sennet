@@ -1,24 +1,20 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Plus, Settings } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
-import { ApprovalCard } from '@/components/ApprovalCard'
-import { Caption } from '@/components/Caption'
-import { Composer } from '@/components/Composer'
+import { Dock } from '@/components/Dock'
 import { SettingsDialog } from '@/components/SettingsDialog'
-import { TalkButton, useVoice } from '@/components/TalkButton'
+import { Stage } from '@/components/Stage'
+import { TaskDetail } from '@/components/TaskDetail'
 import { TaskList } from '@/components/TaskList'
-import { TaskView } from '@/components/TaskView'
 import { api } from '@/lib/api'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { Strata } from '@/strata/Strata'
-import { strataPreview } from '@/strata/preview'
-import { strataState } from '@/voice/strata'
-import { voice } from '@/voice/voice'
+import { voice, type Target } from '@/voice/voice'
 import { toast } from 'sonner'
 
-const desktopQuery = window.matchMedia('(min-width: 768px)')
+// From here the task rail and drawer replace the dock's tasks glyph and the sheet.
+const desktopQuery = window.matchMedia('(min-width: 1024px)')
 
 function useDesktop() {
   return useSyncExternalStore(
@@ -30,18 +26,29 @@ function useDesktop() {
   )
 }
 
+/**
+ * Strata's layout (design/README.md). The disc stays put on every view. Phone: one column with
+ * the disc, its words and the dock; tasks open as a bottom sheet. Desktop: a task rail on the
+ * left, and the selected task's timeline in a drawer at the right edge that widens a third
+ * column when open, so the disc glides aside. The selected task is what talking and typing
+ * follow up on; with none, they start a task in the header's project.
+ */
 export default function App() {
   const live = useLiveState()
   const desktop = useDesktop()
   const [selected, setSelected] = useState<number | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [homeProjectId, setHomeProjectId] = useState<number | null>(null)
+  const [typing, setTyping] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [sheet, setSheet] = useState<'closed' | 'list' | 'task'>('closed')
   const homeProject = live.projects.find((p) => p.id === homeProjectId) ?? live.projects[0]
+  const task = live.tasks.find((t) => t.id === selected)
+  const project = task ? live.projects.find((p) => p.id === task.project_id) : homeProject
   const { detail, streaming } = useTaskDetail(selected, live.subscribe)
-  const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
-  const otherApprovals = live.approvals.filter((a) => a.task_id !== selected)
+  const target: Target = selected !== null ? { task_id: selected } : homeProject ? { project_id: homeProject.id } : {}
 
-  // A request spoken on the home view opens the task it started, as a typed one does.
+  // A spoken request starts a task, which becomes the one to follow up on, as a typed one does.
   const selectedRef = useRef(selected)
   useEffect(() => {
     selectedRef.current = selected
@@ -69,13 +76,51 @@ export default function App() {
     else if (seenTasks.current.has(selected)) setSelected(null)
   }, [live.tasks, live.connection, selected])
 
+  const openTask = (id: number) => {
+    setSelected(id)
+    if (desktop) setPanelOpen(true)
+    else setSheet('task')
+  }
+  const newTask = () => {
+    setSelected(null)
+    setPanelOpen(false)
+  }
+
+  const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
+  const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
+  const timeline = detail && (
+    <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals}
+      project={live.projects.find((p) => p.id === detail.project_id)} />
+  )
+
   return (
-    <div className="flex h-dvh flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4 md:px-6">
-        <button className="font-serif text-[22px]" onClick={() => setSelected(null)}>
+    <div
+      className={cn('grid h-dvh grid-cols-1 grid-rows-[56px_minmax(0,1fr)_auto] overflow-hidden',
+        'lg:grid-cols-[280px_minmax(0,1fr)_var(--panel)] lg:transition-[grid-template-columns] lg:duration-600 lg:ease-strata')}
+      style={{ '--panel': panelOpen ? 'min(424px, 36vw)' : '0px' } as React.CSSProperties}
+    >
+      <header className="col-span-full flex items-center justify-between gap-3 px-5 lg:px-8">
+        <button className="font-serif text-[22px]" onClick={newTask}>
           agent talk<span className="text-muted-foreground">.</span>
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {live.projects.length > 0 && homeProject && (
+            <label className="relative flex h-8 min-w-0 items-center gap-2 rounded-full border px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+              <span className="size-1.5 shrink-0 rounded-full bg-foreground/70" />
+              <select
+                aria-label="Project"
+                className="min-w-0 appearance-none truncate bg-transparent pr-4 outline-none"
+                value={homeProject.id}
+                onChange={(event) => {
+                  setHomeProjectId(Number(event.target.value))
+                  setSelected(null)
+                }}
+              >
+                {live.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 size-3" />
+            </label>
+          )}
           <ConnectionDot connection={live.connection} />
           <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings />
@@ -83,61 +128,99 @@ export default function App() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className={cn('flex w-full flex-col border-r md:w-80 md:shrink-0', selected !== null && 'hidden md:flex')}>
-          <div className="p-3">
-            <Button variant="outline" className="w-full justify-start" onClick={() => setSelected(null)}>
+      {desktop && (
+        <aside aria-label="Tasks" className="col-start-1 row-span-2 row-start-2 flex min-h-0 flex-col pr-4 pb-6 pl-6">
+          <div className="mt-2 mb-1 flex items-center justify-between">
+            <p className="eyebrow pl-3 text-muted-foreground">Tasks</p>
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={newTask}>
               <Plus /> New task
             </Button>
           </div>
-          {selected === null && !desktop && (
-            <>
-              <HomeStrata approvalPending={live.approvals.length > 0} className="mx-auto mb-2 w-[min(56vw,220px)]" />
-              <VoiceWords className="mb-4 px-4 text-center" />
-            </>
-          )}
-          {selected === null && !desktop && homeProject && (
-            <div className="mb-3 flex justify-center"><TalkButton target={{ project_id: homeProject.id }} /></div>
-          )}
-          {selected === null && !desktop && <div className="px-3 pb-3"><NewTask live={live} project={homeProject} onProjectChange={setHomeProjectId} onCreated={setSelected} onOpenSettings={() => setSettingsOpen(true)} /></div>}
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-            <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={setSelected} />
+          <div className="min-h-0 flex-1 overflow-y-auto opacity-90">
+            <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={openTask} />
           </div>
         </aside>
+      )}
 
-        <main className={cn('min-w-0 flex-1 flex-col', selected === null ? 'hidden md:flex' : 'flex')}>
-          {otherApprovals.length > 0 && (
-            <div className="flex max-h-[45%] flex-col gap-3 overflow-y-auto border-b bg-muted/20 px-4 py-4 md:px-8">
-              {otherApprovals.map((approval) => {
-                const task = live.tasks.find((t) => t.id === approval.task_id)
-                return (
-                  <ApprovalCard key={approval.id} approval={approval} task={task}
-                    project={live.projects.find((p) => p.id === task?.project_id)}
-                    onOpenTask={() => setSelected(approval.task_id)} />
-                )
-              })}
-            </div>
-          )}
-          {selected !== null && detail ? (
-            <TaskView detail={detail} streaming={streaming} approvals={selectedApprovals}
-              project={live.projects.find((p) => p.id === detail.project_id)} onBack={() => setSelected(null)} />
-          ) : selected === null && desktop ? (
-            <div className="flex flex-1 items-center justify-center px-4">
-              <div className="w-full max-w-2xl">
-                <HomeStrata approvalPending={live.approvals.length > 0} className="mx-auto mb-8 w-[min(40vh,280px)]" />
-                <VoiceWords className="mb-2">
-                  <h1 className="mb-2 font-serif text-[44px] leading-none tracking-[-0.02em]">What should we work on?</h1>
-                </VoiceWords>
-                <div className="mb-6 flex items-center justify-between gap-4">
-                  <p className="text-sm text-muted-foreground">Hold to talk, or type a request.</p>
-                  {homeProject && <TalkButton target={{ project_id: homeProject.id }} />}
-                </div>
-                <NewTask live={live} project={homeProject} onProjectChange={setHomeProjectId} onCreated={setSelected} autoFocus onOpenSettings={() => setSettingsOpen(true)} />
+      <Stage
+        target={target}
+        project={project}
+        task={task}
+        detail={detail}
+        approvals={live.approvals}
+        tasks={live.tasks}
+        projects={live.projects}
+        compact={typing}
+        onClearTask={newTask}
+        onAddProject={() => setSettingsOpen(true)}
+        className="lg:col-start-2 lg:row-start-2"
+      />
+
+      <Dock
+        typing={typing}
+        onTypingChange={setTyping}
+        disabled={!project}
+        placeholder={task ? 'Follow up on this task' : homeProject ? `Ask ${homeProject.agent} to do something in ${homeProject.name}` : 'Add a project first'}
+        onSend={async (text) => {
+          if (selected !== null) await api.followUp(selected, text)
+          else if (homeProject) setSelected((await api.createTask(homeProject.id, text)).id)
+        }}
+        activeTasks={activeTasks}
+        needsYou={live.approvals.length > 0}
+        onOpenTasks={desktop ? undefined : () => setSheet(selected !== null ? 'task' : 'list')}
+        className="lg:col-start-2 lg:row-start-3"
+      />
+
+      {desktop && (
+        <aside aria-label="Task" className="relative col-start-3 row-span-2 row-start-2 mb-6">
+          <button
+            className="absolute top-1/2 -left-10 -mt-8 grid h-16 w-7 place-items-center rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={panelOpen ? 'Hide task' : 'Show task'} title={panelOpen ? 'Hide task' : 'Show task'} aria-expanded={panelOpen}
+            onClick={() => setPanelOpen(!panelOpen)}
+          >
+            <ChevronLeft className={cn('size-3.5 transition-transform duration-600 ease-strata', panelOpen && 'rotate-180')} />
+          </button>
+          <div className={cn('h-full w-[min(400px,34vw)] overflow-y-auto rounded-[26px] border bg-card px-6 py-6 transition-opacity duration-400 ease-strata',
+            panelOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} inert={!panelOpen}>
+            {timeline ?? <p className="text-sm text-muted-foreground">Pick a task from the list to see what it did.</p>}
+          </div>
+        </aside>
+      )}
+
+      {!desktop && (
+        <>
+          <div className={cn('fixed inset-0 z-20 bg-background/40 transition-opacity duration-500', sheet === 'closed' ? 'pointer-events-none opacity-0' : 'opacity-100')}
+            onClick={() => setSheet('closed')} aria-hidden />
+          <section
+            aria-label="Tasks"
+            inert={sheet === 'closed'}
+            className={cn('fixed inset-x-2 bottom-2 z-30 max-h-[86dvh] overflow-y-auto rounded-[26px] border bg-card/95 px-[18px] pt-2.5 pb-[18px] backdrop-blur-xl',
+              'transition-transform duration-650 ease-strata', sheet === 'closed' ? 'translate-y-[110%]' : 'translate-y-0')}
+          >
+            <button className="mx-auto mb-1.5 block h-4 w-12" aria-label="Close" onClick={() => setSheet('closed')}>
+              <span className="mx-auto block h-1 w-9 rounded-full bg-foreground/15" />
+            </button>
+            {sheet === 'task' && timeline ? (
+              <div className="pt-1">
+                <button className="mb-3.5 -ml-1 inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setSheet('list')}>
+                  <ChevronLeft className="size-3.5" /> Tasks
+                </button>
+                {timeline}
               </div>
-            </div>
-          ) : null}
-        </main>
-      </div>
+            ) : (
+              <>
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="eyebrow pl-3 text-muted-foreground">Tasks</p>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => { newTask(); setSheet('closed') }}>
+                    <Plus /> New task
+                  </Button>
+                </div>
+                <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={openTask} />
+              </>
+            )}
+          </section>
+        </>
+      )}
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings} />
       <Toaster position="top-center" />
@@ -145,70 +228,12 @@ export default function App() {
   )
 }
 
-function NewTask({ live, project, onProjectChange, onCreated, autoFocus, onOpenSettings }: {
-  live: ReturnType<typeof useLiveState>
-  project?: ReturnType<typeof useLiveState>['projects'][number]
-  onProjectChange: (id: number) => void
-  onCreated: (id: number) => void
-  autoFocus?: boolean
-  onOpenSettings?: () => void
-}) {
-  if (live.connection !== 'live' && !live.projects.length) {
-    return <p className="text-sm text-muted-foreground">Connecting…</p>
-  }
-  if (!live.projects.length || !project) {
-    return (
-      <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
-        Add a project first: a directory your agent should work in.
-        <div className="mt-3 flex flex-wrap gap-2">
-          {onOpenSettings && <Button size="sm" onClick={onOpenSettings}>Add a project</Button>}
-          <code className="self-center font-mono text-xs">agent-talk project add ~/code/app</code>
-        </div>
-      </div>
-    )
-  }
-  return (
-    <Composer
-      autoFocus={autoFocus}
-      placeholder={`Ask ${project.agent} to do something in ${project.name}`}
-      onSend={async (text) => onCreated((await api.createTask(project.id, text)).id)}
-    >
-      <select
-        aria-label="Project"
-        className="max-w-full truncate rounded-md bg-transparent py-1 text-sm text-muted-foreground hover:text-foreground"
-        value={project.id}
-        onChange={(event) => onProjectChange(Number(event.target.value))}
-      >
-        {live.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-    </Composer>
-  )
-}
-
-const voiceSources = { user: voice().source, agent: voice().playback.source }
-
-/** Strata, following the voice session (docs/voice-protocol.md §10). `?strata=` previews other states. */
-function HomeStrata({ approvalPending, className }: { approvalPending: boolean; className?: string }) {
-  const snapshot = useVoice()
-  if (strataPreview) {
-    return <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className={className} />
-  }
-  return <Strata state={strataState(snapshot, { approvalPending })} sources={voiceSources} className={className} />
-}
-
-/** What you or the agent are saying, or `children` when nobody has spoken lately. */
-function VoiceWords({ className, children }: { className?: string; children?: React.ReactNode }) {
-  const { words } = useVoice()
-  if (!words || !(words.committed || words.provisional)) return children ?? null
-  return <Caption committed={words.committed} provisional={words.provisional} speaker={words.speaker} className={className} />
-}
-
 function ConnectionDot({ connection }: { connection: Connection }) {
   const label = { connecting: 'Connecting', live: 'Connected', reconnecting: 'Reconnecting' }[connection]
   return (
-    <span className="flex items-center gap-2 text-xs text-muted-foreground" title={label}>
+    <span className="flex items-center gap-2 px-1 text-xs text-muted-foreground" title={label}>
       <span className={cn('size-2 rounded-full', connection === 'live' ? 'bg-foreground/60' : 'animate-pulse bg-warn')} />
-      <span className="hidden sm:inline">{label}</span>
+      <span className="sr-only">{label}</span>
     </span>
   )
 }

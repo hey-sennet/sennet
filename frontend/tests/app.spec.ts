@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 
@@ -28,24 +28,45 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
 
-  await page.getByLabel('Project').first().selectOption({ label: name })
+  await page.getByLabel('Project').selectOption({ label: name })
+  await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
   await composer.fill('run:npm test')
   await composer.press('Enter')
 
-  await expect(page.getByText('Wants to run npm test')).toBeVisible()
+  // The approval waits under the disc; the reply shows there once the task is done.
+  const stage = page.getByRole('main')
+  await expect(stage.getByText(`${name} wants to run npm test`)).toBeVisible()
   await page.screenshot({ path: `test-results/${info.project.name}-approval.png` })
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
-  await expect(page.getByText('Ran it.')).toBeVisible()
-  await expect(page.getByText('Queued')).toHaveCount(0)
-  await expect(page.locator('header').getByText('Done')).toBeVisible()
+  await stage.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(stage.getByText('Ran it.')).toBeVisible()
 
+  // The timeline: a drawer on desktop, the tasks sheet on phones.
+  const timeline = await openTask(page, 'run:npm test')
+  await expect(timeline.getByText('Ran it.')).toBeVisible()
+  await expect(timeline.getByText('Queued')).toHaveCount(0)
+  await expect(timeline.getByText('Done', { exact: true })).toBeVisible()
+  await page.screenshot({ path: `test-results/${info.project.name}-timeline.png` })
+  if (info.project.name === 'phone') await page.getByRole('button', { name: 'Close' }).click()
+
+  await page.getByRole('button', { name: 'Type instead' }).click()
   const followUp = page.getByPlaceholder('Follow up on this task')
   await followUp.fill('thanks')
   await followUp.press('Enter')
-  await expect(page.getByText('You said: thanks')).toBeVisible()
+  await expect(stage.getByText('You said: thanks')).toBeVisible()
   await page.screenshot({ path: `test-results/${info.project.name}.png`, fullPage: true })
   const loaded = await page.evaluate(() => [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replaceAll('"', '')))
   expect(loaded).toContain('Inter Variable')
   expect(external).toEqual([])
 })
+
+/** The selected task's timeline: picked from the rail into the drawer on desktop; on phones the
+ * tasks sheet opens on the selected task. */
+async function openTask(page: Page, title: string) {
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    return page.getByRole('region', { name: 'Tasks' })
+  }
+  await page.getByRole('complementary', { name: 'Tasks' }).getByRole('button', { name: new RegExp(title) }).click()
+  return page.getByRole('complementary', { name: 'Task', exact: true })
+}
