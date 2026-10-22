@@ -34,9 +34,11 @@ How it is laid out:
 
 - **Phone.** One column: the disc, the words beneath it, and a dock with type-instead and
   tasks. Tasks open as a bottom sheet; tapping one shows its timeline in the same sheet.
-- **Desktop.** From 1024 px a task rail sits on the left. From 1280 px the selected task's
-  timeline lives in a side drawer, collapsed to a chevron tab at the right edge by default;
-  opening it, or picking a task, widens a third column so the disc glides aside.
+- **Desktop.** From 1024 px the task rail and the selected task's timeline are side drawers,
+  each collapsed to a chevron tab at its edge by default, leaving the disc the whole width.
+  Opening one (picking a task opens the timeline) widens its column so the disc glides aside.
+- **Disc size.** The disc takes all the room the stage has: its full width, and its height less
+  the words beneath, up to 720 px. Typing, or an approval's taller card, steps it back.
 - **Timeline.** Your request in serif, then commands with their results, files edited and the
   agent's reply in italic. A task's approval sits at the end of its own timeline; approvals
   for other tasks show as amber dots, never in another task's timeline.

@@ -62,13 +62,14 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   expect(external).toEqual([])
 })
 
-/** The selected task's timeline: picked from the rail into the drawer on desktop; on phones the
+/** The selected task's timeline: picked from the opened rail into the drawer on desktop; on phones the
  * tasks sheet opens on the selected task. */
 async function openTask(page: Page, title: string) {
   if ((page.viewportSize()?.width ?? 0) < 1024) {
     await page.getByRole('button', { name: 'Tasks', exact: true }).click()
     return page.getByRole('region', { name: 'Tasks' })
   }
+  await page.getByRole('button', { name: 'Show tasks' }).click()
   await page.getByRole('complementary', { name: 'Tasks' }).getByRole('button', { name: new RegExp(title) }).click()
   return page.getByRole('complementary', { name: 'Task', exact: true })
 }

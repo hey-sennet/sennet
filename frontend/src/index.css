@@ -55,6 +55,14 @@
     text-transform: uppercase;
 }
 
+/* The stage gives its disc all the room it has: its full width, and its height less the words
+   beneath (their label and 4.5 lines) and the gap between, up to 720px. */
+@utility stage {
+    container-type: size;
+    --gap: clamp(16px, 4vh, 40px);
+    --disc: min(100cqw, 100cqh - var(--gap) - 4.5 * clamp(26px, 6vw, 34px) - 2rem, 720px);
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;

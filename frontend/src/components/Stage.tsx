@@ -28,7 +28,7 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   approvals: Approval[]
   tasks: Task[]
   projects: Project[]
-  compact: boolean // typing: the disc steps back
+  compact: boolean // typing: the disc steps back, as it does for an approval
   onClearTask: () => void
   onAddProject: () => void
   className?: string
@@ -89,13 +89,13 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   }
 
   return (
-    <main className={cn('flex min-h-0 flex-col items-center justify-center gap-[clamp(16px,4vh,40px)] overflow-hidden px-6', className)}>
+    <main className={cn('stage flex min-h-0 flex-col items-center justify-center gap-(--gap) overflow-hidden px-6 lg:px-14', className)}>
       <button
         {...talk.props}
         className={cn('aspect-square shrink-0 touch-none rounded-full outline-none select-none focus-visible:ring-1 focus-visible:ring-ring',
           'transition-[width] duration-700 ease-strata enabled:cursor-pointer',
-          compact ? 'w-[calc(var(--disc)*0.62)]' : 'w-(--disc)',
-          '[--disc:min(64vw,34vh,460px)] lg:[--disc:min(30vw,40vh,440px)]')}
+          // An approval's card is taller than the words the disc leaves room for.
+          compact || (approval && !words) ? 'w-[calc(var(--disc)*0.62)]' : 'w-(--disc)')}
       >
         {strataPreview
           ? <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className="size-full" />

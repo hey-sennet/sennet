@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, ChevronLeft, Plus, Settings } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { Dock } from '@/components/Dock'
@@ -28,9 +28,9 @@ function useDesktop() {
 
 /**
  * Strata's layout (design/README.md). The disc stays put on every view. Phone: one column with
- * the disc, its words and the dock; tasks open as a bottom sheet. Desktop: a task rail on the
- * left, and the selected task's timeline in a drawer at the right edge that widens a third
- * column when open, so the disc glides aside. The selected task is what talking and typing
+ * the disc, its words and the dock; tasks open as a bottom sheet. Desktop: the task rail on the
+ * left and the selected task's timeline on the right, each a drawer collapsed to a tab at its
+ * edge by default, widening a column when open so the disc glides aside. The selected task is what talking and typing
  * follow up on; with none, they start a task in the header's project.
  */
 export default function App() {
@@ -40,6 +40,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [homeProjectId, setHomeProjectId] = useState<number | null>(null)
   const [typing, setTyping] = useState(false)
+  const [railOpen, setRailOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [sheet, setSheet] = useState<'closed' | 'list' | 'task'>('closed')
   const homeProject = live.projects.find((p) => p.id === homeProjectId) ?? live.projects[0]
@@ -96,8 +97,8 @@ export default function App() {
   return (
     <div
       className={cn('grid h-dvh grid-cols-1 grid-rows-[56px_minmax(0,1fr)_auto] overflow-hidden',
-        'lg:grid-cols-[280px_minmax(0,1fr)_var(--panel)] lg:transition-[grid-template-columns] lg:duration-600 lg:ease-strata')}
-      style={{ '--panel': panelOpen ? 'min(424px, 36vw)' : '0px' } as React.CSSProperties}
+        'lg:grid-cols-[var(--rail)_minmax(0,1fr)_var(--panel)] lg:transition-[grid-template-columns] lg:duration-600 lg:ease-strata')}
+      style={{ '--rail': railOpen ? '280px' : '0px', '--panel': panelOpen ? 'min(424px, 36vw)' : '0px' } as React.CSSProperties}
     >
       <header className="col-span-full flex items-center justify-between gap-3 px-5 lg:px-8">
         <button className="font-serif text-[22px]" onClick={newTask}>
@@ -129,15 +130,25 @@ export default function App() {
       </header>
 
       {desktop && (
-        <aside aria-label="Tasks" className="col-start-1 row-span-2 row-start-2 flex min-h-0 flex-col pr-4 pb-6 pl-6">
-          <div className="mt-2 mb-1 flex items-center justify-between">
-            <p className="eyebrow pl-3 text-muted-foreground">Tasks</p>
-            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={newTask}>
-              <Plus /> New task
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto opacity-90">
-            <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={openTask} />
+        <aside aria-label="Tasks" className="relative col-start-1 row-span-2 row-start-2 mb-6 min-h-0">
+          <button
+            className="absolute top-1/2 -right-10 z-10 -mt-8 grid h-16 w-7 place-items-center rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={railOpen ? 'Hide tasks' : 'Show tasks'} title={railOpen ? 'Hide tasks' : 'Show tasks'} aria-expanded={railOpen}
+            onClick={() => setRailOpen(!railOpen)}
+          >
+            <ChevronRight className={cn('size-3.5 transition-transform duration-600 ease-strata', railOpen && 'rotate-180')} />
+          </button>
+          <div className={cn('absolute inset-y-0 right-0 flex w-[280px] flex-col pr-4 pl-6 transition-opacity duration-400 ease-strata',
+            railOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} inert={!railOpen}>
+            <div className="mt-2 mb-1 flex items-center justify-between">
+              <p className="eyebrow pl-3 text-muted-foreground">Tasks</p>
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={newTask}>
+                <Plus /> New task
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto opacity-90">
+              <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={openTask} />
+            </div>
           </div>
         </aside>
       )}
