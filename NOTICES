@@ -1,8 +1,9 @@
 Agent Talk
 Copyright 2026 The Agent Talk authors
 
-Agent Talk is licensed under the Apache License, Version 2.0 (see LICENSE). The built web client
-bundles the third-party fonts below, each under the SIL Open Font License, Version 1.1, whose
+Agent Talk is licensed under the Apache License, Version 2.0 (see LICENSE). Third-party
+speech components are listed under "Speech" below. The built web client bundles the
+third-party fonts below, each under the SIL Open Font License, Version 1.1, whose
 text follows the list.
 
 Instrument Serif
@@ -16,6 +17,32 @@ Inter
 JetBrains Mono
   Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
   Packaged by Fontsource as @fontsource-variable/jetbrains-mono. License: SIL OFL 1.1.
+
+Speech
+  Agent Talk's speech dependencies are installed by pip or uv, and its speech models are
+  downloaded by `agent-talk setup`; none of them are part of this repository.
+
+  GPL-3 components. Kokoro's text-to-phoneme step uses phonemizer (GPL-3.0-or-later,
+  https://github.com/bootphon/phonemizer) and espeak-ng (GPL-3.0-or-later,
+  https://github.com/espeak-ng/espeak-ng, shipped in the espeakng-loader wheel). Both load
+  into the Agent Talk process. Agent Talk's own code remains under the Apache License 2.0,
+  but a distribution that bundles Agent Talk with its speech dependencies (for example a
+  container image, a system package or a frozen binary) must be offered under the terms of
+  GPL-3.0.
+
+  Parakeet TDT 0.6B v2
+    Copyright NVIDIA Corporation (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
+    License: CC-BY-4.0. ONNX export by istupakov
+    (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx).
+  Kokoro-82M v1.0
+    Copyright hexgrad (https://huggingface.co/hexgrad/Kokoro-82M). License: Apache-2.0.
+    ONNX export by thewh1teagle (https://github.com/thewh1teagle/kokoro-onnx, MIT).
+    src/agent_talk/speech/kokoro_vocab.json is Kokoro-82M's phoneme vocabulary.
+  Silero VAD v6.2
+    Copyright Silero Team (https://github.com/snakers4/silero-vad). License: MIT.
+  onnx-asr (MIT), ONNX Runtime (MIT), NumPy (BSD-3-Clause).
+  The `cuda` extra installs NVIDIA's CUDA and cuDNN wheels under the NVIDIA software
+  license agreements that come with them.
 
 -------------------------------------------------------------------------------
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

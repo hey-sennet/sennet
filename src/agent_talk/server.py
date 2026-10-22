@@ -24,6 +24,7 @@ from .approvals import Approvals
 from .config import Paths, Settings
 from .db import Database
 from .events import EventBus
+from .speech import Speech
 from .tasks import TaskError, TaskManager
 
 log = logging.getLogger(__name__)
@@ -60,7 +61,9 @@ class DecisionIn(BaseModel):
     decision: Literal["approve", "approve_always", "decline", "cancel"]
 
 
-def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None = None) -> FastAPI:
+def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None = None,
+               speech: Speech | None = None) -> FastAPI:
+    """`agents` and `speech` default to the real ones; tests pass fakes."""
     agents = agents if agents is not None else {"codex": CodexAgent(settings.agents.codex_command)}
 
     @asynccontextmanager
@@ -70,11 +73,16 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         approvals = Approvals(db, bus.publish)
         manager = TaskManager(db, settings, agents, approvals, bus.publish)
         app.state.db, app.state.bus, app.state.approvals, app.state.tasks = db, bus, approvals, manager
+        app.state.speech, loading = _speech(settings, paths, speech)
         await manager.start()
         try:
             yield
         finally:
+            if loading:
+                loading.cancel()
             await manager.shutdown()
+            if speech is None:  # a caller's speech is the caller's to close
+                app.state.speech.close()
             db.close()
 
     app = FastAPI(title="Agent Talk", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -215,3 +223,13 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             return FileResponse(WEB_DIR / "index.html")
 
     return app
+
+
+def _speech(settings: Settings, paths: Paths, speech: Speech | None) -> tuple[Speech, asyncio.Task | None]:
+    if speech is not None:
+        return speech, None
+    if not settings.speech.enabled:
+        return Speech.unavailable("speech is turned off in config.toml"), None
+    speech = Speech()
+    config = settings.speech
+    return speech, asyncio.ensure_future(speech.load(paths.models, config.device, config.threads, config.voice))

@@ -1,4 +1,4 @@
-"""Command line: `agent-talk serve`, `agent-talk project …`, `agent-talk doctor`."""
+"""Command line: `agent-talk setup`, `serve`, `project …` and `doctor`."""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +17,10 @@ def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(prog="agent-talk", description="Talk to your coding agents.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+
+    setup = commands.add_parser("setup", help="choose a speech tier, install it and download its models")
+    setup.add_argument("--device", choices=("cpu", "cuda"), help="skip the recommendation and use this tier")
+    setup.add_argument("--yes", action="store_true", help="accept the recommendations without asking")
 
     serve = commands.add_parser("serve", help="run the server")
     serve.add_argument("--host", help="bind address (default from config: 127.0.0.1)")
@@ -42,7 +46,10 @@ def main(argv: list[str] | None = None):
     except (ValueError, OSError) as error:
         sys.exit(f"config error in {paths.config_file}: {error}")
 
-    if args.command == "serve":
+    if args.command == "setup":
+        from . import setup as guided
+        sys.exit(guided.run(settings, paths, args.device, args.yes))
+    elif args.command == "serve":
         serve_command(settings, paths, args)
     elif args.command == "project":
         project_command(paths, args)
@@ -100,8 +107,29 @@ def doctor(settings: Settings, paths: Paths) -> int:
     ok = status.installed and status.logged_in
     problems += not ok
     print(f"codex:    {'ok' if ok else 'problem'}: {status.detail}")
+    problems += not speech_ok(settings, paths)
     if shutil.which("tailscale"):
         print("tailscale: installed (phone access: `tailscale serve --bg 7710`)")
     else:
         print("tailscale: not installed (needed only for phone access)")
     return 1 if problems else 0
+
+
+def speech_ok(settings: Settings, paths: Paths) -> bool:
+    from .speech import models
+    from .speech.runtime import resolve_device, runtime_distribution
+
+    if not settings.speech.enabled:
+        print("speech:   off (speech.enabled = false)")
+        return True
+    runtime = runtime_distribution()
+    if runtime is None:
+        print("speech:   problem: no ONNX runtime installed; run `agent-talk setup`")
+        return False
+    device = resolve_device(settings.speech.device)
+    missing = [m.id for m in models.MODELS[device].values() if not models.present(paths.models, m)]
+    if missing:
+        print(f"speech:   problem: {device} models missing ({', '.join(missing)}); run `agent-talk setup`")
+        return False
+    print(f"speech:   ok: {device} via {runtime}, models in {paths.models}")
+    return True

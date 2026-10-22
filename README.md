@@ -18,7 +18,8 @@ client), and the [Codex CLI](https://developers.openai.com/codex) logged in with
 
 ```sh
 (cd frontend && npm ci && npm run build)
-uv run agent-talk doctor                        # checks Codex is installed and logged in
+uv run agent-talk setup                         # recommends a speech tier, installs it, downloads models
+uv run agent-talk doctor                        # checks Codex, speech and Tailscale
 uv run agent-talk project add ~/code/my-app --name app --alias frontend
 uv run agent-talk serve                         # http://127.0.0.1:7710
 ```
@@ -38,12 +39,23 @@ sandbox = "workspace-write"
 max_concurrent = 3         # one running task per project regardless
 ```
 
+Setup looks at the CPU, RAM and GPU, recommends CPU or GPU speech and says why, then
+installs the matching ONNX runtime (the `cpu` or `cuda` extra), downloads about 0.8 GB
+(CPU) or 2.9 GB (GPU) of models and checks them, and ends with a short spoken self-test.
+`--yes` accepts its recommendations. Typed tasks work without speech.
+
+Licensing note: the speech dependencies include phonemizer and espeak-ng, which are
+GPL-3. Agent Talk's own code is Apache-2.0, but anything that bundles it with its speech
+dependencies is GPL-3; see [NOTICES](NOTICES).
+
 `agent-talk doctor` prints where the config and data live. The server binds to
 127.0.0.1 only; for phone access use `tailscale serve`, which provides HTTPS.
 
 ## Develop
 
 ```sh
-uv run pytest                 # backend, against a scripted fake Codex
+uv sync --extra cuda          # or --extra cpu
+uv run pytest                 # backend, against a scripted fake Codex and fake speech
+AGENT_TALK_MODELS=~/.local/share/agent-talk/models uv run pytest -m models   # real speech models
 cd frontend && npm test       # browser tests, desktop and phone
 ```

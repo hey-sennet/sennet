@@ -161,7 +161,7 @@ Speech defaults (validated by the M0 spike, see
 
 | Role | CPU tier | GPU tier | License |
 | --- | --- | --- | --- |
-| VAD | Silero VAD v5 | same (runs on CPU) | MIT |
+| VAD | Silero VAD v6.2 | same (runs on CPU) | MIT |
 | Turn detection | smart-turn v3.2 (CPU build) | smart-turn v3.2 (GPU build) | BSD-2-Clause |
 | STT | Parakeet TDT 0.6B v2 (English), int8 | Parakeet TDT 0.6B v2, fp32 | CC-BY-4.0 |
 | TTS | Kokoro-82M v1.0, int8 (Piper for very low-end) | Kokoro-82M v1.0, fp32 | Apache-2.0 (Kokoro); GPL-3 espeak-ng phonemizer |
@@ -176,6 +176,8 @@ Runtime settings from M0:
   but is slow under CUDA.
 - **CUDA sessions use `cudnn_conv_algo_search=HEURISTIC`.** The default exhaustive
   search re-tunes for every new input length, and live captions produce one per tick.
+- The GPU tier uses about 4.5 GB of VRAM (models, cuDNN workspace and a 60 s final
+  pass); setup recommends it when 5 GB is free.
 - Apple Silicon (CoreML) and low-end CPU tiers still need measuring.
 
 Reference results (i7-12650H, RTX 4060 Laptop):

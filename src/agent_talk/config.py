@@ -16,6 +16,7 @@ import tomli_w
 
 APPROVAL_MODES = ("ask", "auto", "never")
 SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
+DEVICES = ("auto", "cpu", "cuda")
 
 
 @dataclass
@@ -36,6 +37,10 @@ class Paths:
     @property
     def database(self) -> Path:
         return self.data_dir / "agent-talk.db"
+
+    @property
+    def models(self) -> Path:
+        return self.data_dir / "models"
 
 
 @dataclass
@@ -66,11 +71,21 @@ class AgentSettings:
 
 
 @dataclass
+class SpeechSettings:
+    enabled: bool = True
+    # auto: CUDA when the GPU runtime and models are installed, else CPU. Setup sets it.
+    device: str = "auto"
+    threads: int = 4
+    voice: str = "af_heart"
+
+
+@dataclass
 class Settings:
     server: ServerSettings = field(default_factory=ServerSettings)
     tasks: TaskSettings = field(default_factory=TaskSettings)
     approvals: ApprovalSettings = field(default_factory=ApprovalSettings)
     agents: AgentSettings = field(default_factory=AgentSettings)
+    speech: SpeechSettings = field(default_factory=SpeechSettings)
 
     @classmethod
     def load(cls, path: Path) -> Settings:
@@ -96,6 +111,10 @@ class Settings:
             raise ValueError(f"approvals.sandbox must be one of {SANDBOXES}")
         if self.tasks.max_concurrent < 1:
             raise ValueError("tasks.max_concurrent must be at least 1")
+        if self.speech.device not in DEVICES:
+            raise ValueError(f"speech.device must be one of {DEVICES}")
+        if self.speech.threads < 1:
+            raise ValueError("speech.threads must be at least 1")
 
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -10,7 +10,16 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "platformdirs>=4",
     "tomli-w>=1",
+    # Speech. The ONNX runtime comes from the cpu or cuda extra, which `agent-talk setup` picks.
+    "numpy>=2",
+    "onnx-asr>=0.12",
+    "phonemizer>=3.3",       # GPL-3.0-or-later, see NOTICES
+    "espeakng-loader>=0.2.4",  # bundles espeak-ng, GPL-3.0
 ]
+
+[project.optional-dependencies]
+cpu = ["onnxruntime>=1.20,!=1.24.1,!=1.25.*,!=1.26.0"]
+cuda = ["onnxruntime-gpu[cuda,cudnn]>=1.20,!=1.24.1,!=1.25.*,!=1.26.0; sys_platform == 'linux'"]
 
 [project.scripts]
 agent-talk = "agent_talk.cli:main"
@@ -21,6 +30,10 @@ dev = [
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
 ]
+
+[tool.uv]
+# Both runtimes install the `onnxruntime` module, so only one may be present.
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
 
 [build-system]
 requires = ["hatchling"]
@@ -35,3 +48,5 @@ artifacts = ["src/agent_talk/web/**"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+markers = ["models: needs the downloaded speech models (set AGENT_TALK_MODELS)"]
+addopts = "-m 'not models'"
