@@ -92,17 +92,19 @@ The contract is in `src/agent_talk/agents/base.py`. An adapter provides `status(
 (installed, logged in), `capabilities`, and `open(cwd, resume_token, policy, on_event,
 on_approval)`, which returns a session with `send(text)`, `interrupt()` and `close()`.
 Capabilities declare what the CLI really supports (interruption, resume, live
-approvals, which approval modes and access levels); unsupported behaviour is shown in
-the UI, not faked. Without interrupt, cancelling stops the process; without resume, a
-new process starts a new conversation.
+approvals, which approval modes and access levels, work that outlives a turn, and a
+project configuration to opt into); unsupported behaviour is shown in the UI, not
+faked. Without interrupt, cancelling stops the process; without resume, a new process
+starts a new conversation.
 
 Adapters translate everything into the contract's own vocabularies, and nothing
 outside an adapter sees a provider's words:
 
 | | Values |
 | --- | --- |
-| Events | `message_delta`, `message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`, `turn_completed` |
+| Events | `message_delta`, `message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`, `turn_started`, `turn_completed`, `background` |
 | Turn status | `completed`, `cancelled`, `failed` |
+| Turn started by | `user`, `agent` |
 | Command and file change status | `running`, `completed`, `failed`, `declined` |
 | File change kind | `add`, `delete`, `update`, `move` |
 | Plan step status | `pending`, `active`, `done` |
@@ -114,6 +116,18 @@ Approval requests carry only those fields, an optional `title` (the agent's own
 description) and an `extra` dict of provider detail that is shown raw and never
 interpreted. The engine, not the adapter, writes the summary, classifies the risk and
 decides whether "always" can apply (a command prefix, all edits, or one tool by name).
+
+An agent with `background_turns` may leave work running when its turn ends
+(`background` lists it, and is sent empty when it is done) and start a turn itself to
+report it (`turn_started` with `by: "agent"`). The task is `background` meanwhile:
+follow-ups run as usual, the process isn't closed for idleness, and cancelling stops
+it, which ends the work. The agent's own turn runs like any other, messages queued
+during it go after it, and its reply is spoken on the task's owner after the approval
+chime. Background work doesn't survive a restart.
+
+Adapters whose CLI calls back into Agent Talk (Claude Code's permission prompts) use
+the daemon's MCP endpoint, `/mcp/<secret>`: one secret per session, local requests
+only, never browsers (`agents/callbacks.py`).
 
 The last `message` of a turn is its answer, and is what gets spoken. The resume token
 is opaque: a Codex thread id, a Claude Code session id or an ACP session id.
@@ -129,7 +143,7 @@ Terminal screen scraping is not used.
 | Provider | Interface | Status |
 | --- | --- | --- |
 | Codex | `codex app-server` (JSON-RPC over stdio): threads, turns, item events, approval requests, interrupt | First adapter. Protocol already exercised by the prototype. |
-| Claude Code | The user's installed `claude` CLI in headless mode (`-p`, stream-json input/output, `--resume`), with approvals routed through a permission-prompt tool served by the daemon | Verify Anthropic's current terms for third-party tools driving the CLI under subscription login before release. Do not use the Agent SDK with claude.ai login unless that is permitted. |
+| Claude Code | The user's installed `claude` CLI in headless mode (`-p`, stream-json input/output, `--session-id`/`--resume`), with approvals routed through a permission-prompt tool served by the daemon | Second adapter (M4, [m4-agents.md](m4-agents.md)). Runs the unmodified `claude` on the user's own login, never the Agent SDK or `--bare`, and never touches its credentials; the terms reading is in the M4 doc. Access is enforced with permission modes and path-scoped rules, since its bash sandbox needs nested user namespaces. A project's own hooks and MCP servers load only when the project opts in. |
 | Gemini CLI | ACP mode over stdio | Evaluate session, approval and cancel behavior against a pinned version. |
 
 ACP adapters exist for Codex and Claude Code too. If they prove reliable, ACP could
@@ -401,14 +415,17 @@ automatically.
    Agents write a version of long replies to be heard; symbols are said as words;
    guided setup with voice previews. A routing assistant and a local summary model were
    tried; the first was removed and the second parked (§5.2).
-5. **M4 — More agents.** Claude Code and Gemini adapters (after the terms check).
+5. **M4 — More agents.** Breakdown in [m4-agents.md](m4-agents.md). Claude Code
+   adapter, with approvals through the daemon's MCP endpoint and turns the agent starts
+   itself to report background work; agent picker in Settings. Gemini CLI next.
 6. **M5 — Packaging.** `setup`, `doctor`, service install, Tailscale guide, NOTICES, release CI.
 7. **M6 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 
 ## 12. Open questions
 
-- Claude Code: what the current terms allow for a third-party tool driving the CLI
-  under a subscription login (blocks M4 for Claude).
+- Claude Code: whether its bash sandbox runs on typical Linux desktops and macOS; if so,
+  `auto` + `workspace` could run commands without asking, as Codex does. Re-read
+  Anthropic's terms before each release ([m4-agents.md](m4-agents.md#terms)).
 - What a rebuilt local LLM should do between turns (status, announcements), and on
   which hardware it is worth enabling (§5.2).
 - Turn detection good enough for open-mic sessions: real-speech evaluation and a

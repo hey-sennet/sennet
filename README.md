@@ -7,26 +7,29 @@ as Codex, Claude Code, and Gemini CLI. Speak a request, let an agent work on you
 computer under your existing subscription, and hear what it did. Speech runs locally;
 only the agents themselves talk to the cloud.
 
-**Status:** early development. Typed tasks with Codex work today; voice is next. See the
+**Status:** early development. Typed and spoken tasks with Codex and Claude Code work
+today; Gemini CLI is next. See the
 [high-level design](docs/HLD.md) for the plan. The earlier Rust/Docker prototype is on
 the `archive/rust-prototype` branch.
 
 ## Try it (development)
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node 22+ (to build the
-client), and the [Codex CLI](https://developers.openai.com/codex) logged in with `codex login`.
+client), and at least one agent: the [Codex CLI](https://developers.openai.com/codex)
+logged in with `codex login`, or [Claude Code](https://code.claude.com/docs) logged in
+with `claude auth login` on your Claude subscription.
 
 ```sh
 (cd frontend && npm ci && npm run build)
 uv run agent-talk setup                         # recommends a speech tier, installs it, downloads models
-uv run agent-talk doctor                        # checks Codex, speech and Tailscale
-uv run agent-talk project add ~/code/my-app --name app --alias frontend
+uv run agent-talk doctor                        # checks the agents, speech and Tailscale
+uv run agent-talk project add ~/code/my-app --name app --alias frontend --agent claude
 uv run agent-talk serve                         # http://127.0.0.1:7710
 ```
 
-Agents run on this computer as you, in the project directory, using their own sandbox.
-By default Codex asks before running anything outside its trusted set, and you approve
-or decline in the app. "Always" remembers a command (e.g. `npm test`) for that project;
+Agents run on this computer as you, in the project directory. Pick each project's agent
+in Settings or with `--agent`. By default the agent asks before running anything
+outside its trusted set, and you approve or decline in the app or by voice. "Always" remembers a command (e.g. `npm test`) for that project;
 destructive commands such as `git push` or `rm` are always asked. Change the policy per
 project in Settings, or the default in `config.toml`:
 
@@ -38,6 +41,15 @@ access = "workspace"       # read-only | workspace (edit the project) | full
 [tasks]
 max_concurrent = 3         # one running task per project regardless
 ```
+
+Codex enforces access with its own sandbox. Claude Code's sandbox doesn't run everywhere,
+so Agent Talk uses its permission modes instead, which is stricter in two cases: with
+`auto` and `workspace` it asks before commands that aren't read-only, and with `never`
+and `workspace` it can't run them at all. Claude Code loads your own settings but not a
+project's `.claude/settings.json` hooks or `.mcp.json` servers, which would run without
+asking; turn that on per project in Settings for projects you trust. When Claude leaves
+a command running in the background, the task shows "Working in the background", and
+its report is spoken after a chime when the command ends.
 
 Setup looks at the CPU, RAM and GPU and asks each question as a list of every option:
 the recommended one is marked and explained, options that won't fit say so, and a second
@@ -62,7 +74,7 @@ dependencies is GPL-3; see [NOTICES](NOTICES).
 
 ```sh
 uv sync --extra cuda          # or --extra cpu
-uv run pytest                 # backend, against a scripted fake Codex and fake speech
+uv run pytest                 # backend, against scripted fake agents and fake speech
 AGENT_TALK_MODELS=~/.local/share/agent-talk/models uv run pytest -m models   # real speech models
 cd frontend && npm test       # browser tests, desktop and phone
 ```

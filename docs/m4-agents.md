@@ -1,6 +1,6 @@
 # M4: more agents
 
-Status: step 1 (Claude Code spike) done; results in [spikes/claude](../spikes/claude/README.md).
+Status: Claude Code adapter done (steps 1 to 7), awaiting review; Gemini CLI next.
 Date: 2026-10-22.
 
 M4 adds adapters beyond Codex: Claude Code first, then Gemini CLI. The generic layer was
@@ -143,31 +143,62 @@ changed the access mapping above.
 
 ### 2. Background turns in the generic layer
 
-The capability, events and status above, in `agents/base.py`, `tasks.py`, the voice
-hub and the client's status badge, tested with a scripted agent.
+Done (d7bd852). The capability, events and status above, in `agents/base.py`,
+`tasks.py`, the voice hub and the client's status badge and timeline, tested with a
+scripted in-process agent (`tests/scripted_agent.py`). The chime before an agent's own
+reply is a `cue: true` on the reply's first `speech` message (voice-protocol §5, §9):
+the client plays the chime and holds the speech until it ends.
+
+An agent's own turn doesn't wait for a concurrency slot (it has already started), and a
+task in `background` doesn't hold its project's slot, so another task in the project
+can run while the work goes on, and the report can arrive during it.
 
 ### 3. Adapter
 
-`agents/claude.py`, registered in `agents/registry.py`, with `status()` from
-`claude auth status` (warn on an API key, as for Codex).
+Done (83c2441). `agents/claude.py`, registered in `agents/registry.py`, with `status()`
+from `claude auth status --json` (warns on anything but a claude.ai login; never shows
+the account). Each adapter now has a `title` ("Claude Code") for the client.
 
 ### 4. Approval endpoint
 
-The MCP route in `server.py`: loopback only, accepted only for a live session's secret,
-handing the call to that session's approval handler.
+Done (76717a1). `agents/callbacks.py` serves the least of MCP's HTTP transport a
+client needs (JSON-RPC in POST bodies, one JSON response each); `server.py` routes
+`/mcp/<secret>` to it, refusing requests from other machines or with an Origin. Closing
+a session unregisters its secret and ends any call still waiting. The server entry's
+`timeout` is 24 hours: an approval waits for the user.
 
 ### 5. Tests
 
-`fake_claude.py` built from the spike's transcripts. The contract tests run over every
-adapter in the registry, not Codex alone.
+Done (cd1c971). `tests/fake_claude.py`, shaped like the spike's transcripts, asks its
+approvals over HTTP MCP, so the contract tests run every adapter in the registry
+against a live server. Running them showed that a follow-up sent straight after a
+cancel reached the interrupted process before it exited: an interrupted Claude session
+now counts as ended, and the task manager closes what is left of a session before
+opening the next.
 
 ### 6. Client
 
-An agent picker when adding a project (there is none yet), and the project-config opt-in.
+Done (42a4aca). Settings lists the agents by title, picks one for a new project (the
+first that is set up) and changes it per project; new tasks use it. The project-config
+opt-in is a checkbox, shown when the agent declares the `project_config` capability
+(Codex doesn't); turned on, `claude` gets `--setting-sources user,project,local` and
+no `--strict-mcp-config`. Schema version 4 stores it. A browser test adds a Claude Code
+project and follows a background report.
 
 ### 7. Docs
 
-HLD §4.2 and §12, README, and this breakdown.
+Done. HLD §4.1, §4.2, §11 and §12, the README, voice-protocol §5 and §9, and this
+breakdown.
+
+### Checked against the real CLI
+
+Claude Code 2.1.308, `--model haiku` (set in `[agents.commands]`), through the daemon's
+HTTP API: a chat turn; a write and a command, each approved; a declined command
+(`declined` in the timeline, and Claude says so); background work under `auto` + `full`
+(`bypassPermissions` ran it unasked, the task went `background`, then Claude's own
+turn reported "finished" 14 s later); cancelling `sleep 60` and a follow-up resuming
+the session; `never` + `workspace` writing inside the project and refusing a write
+outside it and `touch` with Bash.
 
 ## Open questions
 
