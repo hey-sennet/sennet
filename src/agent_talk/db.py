@@ -50,7 +50,7 @@ CREATE INDEX IF NOT EXISTS task_events_task ON task_events(task_id, id);
 CREATE TABLE IF NOT EXISTS approvals (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL,            -- command | edit | permissions
+    kind TEXT NOT NULL,            -- command | edit | tool | access
     risk TEXT NOT NULL,            -- read | edit | execute | network | destructive
     summary TEXT NOT NULL,
     detail TEXT NOT NULL,
@@ -62,8 +62,8 @@ CREATE TABLE IF NOT EXISTS approvals (
 CREATE TABLE IF NOT EXISTS approval_rules (
     id INTEGER PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL,            -- command | edit
-    pattern TEXT NOT NULL,         -- command prefix; '*' for edits
+    kind TEXT NOT NULL,            -- command | edit | tool
+    pattern TEXT NOT NULL,         -- command prefix; '*' for edits; tool name
     created_at REAL NOT NULL,
     UNIQUE(project_id, kind, pattern)
 );
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS approval_rules (
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Rows written before version 2 hold Codex's own words; these map them to the contract's.
 _V2_ACCESS = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
@@ -102,10 +102,16 @@ class Database:
         try:
             if version < 2:
                 self._to_v2()
+            if version < 3:
+                self._to_v3()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
+
+    def _to_v3(self):
+        """Codex's "permissions" approval kind is the contract's "access"."""
+        self.conn.execute("UPDATE approvals SET kind = 'access' WHERE kind = 'permissions'")
 
     def _to_v2(self):
         """Provider-neutral names: access levels, resume tokens and event statuses."""

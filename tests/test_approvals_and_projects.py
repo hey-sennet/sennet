@@ -2,7 +2,8 @@ import pytest
 
 from agent_talk import projects
 from agent_talk.agents.base import ApprovalRequest
-from agent_talk.approvals import classify, command_prefix, matches, unwrap
+from agent_talk.agents.codex import _read_only, unwrap
+from agent_talk.approvals import classify, command_prefix, matches
 from agent_talk.db import Database
 
 
@@ -11,8 +12,14 @@ from agent_talk.db import Database
     ("bash -c 'ls -la | head'", "ls -la | head"),
     ("pytest -q", "pytest -q"),
 ])
-def test_unwrap(command, unwrapped):
+def test_codex_unwraps_its_shell_wrapper(command, unwrapped):
     assert unwrap(command) == unwrapped
+
+
+def test_codex_judges_read_only_commands_from_its_actions():
+    assert _read_only([{"type": "read"}, {"type": "search"}]) is True
+    assert _read_only([{"type": "read"}, {"type": "unknown"}]) is False
+    assert _read_only([]) is None
 
 
 @pytest.mark.parametrize("command, prefix", [
@@ -29,7 +36,7 @@ def test_command_prefix(command, prefix):
 
 
 def test_rule_matching_is_by_whole_words():
-    assert matches("npm test", "/bin/bash -lc 'npm test -- -u'")
+    assert matches("npm test", "npm test -- -u")
     assert not matches("npm test", "npm testing")
     assert not matches("npm test", "npm test && rm -rf /")
 
@@ -41,14 +48,14 @@ def test_rule_matching_is_by_whole_words():
     ("git status", "execute"),
 ])
 def test_classify_commands(command, risk):
-    assert classify(ApprovalRequest(kind="command", summary="", command=command)) == risk
+    assert classify(ApprovalRequest(kind="command", command=command)) == risk
 
 
 def test_classify_reads_and_network():
-    reads = [{"type": "read", "command": "cat a"}, {"type": "search", "command": "rg x"}]
-    assert classify(ApprovalRequest(kind="command", summary="", command="cat a", actions=reads)) == "read"
-    assert classify(ApprovalRequest(kind="command", summary="", command="curl x", network=True)) == "network"
-    assert classify(ApprovalRequest(kind="edit", summary="")) == "edit"
+    assert classify(ApprovalRequest(kind="command", command="cat a", read_only=True)) == "read"
+    assert classify(ApprovalRequest(kind="command", command="rm -rf x", read_only=True)) == "destructive"
+    assert classify(ApprovalRequest(kind="command", command="curl x", network=True)) == "network"
+    assert classify(ApprovalRequest(kind="edit")) == "edit"
 
 
 def test_project_names_and_aliases_are_unique(tmp_path):

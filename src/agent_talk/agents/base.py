@@ -79,16 +79,38 @@ def check_event(event: AgentEvent) -> list[str]:
     return problems
 
 
+ApprovalKind = Literal["command", "edit", "tool", "access"]
+
+
+@dataclass
+class FileChange:
+    path: str
+    kind: ChangeKind
+    diff: str = ""                     # unified diff, if the agent shows one
+
+
 @dataclass
 class ApprovalRequest:
-    kind: Literal["command", "edit", "permissions"]
-    summary: str                       # one line, safe to speak
-    command: str | None = None
-    actions: list[dict] = field(default_factory=list)   # parsed command actions, if known
-    paths: list[str] = field(default_factory=list)       # files to change, if known
-    reason: str | None = None
+    """Something the agent wants to do that needs the user's say.
+
+    command: run `command`. edit: change the files in `changes` (or `paths`, when the
+    agent doesn't show the changes). tool: use any other tool, named in `tool`.
+    access: widen the agent's access, such as network or paths outside the project.
+
+    The engine writes the one-line summary from these fields; adapters don't.
+    """
+
+    kind: ApprovalKind
+    command: str | None = None         # as the user would type it, without shell wrappers
+    read_only: bool | None = None      # the adapter's judgement that the command only reads
+    paths: list[str] = field(default_factory=list)
+    changes: list[FileChange] = field(default_factory=list)
+    tool: str | None = None            # e.g. WebFetch, an MCP tool
+    tool_input: str | None = None      # short and human-readable, e.g. the URL
+    reason: str | None = None          # the agent's explanation, if any
     network: bool = False
-    detail: dict = field(default_factory=dict)
+    title: str | None = None           # the agent's own one-line description, if it gives one
+    extra: dict = field(default_factory=dict)  # provider-only detail: shown raw, never interpreted
 
 
 @dataclass

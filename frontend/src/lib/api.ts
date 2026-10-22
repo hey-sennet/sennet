@@ -52,21 +52,42 @@ export interface TaskDetail extends Task {
   events: TaskEvent[]
 }
 
+export interface FileChange {
+  path: string
+  kind: 'add' | 'delete' | 'update' | 'move'
+  diff: string
+}
+
+// The provider-neutral request (ApprovalRequest in agents/base.py) as stored.
+export interface ApprovalDetail {
+  command: string | null
+  read_only: boolean | null
+  paths: string[]
+  changes: FileChange[]
+  tool: string | null
+  tool_input: string | null
+  reason: string | null
+  network: boolean
+  title: string | null
+  extra: Record<string, unknown>
+}
+
 export interface Approval {
   id: number
   task_id: number
-  kind: 'command' | 'edit' | 'permissions'
+  kind: 'command' | 'edit' | 'tool' | 'access'
   risk: 'read' | 'edit' | 'execute' | 'network' | 'destructive'
   summary: string
-  detail: Record<string, any>
+  detail: ApprovalDetail
   status: 'pending' | 'approved' | 'declined' | 'cancelled'
   decided_by: string | null
+  can_always: boolean
 }
 
 export interface Rule {
   id: number
   project_id: number
-  kind: 'command' | 'edit'
+  kind: 'command' | 'edit' | 'tool'
   pattern: string
 }
 

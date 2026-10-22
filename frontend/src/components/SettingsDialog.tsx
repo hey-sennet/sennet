@@ -77,7 +77,9 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
             <div key={rule.id} className="flex items-center justify-between gap-3 text-sm">
               <span>
                 <span className="text-muted-foreground">{projects.find((p) => p.id === rule.project_id)?.name}: </span>
-                {rule.kind === 'edit' ? 'all file edits' : <code className="font-mono text-xs">{rule.pattern} …</code>}
+                {rule.kind === 'edit' ? 'all file edits'
+                  : rule.kind === 'tool' ? <>the <code className="font-mono text-xs">{rule.pattern}</code> tool</>
+                  : <code className="font-mono text-xs">{rule.pattern} …</code>}
               </span>
               <Button variant="ghost" size="icon-sm" aria-label="Forget this approval"
                 onClick={() => attempt(() => api.removeRule(rule.id), 'Could not remove the rule')}>

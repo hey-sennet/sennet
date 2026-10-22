@@ -10,13 +10,14 @@ import asyncio
 import itertools
 import json
 import logging
+import re
+import shlex
 import shutil
 from pathlib import Path
 
 from .. import __version__
-from ..approvals import unwrap
 from .base import (AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest, Capabilities, Decision,
-                   EventSink, TurnPolicy)
+                   EventSink, FileChange, TurnPolicy)
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,31 @@ COMMAND_DECISION = {"approve": "accept", "approve_always": "accept", "decline": 
 TURN_STATUS = {"completed": "completed", "interrupted": "cancelled", "failed": "failed"}
 ITEM_STATUS = {"inProgress": "running", "completed": "completed", "failed": "failed", "declined": "declined"}
 STEP_STATUS = {"pending": "pending", "inProgress": "active", "completed": "done"}
+
+
+# Codex reports commands wrapped in a login shell: /bin/bash -lc 'npm test'.
+WRAPPER_RE = re.compile(r"^(?:/\S*/)?(?:bash|sh|zsh)\s+-l?c\s+(.*)$", re.DOTALL)
+# Codex's parsed command actions that only read.
+READ_ACTIONS = {"read", "listFiles", "search"}
+
+
+def unwrap(command: str) -> str:
+    """The command as the user would type it."""
+    match = WRAPPER_RE.match(command.strip())
+    if not match:
+        return command.strip()
+    inner = match.group(1).strip()
+    try:
+        parts = shlex.split(inner)
+        return parts[0] if len(parts) == 1 else inner
+    except ValueError:
+        return inner
+
+
+def _read_only(actions: list[dict]) -> bool | None:
+    if not actions:
+        return None
+    return all(a.get("type") in READ_ACTIONS for a in actions)
 
 
 def _change_kind(kind: dict) -> str:
@@ -256,35 +282,26 @@ class CodexSession:
 
     async def _request(self, method: str, params: dict) -> dict | None:
         if method == "item/commandExecution/requestApproval":
-            command = params.get("command") or ""
-            shown = unwrap(command)
-            if params.get("kind") == "writeStdin":
-                summary = f"send input to the running command {shown}".strip()
-            else:
-                summary = f"run {shown}"
+            command = unwrap(params.get("command") or "")
+            stdin = params.get("kind") == "writeStdin"
             decision = await self.on_approval(ApprovalRequest(
-                kind="command", summary=summary, command=command, actions=params.get("commandActions") or [],
+                kind="command", command=command, read_only=_read_only(params.get("commandActions") or []),
                 reason=params.get("reason"), network=params.get("networkApprovalContext") is not None,
-                detail={"cwd": params.get("cwd"), "network": params.get("networkApprovalContext")}))
+                title="send input to the running command" if stdin else None,
+                extra={"cwd": params.get("cwd"), "network": params.get("networkApprovalContext")}))
             return {"decision": COMMAND_DECISION[decision]}
         if method == "item/fileChange/requestApproval":
             changes = self.file_changes.get(params["itemId"], [])
-            paths = [c["path"] for c in changes]
-            summary = "edit " + (", ".join(Path(p).name for p in paths[:3]) if paths else "files")
-            if len(paths) > 3:
-                summary += f" and {len(paths) - 3} more"
             decision = await self.on_approval(ApprovalRequest(
-                kind="edit", summary=summary, paths=paths, reason=params.get("reason"),
-                detail={"grant_root": params.get("grantRoot"),
-                        "changes": [{"path": c["path"], "kind": _change_kind(c["kind"]), "diff": c["diff"][:20000]}
-                                    for c in changes]}))
+                kind="edit", paths=[c["path"] for c in changes], reason=params.get("reason"),
+                changes=[FileChange(c["path"], _change_kind(c["kind"]), c.get("diff", "")[:20000]) for c in changes],
+                extra={"grant_root": params.get("grantRoot")}))
             return {"decision": COMMAND_DECISION[decision]}
         if method == "item/permissions/requestApproval":
             requested = params.get("permissions") or {}
             decision = await self.on_approval(ApprovalRequest(
-                kind="permissions", summary=f"get extra permissions: {params.get('reason') or 'unspecified'}",
-                reason=params.get("reason"), network=requested.get("network") is not None,
-                detail={"permissions": requested, "cwd": params.get("cwd")}))
+                kind="access", reason=params.get("reason"), network=requested.get("network") is not None,
+                extra={"permissions": requested, "cwd": params.get("cwd")}))
             granted = {k: v for k, v in requested.items() if v is not None} if decision.startswith("approve") else {}
             return {"permissions": granted, "scope": "turn"}
         return None

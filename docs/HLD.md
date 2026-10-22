@@ -112,6 +112,12 @@ outside an adapter sees a provider's words:
 | Plan step status | `pending`, `active`, `done` |
 | Approval mode | `ask`, `auto`, `never` (§4.4) |
 | Access level | `read-only`, `workspace` (edit the project directory), `full` |
+| Approval request | `command` (the command as typed, unwrapped, and whether it only reads), `edit` (paths and changes), `tool` (any other tool, by name, with a short input), `access` (network or paths beyond the access level) |
+
+Approval requests carry only those fields, an optional `title` (the agent's own
+description) and an `extra` dict of provider detail that is shown raw and never
+interpreted. The engine, not the adapter, writes the summary, classifies the risk and
+decides whether "always" can apply (a command prefix, all edits, or one tool by name).
 
 The last `message` of a turn is its answer, and is what gets spoken. The resume token
 is opaque: a Codex thread id, a Claude Code session id or an ACP session id.

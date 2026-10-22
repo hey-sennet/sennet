@@ -106,7 +106,8 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     async def state(request: Request):
         database = db(request)
         return {"projects": database.projects(), "tasks": database.tasks(),
-                "approvals": database.approvals("pending"), "rules": database.rules(),
+                "approvals": [request.app.state.approvals.present(a) for a in database.approvals("pending")],
+                "rules": database.rules(),
                 "settings": {"approvals": vars(settings.approvals), "tasks": vars(settings.tasks)}}
 
     @app.get("/api/agents")
