@@ -30,7 +30,7 @@ _espeak_lock = threading.Lock()
 _espeak_ready = False
 
 
-def phonemize(text: str) -> str:
+def phonemize(text: str, language: str = "en-us") -> str:
     global _espeak_ready
     import espeakng_loader
     import phonemizer
@@ -41,7 +41,7 @@ def phonemize(text: str) -> str:
             EspeakWrapper.set_library(espeakng_loader.get_library_path())
             EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
             _espeak_ready = True
-        phonemes = phonemizer.phonemize(text.strip(), "en-us", preserve_punctuation=True, with_stress=True,
+        phonemes = phonemizer.phonemize(text.strip(), language, preserve_punctuation=True, with_stress=True,
                                         logger=_quiet)
     # Newlines are not in the vocabulary; without this, lines run together with no pause.
     return " ".join("".join(p for p in phonemes if p in VOCAB).split())
@@ -79,16 +79,21 @@ class Kokoro:
     def __init__(self, directory: Path, device: str, threads: int | None, voice: str = "af_heart", speed: float = 1.0):
         self.session = ort().InferenceSession(str(directory / "kokoro.onnx"), session_options(threads),
                                               providers=providers(device))
-        voices = np.load(directory / "voices-v1.0.bin")
-        if voice not in voices:
-            raise ValueError(f"unknown Kokoro voice {voice!r}; choose one of {', '.join(sorted(voices))}")
-        self.style = voices[voice]  # one style row per token count
+        self.voices = np.load(directory / "voices-v1.0.bin")
+        self.use_voice(voice)
         self.speed = speed
         names = {i.name for i in self.session.get_inputs()}
         self.tokens_input = "input_ids" if "input_ids" in names else "tokens"
 
+    def use_voice(self, voice: str):
+        if voice not in self.voices:
+            raise ValueError(f"unknown Kokoro voice {voice!r}; choose one of {', '.join(sorted(self.voices))}")
+        self.style = self.voices[voice]  # one style row per token count
+        # British voices (bf_, bm_) were trained on British phonemes.
+        self.language = "en-gb" if voice.startswith("b") else "en-us"
+
     def synthesize(self, text: str) -> np.ndarray:
-        parts = [self._infer(tokens(batch)) for batch in split(phonemize(text))]
+        parts = [self._infer(tokens(batch)) for batch in split(phonemize(text, self.language))]
         parts = [p for p in parts if len(p)]
         return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
 

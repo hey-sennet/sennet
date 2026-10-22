@@ -122,7 +122,7 @@ def test_other_sites_cannot_connect(client):
             ws.receive_text()
 
 
-# Turns and direct mode
+# Turns
 
 def test_a_turn_starts_a_task_in_the_project(client, voice, project):
     voice.send(type="start", turn="t1", project_id=project["id"])
@@ -231,7 +231,7 @@ def test_start_needs_speech_recognition(settings, paths, codex_log):
     speech.close()
 
 
-# Direct mode commands
+# Commands
 
 @pytest.fixture
 def other_project(client, tmp_path):

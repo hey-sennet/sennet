@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .. import __version__
 from .base import (AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest, Capabilities, Decision,
-                   EventSink, FileChange, TurnPolicy)
+                   EventSink, FileChange, SPOKEN_INSTRUCTIONS, TurnPolicy)
 
 log = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ class CodexSession:
             })
             await self.connection.notify("initialized")
             params = {"cwd": str(cwd), "approvalPolicy": APPROVAL_POLICY[policy.mode],
-                      "sandbox": SANDBOX[policy.access]}
+                      "sandbox": SANDBOX[policy.access], "developerInstructions": SPOKEN_INSTRUCTIONS}
             if thread_id:
                 result = await self.connection.request("thread/resume", {"threadId": thread_id, **params,
                                                                          "excludeTurns": True})

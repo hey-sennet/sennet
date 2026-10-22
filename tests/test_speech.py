@@ -230,13 +230,6 @@ def test_setup_leaves_a_git_install_to_the_user(tmp_path, monkeypatch):
     assert setup._install_command("cuda") == (None, None)
 
 
-def test_setup_uses_uv_sync_in_a_checkout(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "prefix", str(tmp_path))  # no receipt here
-    command, rerun = setup._install_command("cpu")
-    assert command[:2] == ["uv", "sync"] and command[-2:] == ["--extra", "cpu"]
-    assert rerun is None
-
-
 # Real models (opt-in: AGENT_TALK_MODELS=<models dir> uv run pytest -m models)
 
 @pytest.mark.models

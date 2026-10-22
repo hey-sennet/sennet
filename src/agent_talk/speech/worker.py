@@ -42,7 +42,10 @@ class Worker:
                 result, error = fn(*args), None
             except BaseException as exc:  # handed to the awaiting coroutine
                 result, error = None, exc
-            loop.call_soon_threadsafe(_settle, future, result, error)
+            try:
+                loop.call_soon_threadsafe(_settle, future, result, error)
+            except RuntimeError:  # the loop closed while this ran (the daemon shut down); nobody is waiting
+                pass
 
 
 def _settle(future: asyncio.Future, result, error):

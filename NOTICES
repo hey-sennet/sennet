@@ -44,6 +44,9 @@ Speech
   The `cuda` extra installs NVIDIA's CUDA and cuDNN wheels under the NVIDIA software
   license agreements that come with them.
 
+Setup
+  Rich (MIT), questionary (MIT) and prompt_toolkit (BSD-3-Clause) draw `agent-talk setup`.
+
 -------------------------------------------------------------------------------
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

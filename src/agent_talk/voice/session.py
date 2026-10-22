@@ -87,7 +87,7 @@ class VoiceSession:
         await self.send(type="ready", session=self.id, generation=self.generation,
                         input={"rate": INPUT_RATE, "format": "pcm_s16le", "channels": 1},
                         output={"rate": output_rate, "format": "pcm_s16le", "channels": 1},
-                        speech=self.speech.snapshot())
+                        speech=self.hub.status())
         speaker = asyncio.ensure_future(self._speaker())
         try:
             while True:

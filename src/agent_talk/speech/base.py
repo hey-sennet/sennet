@@ -61,6 +61,9 @@ class Synthesizer(Protocol):
     def synthesize(self, text: str) -> np.ndarray:
         """Audio for one segment of text."""
 
+    def use_voice(self, voice: str):
+        """Speak in another voice from now on; raises ValueError for an unknown one."""
+
 
 class VoiceActivity(Protocol):
     """Per-turn speech detector. Holds stream state, so each turn gets its own."""

@@ -8,17 +8,19 @@ document describes the Python rewrite.
 ## 1. Goal and principles
 
 Talk to your coding agents. Speak a request; an agent (Codex, Claude Code, Gemini CLI)
-works on your own computer; a local voice assistant keeps you informed, asks for
-approvals and tells you the results.
+works on your own computer; Agent Talk asks you for approvals and reads you the
+results, in a version the agent writes to be heard.
 
 - **Self-hosted FOSS.** Each user installs and runs their own copy. It is not a hosted service.
 - **Subscriptions, not API keys.** Agents run through the official CLIs under the user's
   existing login. Agent Talk never holds provider credentials or calls provider APIs itself.
-- **Local except the agents.** Speech recognition, speech synthesis and the front
-  assistant LLM run on the user's machine. The only cloud traffic is what the official
-  agent CLIs send to their providers.
-- **Don't spend the user's agent usage on chat.** Acknowledgements, status, narration
-  and summaries are produced locally. Only real tasks reach the agent.
+- **Local except the agents.** Speech recognition and speech synthesis run on the
+  user's machine. The only cloud traffic is what the official agent CLIs send to their
+  providers.
+- **Don't spend the user's agent usage on chat.** Only real tasks reach the agent. The
+  one thing asked of it beyond the task is a short spoken version of a long reply (§6.3).
+- **Explicit routing.** The user picks the target, by selecting it or naming the project
+  first. No model guesses where a request should go (§6.3).
 - **Runs on the host.** The daemon is a user-level system service, so agents act on the
   user's real repositories, toolchains and credentials. The agents' own sandbox and
   permission modes are the safety boundary, plus Agent Talk's approval policy.
@@ -42,23 +44,20 @@ flowchart LR
     subgraph Daemon[agent-talk daemon — Python, user service]
         WS[HTTP + WebSocket gateway]
         VOICE[Voice pipeline: VAD → turn detection → STT]
-        FRONT[Front assistant]
+        HUB[Voice hub: commands, routing, replies]
         TASKS[Task manager]
         TTS[TTS]
         DB[(SQLite)]
         WS <--> VOICE
-        VOICE --> FRONT
-        FRONT <--> TASKS
-        FRONT --> TTS --> WS
+        VOICE --> HUB
+        HUB <--> TASKS
+        HUB --> TTS --> WS
         TASKS --> DB
-        FRONT --> DB
     end
-    LLM[llama-server subprocess]
     AG[Agent CLIs: codex app-server, claude, gemini]
     FS[User projects on host]
     UI <--> WS
     AW <--> WS
-    FRONT <-->|OpenAI-compatible HTTP, loopback| LLM
     TASKS <-->|stdio| AG
     AG --> FS
 ```
@@ -69,7 +68,6 @@ flowchart LR
 | Frontend | React + TypeScript + Vite, shadcn/ui (Radix + Tailwind), PWA | Largest contributor pool and component ecosystem. The prototype's UI is the visual reference. The built assets ship inside the Python wheel. |
 | Storage | SQLite (WAL) + `config.toml` | Data under XDG data dir on Linux, `~/Library/Application Support/agent-talk` on macOS. |
 | Speech models | ONNX Runtime (CPU / CUDA / CoreML execution providers); onnx-asr for Parakeet, kokoro-onnx for Kokoro | Installed from pip; no system packages. Our own pipeline code, not Pipecat (§6). |
-| Front LLM | Bundled `llama-server` from llama.cpp, managed subprocess | Prebuilt binaries are downloaded at setup (§5.2). |
 | Remote access | Tailscale (`tailscale serve`) | Provides HTTPS and identity. Daemon itself binds loopback only. |
 | Service | systemd `--user` unit / launchd LaunchAgent | Installed by `agent-talk service install`. Runs as the user. |
 
@@ -82,11 +80,9 @@ flowchart LR
   Tasks are long-lived; follow-ups to the same work go to the same task, so the
   agent keeps its context. Status:
   `queued → running ↔ awaiting_approval → completed | failed | cancelled | unknown`.
-- **Assistant conversation.** A single conversation with the front assistant
-  across all projects and tasks. The user talks to one assistant, and it tracks every task.
 - **Event.** Normalized agent output: text, command started/finished, file changed,
   plan update, approval request, completion. Events are stored per task (bounded)
-  and fan out to clients and the front assistant.
+  and fan out to clients and the voice hub.
 
 ## 4. Agent integration
 
@@ -145,8 +141,8 @@ become the single adapter path. Decide after the Codex adapter works natively.
 - Default: one running task per project. Additional tasks for the same project queue,
   to avoid two agents editing one working tree. Configurable; git worktrees are a later option.
 - Global limit on concurrent agent processes (configurable, default 3).
-- Shared local inference (STT, LLM, TTS) is one instance each, with priority
-  STT > front LLM > TTS. Agent processes are never blocked by speech work.
+- Shared local inference (STT, TTS) is one instance each, with priority
+  STT > TTS. Agent processes are never blocked by speech work.
 
 ### 4.4 Approvals
 
@@ -165,7 +161,7 @@ edits that delete files).
 A per-class setting can raise the bar, e.g. destructive actions require repeating a
 confirmation phrase even when edits are approved by plain "yes".
 
-Voice approval is a fixed flow, not free chat. The assistant reads back the task and
+Voice approval is a fixed flow, not free chat. Agent Talk reads back the task and
 the kind of action ("Backend wants to run a command."); the exact command is
 on the card. Only a clear
 yes/no/always is accepted; anything else re-prompts. Pending approvals never time out
@@ -176,16 +172,15 @@ into approval. Every decision, and who/what made it, is logged.
 ### 5.1 Model catalog and hardware tiers
 
 A curated catalog (shipped with the app, updatable) lists tested models per role
-(STT, VAD, turn detection, TTS, front LLM). Each entry has a download URL, SHA-256,
+(STT, VAD, turn detection, TTS). Each entry has a download URL, SHA-256,
 size, RAM/VRAM need, license, and tier.
 
 `agent-talk setup` detects CPU, RAM and accelerator (CUDA, Vulkan, Metal) and proposes
 a tier. Settings shows the catalog with "fits your machine" hints. Changing a model
-downloads it in the background and switches when ready. A "custom GGUF" option
-allows any front LLM file and is marked unsupported.
+downloads it in the background and switches when ready.
 
 Speech defaults (validated by the M0 spike, see
-[spikes/speech](../spikes/speech/README.md)); front LLM candidates are chosen in M3:
+[spikes/speech](../spikes/speech/README.md)):
 
 | Role | CPU tier | GPU tier | License |
 | --- | --- | --- | --- |
@@ -193,8 +188,6 @@ Speech defaults (validated by the M0 spike, see
 | Turn detection | smart-turn v3.2 (CPU build) | smart-turn v3.2 (GPU build) | BSD-2-Clause |
 | STT | Parakeet TDT 0.6B v2 (English), int8 | Parakeet TDT 0.6B v2, fp32 | CC-BY-4.0 |
 | TTS | Kokoro-82M v1.0, int8 (Piper for very low-end) | Kokoro-82M v1.0, fp32 | Apache-2.0 (Kokoro); GPL-3 espeak-ng phonemizer |
-| Front LLM | ~2–4B instruct GGUF, Q4 (e.g. Qwen3) | 7–14B instruct GGUF | Prefer Apache-2.0 / MIT models |
-| (none) | Direct mode: no front LLM | — | — |
 
 Runtime settings from M0:
 
@@ -219,7 +212,13 @@ Reference results (i7-12650H, RTX 4060 Laptop):
 Models are downloaded at setup, never vendored in the repository. Every attribution
 requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the app.
 
-### 5.2 Bundled llama.cpp
+### 5.2 A local LLM (parked)
+
+M3 bundled llama.cpp and a small model to shorten long replies for speech
+([m3-summaries.md](m3-summaries.md)). Once agents wrote their own spoken version it
+was rarely needed, so it was taken out; the code is on the `archive/local-llm` branch,
+to be rebuilt for messages between turns. These rules held up and still apply when it
+returns:
 
 - `setup` downloads the official prebuilt `llama-server` for the platform from a pinned
   llama.cpp release and verifies checksums: Metal on macOS arm64, Vulkan on Linux x64
@@ -232,8 +231,8 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
   - It uses its own model directory and does not read or modify other tools' caches.
   - GPU memory is the one shared resource. Setup reports free VRAM and recommends a
     smaller model or CPU offload when another process holds it.
-- Alternative: `front_llm.endpoint = "http://127.0.0.1:11434/v1"` uses an existing
-  OpenAI-compatible server instead of the bundled one. Off by default.
+- Alternative: an endpoint setting such as `"http://127.0.0.1:11434/v1"` uses an
+  existing OpenAI-compatible server instead of the bundled one. Off by default.
 
 ## 6. Voice pipeline
 
@@ -282,48 +281,32 @@ requirement (e.g. CC-BY for Parakeet) is listed in `NOTICES` and shown in the ap
   only the last segment at the end.
 - No transcript review step by default. In M2 a request is retracted by sliding off
   the talk control before release, or by saying "cancel" next to interrupt the task.
-  A short retraction window after dispatch is reconsidered for the front assistant (M3).
+  No retraction window: routing is explicit, so a wrong target is unlikely.
 - Raw audio is never stored. Transcripts are stored with the conversation.
 
-### 6.3 Front assistant
+### 6.3 Routing and spoken replies
 
-A local LLM with tool calling, holding the assistant conversation. Its context is
-kept small: system prompt, compact list of projects and tasks with status, recent
-events per task, and the last few conversation turns.
+Routing is deterministic: a final transcript goes to the selected task or project,
+or to a project named first ("in backend, …"), minus that phrase. Fixed words are
+commands, never requests: "stop", "cancel", "read me the details", and approval
+answers. The exact dispatched text is shown in the UI.
 
-Tools:
+M3 first put a local LLM with tool calling in front of the agents to choose the
+target, answer status questions and announce events. On real models (Qwen3.5 2B and
+4B) it sent ambiguous requests to a plausible but wrong project instead of asking, and
+it was removed (docs/m3-summaries.md).
 
-| Tool | Purpose |
-| --- | --- |
-| `start_task(project, request)` | Start new agent work in a project. |
-| `follow_up(task, request)` | Send more instructions to an existing task. |
-| `task_status(task?)` | Read current status/events. |
-| `cancel_task(task)` | Interrupt agent work. |
-| `answer_approval(request, decision)` | Only reachable through the approval flow (§4.4). |
-| `read_details(task)` | Read out a longer part of the agent's output on request. |
+Replies:
 
-Rules:
-
-- **Requests pass through verbatim.** `request` must be the user's own words, minus
-  the routing phrase ("in backend, …"). The assistant decides whether and where to
-  dispatch, not what the agent is told. The exact dispatched text is shown in the UI.
-- **Summaries come from structured events**, not free retelling: commands run, exit
-  codes, files changed, test counts, and the agent's own final message. The
-  assistant shortens agent text for speech but must not invent outcomes.
-- **Project resolution** is fuzzy matching of the transcript against project names
-  and aliases. If ambiguous, the assistant asks.
-- Answers it can give locally (status, "what changed", "which tasks are running")
-  never touch the agent.
-- **Announcements** of background events (task finished, approval needed, failure) queue
-  and are spoken only between user turns, naming the task. Priority: approvals >
-  failures > completions > progress. Progress narration is throttled.
-- Requests to be safe about: the assistant never approves actions on its own
-  initiative, and never dispatches when it's unsure what the user meant — it asks.
-
-**Direct mode** (no front LLM, for low-end hardware or user preference): the final
-transcript goes straight to the selected task/project. A leading project name routes
-it. Agent text is spoken after markdown, code and URLs are stripped, and approvals
-still use the fixed flow.
+- Each agent message is spoken as it arrives. A short one is spoken as it is.
+- Symbols are said as words: "$24" is "24 dollars", "~5%" is "about 5 percent".
+- The agent writes the spoken version itself: its developer instructions ask it to start
+  a long message with one, in `<spoken>` tags, and it is heard as soon as it is streamed.
+  The agent knows what mattered, so this is the most faithful version; it costs a few
+  sentences of the user's agent usage per long reply. The timeline hides it.
+- A long message without one is cut to its opening sentences.
+- "Read me the details" reads the last reply in full. The timeline always has it.
+- Approvals use the fixed flow (§4.4).
 
 ### 6.4 Speech output
 
@@ -337,9 +320,9 @@ still use the fixed flow.
 
 ### 6.5 Interaction modes
 
-- **v1: push-to-talk.** Hold or tap to talk; the assistant replies; half duplex.
+- **v1: push-to-talk.** Hold or tap to talk; the reply is spoken; half duplex.
 - **Later: conversation session.** The mic stays live while a session is open;
-  VAD + smart-turn decide turns; the assistant may be interrupted (barge-in). This
+  VAD + smart-turn decide turns; speech may be interrupted (barge-in). This
   requires reliable echo cancellation; headset use is assumed initially. The
   pipeline above is designed so this needs no architectural change: turn detection is
   already server-side and playback is already generation-tagged and interruptible.
@@ -351,7 +334,7 @@ still use the fixed flow.
 - Phone and desktop are both first-class. Phone layout: a single column, a large talk
   control, live caption, approval cards and a task strip. Desktop: conversation plus a
   task panel with per-task event detail, and settings.
-- Views: assistant conversation, tasks (list + detail with events, diffs summary,
+- Views: tasks (list + detail with events, diffs summary,
   cancel), approvals, projects, settings (models, approval policy and remembered
   rules, agents and login status).
 - Audio code (worklets, playback scheduling) lives outside React state.
@@ -375,7 +358,7 @@ still use the fixed flow.
 
 ```sh
 uv tool install agent-talk
-agent-talk setup            # detect hardware, choose tier, download llama-server + models, verify checksums
+agent-talk setup            # detect hardware, choose tier, download models, verify checksums
 agent-talk project add ~/code/api --name backend
 agent-talk service install  # systemd --user unit or launchd agent; starts now and at login
 agent-talk doctor           # agent CLIs found and logged in, models present, GPU, ports, Tailscale
@@ -389,7 +372,7 @@ agent-talk doctor           # agent CLIs found and logged in, models present, GP
 ## 10. Persistence
 
 SQLite tables: `projects`, `tasks` (project, agent, provider thread/session ID, status),
-`task_events` (bounded per task), `assistant_messages`, `approvals` (requests and
+`task_events` (bounded per task), `approvals` (requests and
 decisions), `approval_rules`, `settings`. `config.toml` holds models and policy
 defaults. It is editable by hand and through the UI.
 
@@ -414,8 +397,10 @@ automatically.
    agent replies spoken back on the device that asked. Strata client: the disc on
    every view, scrolling captions that follow playback, and markdown task timelines.
    Voice path measured end to end on the real models.
-4. **M3 — Front assistant.** Bundled llama-server, model catalog, tool calling,
-   announcements, project resolution by voice; benchmark candidate LLMs per tier.
+4. **M3 — Spoken replies.** Breakdown in [m3-summaries.md](m3-summaries.md).
+   Agents write a version of long replies to be heard; symbols are said as words;
+   guided setup with voice previews. A routing assistant and a local summary model were
+   tried; the first was removed and the second parked (§5.2).
 5. **M4 — More agents.** Claude Code and Gemini adapters (after the terms check).
 6. **M5 — Packaging.** `setup`, `doctor`, service install, Tailscale guide, NOTICES, release CI.
 7. **M6 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
@@ -424,8 +409,8 @@ automatically.
 
 - Claude Code: what the current terms allow for a third-party tool driving the CLI
   under a subscription login (blocks M4 for Claude).
-- Which ~2–4B model gives reliable tool calling on CPU at acceptable latency, or
-  whether CPU-only users should default to direct mode.
+- What a rebuilt local LLM should do between turns (status, announcements), and on
+  which hardware it is worth enabling (§5.2).
 - Turn detection good enough for open-mic sessions: real-speech evaluation and a
   possible transcript-completeness signal (blocks M6, not v1).
 - Speech numbers for Apple Silicon (CoreML) and a low-end 4-core CPU, to set the

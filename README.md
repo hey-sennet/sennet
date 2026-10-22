@@ -4,8 +4,8 @@ Talk to your coding agents.
 
 Agent Talk is a free and open source, self-hosted voice interface for coding agents such
 as Codex, Claude Code, and Gemini CLI. Speak a request, let an agent work on your
-computer under your existing subscription, and hear what it did. Speech and the voice
-assistant run locally; only the agents themselves talk to the cloud.
+computer under your existing subscription, and hear what it did. Speech runs locally;
+only the agents themselves talk to the cloud.
 
 **Status:** early development. Typed tasks with Codex work today; voice is next. See the
 [high-level design](docs/HLD.md) for the plan. The earlier Rust/Docker prototype is on
@@ -39,10 +39,17 @@ access = "workspace"       # read-only | workspace (edit the project) | full
 max_concurrent = 3         # one running task per project regardless
 ```
 
-Setup looks at the CPU, RAM and GPU, recommends CPU or GPU speech and says why, then
-installs the matching ONNX runtime (the `cpu` or `cuda` extra), downloads about 0.8 GB
-(CPU) or 2.9 GB (GPU) of models and checks them, and ends with a short spoken self-test.
-`--yes` accepts its recommendations. Typed tasks work without speech.
+Setup looks at the CPU, RAM and GPU and asks each question as a list of every option:
+the recommended one is marked and explained, options that won't fit say so, and a second
+run marks your current settings. It asks where speech runs (CPU or GPU, installing the
+matching `cpu` or `cuda` extra), then shows what it will download (about 0.8 GB of
+speech models on CPU, 2.9 GB on GPU). After downloading it checks that speech hears
+itself, and plays each voice you pick so you can choose by ear.
+`--yes` accepts every recommendation without asking. Typed tasks work without speech.
+
+Long agent replies are heard as a version the agent writes to be spoken, at the start of
+its reply in `<spoken>` tags (hidden in the timeline); without one, its opening sentences
+are spoken. Say "read me the details" to hear the whole reply.
 
 Licensing note: the speech dependencies include phonemizer and espeak-ng, which are
 GPL-3. Agent Talk's own code is Apache-2.0, but anything that bundles it with its speech

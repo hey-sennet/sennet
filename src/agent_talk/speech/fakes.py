@@ -45,6 +45,10 @@ class FakeSynthesizer:
 
     def __init__(self):
         self.spoken: list[str] = []
+        self.voice = "af_heart"
+
+    def use_voice(self, voice: str):
+        self.voice = voice
 
     def synthesize(self, text: str) -> np.ndarray:
         self.spoken.append(text)

@@ -109,6 +109,8 @@ ignored.
   "always" can't apply. The question is put again. `confirm: true` when a destructive
   request got its "yes" and now needs "confirm".
 - `stop`: the whole transcript was "stop" or "cancel" (§9).
+- `details`: the whole transcript was "read me the details" (§9). `task_id`'s last reply
+  is read in full.
 - `empty`: no speech found. Nothing is sent.
 - `failed`: the transcript couldn't be delivered (`no_target` or `dispatch_failed`, sent
   just before). The text is included so the client can offer to type it instead.
@@ -139,7 +141,7 @@ and are dropped on arrival.
 
 ## 8. Voice approvals
 
-The fixed flow from HLD §4.4, in direct mode:
+The fixed flow from HLD §4.4:
 
 - An approval is asked on the session that last dispatched to that task, between turns
   only (never while `listening` or `transcribing`). If that session isn't connected,
@@ -166,7 +168,7 @@ The fixed flow from HLD §4.4, in direct mode:
   for backend.") and recorded as `decided_by: "voice"`.
 - Several pending approvals are asked one at a time, oldest first.
 
-## 9. Direct mode
+## 9. Turns and replies
 
 - The final transcript goes to `start.task_id` as a follow-up, or starts a task in
   `start.project_id`. With neither, the turn fails with `no_target`.
@@ -179,10 +181,20 @@ The fixed flow from HLD §4.4, in direct mode:
 - A transcript that is only "stop" (or "stop speaking", "be quiet") or "cancel" (or
   "cancel that") isn't dispatched. "Stop" stops speech; "cancel" interrupts the selected
   task, and fails with `no_target` when none is selected. Both end with outcome `stop`.
-- When the agent finishes a turn, its final message is spoken on the session that
-  dispatched it and on no other, split into clauses with a short first chunk (HLD §6.4). Markdown,
-  code blocks, inline code, URLs and file paths are stripped or replaced with a short
-  word ("a code block").
+- Each agent message is spoken as it arrives, on the session that dispatched the
+  request and on no other, split into clauses with a short first chunk (HLD §6.4).
+  Markdown, code blocks, inline code, URLs and file paths are stripped or replaced
+  with a short word ("a code block"). Symbols are said as words ("$24" is "24 dollars",
+  "£3.50" "3 pounds 50", "~5%" "about 5 percent", "->" "to"); emoji are dropped.
+- Agents are asked (developer instructions, `agents.base.SPOKEN_INSTRUCTIONS`) to start a
+  long message with a version written to be heard, in `<spoken>` tags. The hub follows the
+  message as it streams and speaks that version as soon as its closing tag arrives, before
+  the rest is written; the timeline hides it, and "read me the details" leaves it out.
+- A long message without one, longer than six sentences or 600 characters, is cut to
+  its first four sentences.
+- "Read me the details" (or "details", "read it all", "read the full reply") reads the
+  last reply in full: the selected task's, or else the one this session last heard. With
+  neither, it fails with `no_target`. The outcome is `details`.
 
 ## 10. Mapping to Strata
 
@@ -204,7 +216,8 @@ For Q8, and not part of the wire format.
 - No retraction window in M2. Push-to-talk already has two chances to back out before
   anything is sent: slide off to `cancel` the turn, or release and say "cancel" as the
   next turn to interrupt the task (§9). A retraction window would hold every dispatch
-  for a few seconds, or race the agent starting. It is worth revisiting in M3, where
-  the front assistant chooses the target and a wrong guess is likelier.
-- A reply is spoken only on the session that dispatched it (§9). Speaking elsewhere is
-  left to M3's announcements.
+  for a few seconds, or race the agent starting. Routing stays explicit, so a wrong
+  target is unlikely.
+- A reply is spoken only on the session that dispatched it (§9).
+- No model chooses the target. A local model that routed requests was tried in M3 and
+  removed: it sent ambiguous requests to the wrong project (docs/m3-summaries.md).

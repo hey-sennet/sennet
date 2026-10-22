@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 export function Markdown({ children, className }: { children: string; className?: string }) {
   return (
     <div className={cn('flex flex-col gap-3 [overflow-wrap:anywhere]', className)}>
-      <Md remarkPlugins={[remarkGfm]} components={components}>{children}</Md>
+      <Md remarkPlugins={[remarkGfm]} components={components}>{withoutSpoken(children)}</Md>
     </div>
   )
 }
@@ -30,9 +30,15 @@ const components: Components = {
   td: ({ children }) => <td className="border-b px-2 py-1 align-top">{children}</td>,
 }
 
+/** A reply without the version the agent wrote to be heard, which voice speaks instead of reading
+ *  out the reply. It is only ever at the start; while it streams it may not be closed yet. */
+export function withoutSpoken(markdown: string): string {
+  return markdown.replace(/^\s*<(?:s(?:p(?:o(?:k(?:e(?:n)?)?)?)?)?)?$/, '').replace(/^\s*<spoken>[\s\S]*?(?:<\/spoken>\s*|$(?![\s\S]))/, '')
+}
+
 /** A reply flattened to one line of prose for the stage: no markup, code blocks dropped. */
 export function plainText(markdown: string): string {
-  return markdown
+  return withoutSpoken(markdown)
     .replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(?:^[ \t]*\1[ \t]*$|$(?![\s\S]))/gm, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')

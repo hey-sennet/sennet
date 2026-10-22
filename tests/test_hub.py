@@ -41,7 +41,18 @@ def test_only_the_reply_to_the_spoken_request_is_spoken():
                   user(7, 2, "sent"), agent(7, "Thinking…"), agent(7, "**Spoken** answer."), completed(7),
                   user(7, 2, "done")]:
         hub._observe(event)
-    assert session.spoken == [("Spoken answer.", 7)]
+    assert session.spoken == [("Thinking…", 7), ("Spoken answer.", 7)]
+    speech.close()
+
+
+def test_a_message_is_spoken_as_it_arrives_and_a_failure_after_it():
+    hub, session, speech = hub_with_request(message_id=2)
+    hub._observe(user(7, 2, "sent"))
+    hub._observe(agent(7, "I'll move the email to Trash."))
+    assert session.spoken == [("I'll move the email to Trash.", 7)]  # before the turn ends
+    hub._observe(completed(7, "failed", "rate limited"))
+    hub._observe(user(7, 2, "done"))
+    assert session.spoken == [("I'll move the email to Trash.", 7), ("That task failed: rate limited.", 7)]
     speech.close()
 
 
@@ -67,4 +78,49 @@ def test_a_disconnected_session_hears_nothing():
     hub._observe(completed(7))
     hub._observe(user(7, 2, "done"))
     assert session.spoken == []
+    speech.close()
+
+
+def delta(task_id, text, item_id="msg1"):
+    return {"type": "delta", "task_id": task_id, "item_id": item_id, "delta": text}
+
+
+REPLY = ("<spoken>The retry is in, and all 12 tests pass. Should it add a backoff limit?</spoken>\n\n"
+         "I updated `src/app.py` to retry failed requests.\n\n- `tests/test_retry.py`: 4 new tests\n\n"
+         "All 12 tests pass. Should I also add a backoff limit?")
+HEARD = "The retry is in, and all 12 tests pass. Should it add a backoff limit?"
+
+
+def test_the_spoken_version_is_heard_as_soon_as_it_streams_and_only_once():
+    hub, session, speech = hub_with_request(message_id=2)
+    hub._observe(user(7, 2, "sent"))
+    for i in range(0, len(REPLY), 7):   # in pieces that split the tags
+        hub._observe(delta(7, REPLY[i:i + 7]))
+        if i + 7 < REPLY.index("</spoken>") + len("</spoken>"):
+            assert session.spoken == []
+    assert session.spoken == [(HEARD, 7)]  # before the message ends
+    hub._observe(agent(7, REPLY))
+    hub._observe(completed(7))
+    hub._observe(user(7, 2, "done"))
+    assert session.spoken == [(HEARD, 7)]
+    assert hub.streams == {} and hub.early == {}
+    speech.close()
+
+
+def test_a_spoken_version_that_was_not_streamed_is_heard_with_the_message():
+    hub, session, speech = hub_with_request(message_id=2)
+    hub._observe(user(7, 2, "sent"))
+    hub._observe(agent(7, REPLY))
+    assert session.spoken == [(HEARD, 7)]
+    speech.close()
+
+
+def test_a_message_without_a_spoken_version_waits_for_its_end():
+    hub, session, speech = hub_with_request(message_id=2)
+    hub._observe(user(7, 2, "sent"))
+    for word in "I'll look at the <spoken> tests.".split(" "):
+        hub._observe(delta(7, word + " "))
+    assert session.spoken == [] and hub.streams[7]["msg1"] is None
+    hub._observe(agent(7, "I'll look at the tests."))
+    assert session.spoken == [("I'll look at the tests.", 7)]
     speech.close()

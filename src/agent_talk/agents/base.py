@@ -30,6 +30,33 @@ Access = Literal["read-only", "workspace", "full"]
 APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)
 ACCESS_LEVELS: tuple[str, ...] = get_args(Access)
 
+# Given to every agent as developer instructions. Replies are read aloud, so a long one
+# starts with a version written to be heard; the voice hub speaks it as soon as it is
+# streamed, and the timeline hides it (voice-protocol §9).
+SPOKEN_INSTRUCTIONS = """\
+The user may hear your messages read aloud by a voice interface instead of reading them.
+
+When a message to the user is longer than about three sentences, or reports the outcome of \
+your work, start it with a version written to be heard, inside <spoken></spoken> tags, then \
+write the message as you normally would. The spoken version:
+- comes first, before anything else in the message;
+- talks to the user directly, as "you", in plain sentences, most important first: what was \
+done or found, or what went wrong, then anything they need to know or decide;
+- keeps every point that matters, with numbers and names exactly as in the full message, and \
+adds nothing that isn't in it;
+- has no markdown, lists, code, URLs or file paths (say a file's name, not its path), and \
+writes symbols as words: "24 dollars", not "$24";
+- is usually one to five sentences: shorter than the message, but not cut to a headline;
+- ends with your question, if the message asks the user something.
+
+Short messages need no spoken version. Use the tags only in your messages to the user, \
+never in files, commands, commit messages or other tool input.
+
+Don't ask the user questions while you are still working, and don't use a tool to ask them \
+(such as request_user_input_async): they can't answer until your turn ends. Work out what you \
+can, then put any questions at the end of your final message, where its spoken version ends \
+with them too."""
+
 
 @dataclass
 class AgentEvent:

@@ -3,7 +3,16 @@
 A task is owned by the session that last dispatched to it: that session, and no
 other, asks its approvals. A reply is spoken on the session whose request it
 answers: the hub follows each spoken request's message from `sent` to `done`
-on the event bus and speaks the last agent message in between.
+on the event bus and speaks each agent message in between as it arrives, so a
+preamble ("I'll move it to Trash") is heard before the approval it leads to.
+
+A long message starts with the agent's own version to be heard, in <spoken> tags
+(agents.base.SPOKEN_INSTRUCTIONS). The hub follows the message as it streams and
+speaks that version as soon as its closing tag arrives, before the rest is written.
+A long message without one is cut to its opening sentences (`summary.shorten`).
+Speech still being prepared for a task holds back its later messages, approval
+questions and failure, so they are heard in order. "Read me the details" reads
+the last reply in full, without its spoken version.
 """
 from __future__ import annotations
 
@@ -15,9 +24,12 @@ from ..events import EventBus
 from ..speech import Speech
 from ..tasks import TaskError, TaskManager
 from . import asking
-from .dispatch import Cancel, Stop, parse
+from . import summary
+from .dispatch import Cancel, Details, Stop, parse
 from .session import Asking, Turn, VoiceSession
-from .speakable import clauses, for_speech
+from .speakable import clauses, for_speech, spoken_part, without_spoken
+
+OPENING_TAG = "<spoken>"
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +40,6 @@ class Pending:
 
     session: VoiceSession
     message_id: int
-    reply: str | None = None
     result: dict | None = None
 
 
@@ -41,6 +52,10 @@ class VoiceHub:
         self.owners: dict[int, VoiceSession] = {}
         self.requests: dict[int, VoiceSession] = {}   # queued user message id → session that spoke it
         self.turns: dict[int, Pending] = {}            # task id → the spoken request now running
+        self.voicing: dict[int, asyncio.Task] = {}     # task id → its speech still being prepared
+        self.streams: dict[int, dict[str, str | None]] = {}  # task id → message item → text so far, None once read
+        self.early: dict[int, list[str]] = {}          # task id → spoken versions said before their message ended
+        self.heard: dict[VoiceSession, int] = {}       # session → the task it last heard a reply from
         self.watcher: asyncio.Task | None = None
         speech.listeners.add(self._speech_changed)
 
@@ -58,6 +73,11 @@ class VoiceHub:
             del self.requests[message_id]
         for task_id in [t for t, pending in self.turns.items() if pending.session is session]:
             del self.turns[task_id]
+        self.heard.pop(session, None)
+
+    def status(self) -> dict:
+        """What `ready` and `speech_status` report."""
+        return self.speech.snapshot()
 
     def owner(self, task_id: int) -> VoiceSession | None:
         return self.owners.get(task_id)
@@ -82,6 +102,8 @@ class VoiceHub:
                 await session.error("dispatch_failed", str(error), turn.id)
                 return {"outcome": "failed"}
             return {"outcome": "stop", "task_id": turn.task_id}
+        if isinstance(command, Details):
+            return await self._details(session, turn)
         if not command.text:
             return {"outcome": "empty"}  # only a project name was said
         try:
@@ -98,6 +120,19 @@ class VoiceHub:
                                     "ORDER BY id DESC LIMIT 1", task["id"])
         self.requests[message["id"]] = session
         return {"outcome": "dispatched", "task_id": task["id"]}
+
+    async def _details(self, session: VoiceSession, turn: Turn) -> dict:
+        """The selected task's last reply, or else the last one heard here, read in full."""
+        task_id = turn.task_id if turn.task_id is not None else self.heard.get(session)
+        message = None
+        if task_id is not None:
+            message = self.tasks.db.one("SELECT text FROM task_messages WHERE task_id = ? AND role = 'agent' "
+                                        "ORDER BY id DESC LIMIT 1", task_id)
+        if message is None:
+            await session.error("no_target", "there's no reply to read yet; choose a task first", turn.id)
+            return {"outcome": "failed"}
+        session.speak(clauses(for_speech(without_spoken(message["text"]))), task_id=task_id)
+        return {"outcome": "details", "task_id": task_id}
 
     async def _answer(self, session: VoiceSession, current: Asking, text: str) -> dict:
         """The turn after an approval question answers it (voice-protocol §8)."""
@@ -154,9 +189,10 @@ class VoiceHub:
 
     async def close(self):
         self.speech.listeners.discard(self._speech_changed)
-        if self.watcher:
-            self.watcher.cancel()
-            await asyncio.gather(self.watcher, return_exceptions=True)
+        jobs = [*self.voicing.values(), *([self.watcher] if self.watcher else [])]
+        for job in jobs:
+            job.cancel()
+        await asyncio.gather(*jobs, return_exceptions=True)
 
     # Replies
 
@@ -182,7 +218,7 @@ class VoiceHub:
             message = event["message"]
             if message["role"] == "agent":
                 if task_id in self.turns:
-                    self.turns[task_id].reply = message["text"]
+                    self._voice(task_id, self.turns[task_id], message["text"])
             elif message["state"] == "sent" and message["id"] in self.requests:
                 self.turns[task_id] = Pending(self.requests.pop(message["id"]), message["id"])
             elif message["state"] == "cancelled":
@@ -191,7 +227,11 @@ class VoiceHub:
                 pending = self.turns.get(task_id)
                 if pending and pending.message_id == message["id"]:
                     del self.turns[task_id]
+                    self._forget(task_id)
                     self._reply(task_id, pending)
+        elif kind == "delta":
+            if task_id in self.turns:
+                self._stream(task_id, self.turns[task_id], event["item_id"], event["delta"])
         elif kind == "approval":
             self._approval(event["approval"])
         elif kind == "event" and event["event"]["kind"] == "turn_completed" and task_id in self.turns:
@@ -200,6 +240,7 @@ class VoiceHub:
             # The turn ended without finishing its message, e.g. the agent failed to start.
             task = event["task"]
             pending = self.turns.pop(task["id"], None)
+            self._forget(task["id"])
             if pending:
                 pending.result = pending.result or {"status": "failed" if task["status"] != "cancelled"
                                                     else "cancelled", "error": task.get("error")}
@@ -210,6 +251,15 @@ class VoiceHub:
             for session in self.sessions:
                 session.withdraw(approval["id"])
             return
+        if approval["task_id"] in self.voicing:
+            self._after(approval["task_id"], lambda: self._offer(approval["id"]))
+            return
+        self._offer(approval["id"])
+
+    def _offer(self, approval_id: int):
+        approval = self.tasks.approvals.present(self.tasks.db.approval(approval_id))
+        if approval["status"] != "pending":
+            return  # answered on the card while speech was being prepared
         owner = self.owners.get(approval["task_id"])
         if owner in self.sessions:
             task = self.tasks.db.task(approval["task_id"])
@@ -217,17 +267,79 @@ class VoiceHub:
             owner.offer(approval, project["name"] if project else "The agent")
 
     def _reply(self, task_id: int, pending: Pending):
-        if pending.session not in self.sessions:
-            return
+        """The turn ended. Its messages have been spoken; only a failure is left to say."""
         result = pending.result or {}
-        if result.get("status") == "cancelled":
-            return  # the user cancelled it; nothing to report
-        text = for_speech(pending.reply) if pending.reply else ""
-        if result.get("status") != "completed":
-            error = for_speech(result["error"]) if result.get("error") else ""
-            text = f"{text} That task failed{': ' + error if error else '.'}".strip()
-        pending.session.speak(clauses(text), task_id=task_id)
+        if result.get("status") in ("completed", "cancelled"):
+            return  # a cancelled task was the user's doing; nothing to report
+        error = for_speech(result["error"]) if result.get("error") else ""
+        text = f"That task failed{': ' + error if error else '.'}"
+        if task_id in self.voicing:
+            self._after(task_id, lambda: self._say(task_id, pending, text))
+        else:
+            self._say(task_id, pending, text)
+
+    def _stream(self, task_id: int, pending: Pending, item_id: str, delta: str):
+        """Speak the message's spoken version as soon as it is complete, if the message starts with one."""
+        items = self.streams.setdefault(task_id, {})
+        if item_id in items and items[item_id] is None:
+            return
+        text = (items.get(item_id) or "") + delta
+        start = text.lstrip()[:len(OPENING_TAG)]
+        if not OPENING_TAG.startswith(start):
+            items[item_id] = None  # no spoken version; the whole message is voiced when it ends
+        elif (spoken := spoken_part(text)) is not None:
+            items[item_id] = None
+            self.early.setdefault(task_id, []).append(spoken)
+            self._in_turn(task_id, lambda: self._say(task_id, pending, for_speech(spoken)))
+        else:
+            items[item_id] = text
+
+    def _forget(self, task_id: int):
+        self.streams.pop(task_id, None)
+        self.early.pop(task_id, None)
+
+    def _voice(self, task_id: int, pending: Pending, markdown: str):
+        """Speak an agent message: its spoken version, or itself cut to its opening, in turn."""
+        if (spoken := spoken_part(markdown)) is not None:
+            if spoken in self.early.get(task_id, []):
+                self.early[task_id].remove(spoken)  # already heard while it streamed
+            else:
+                self._in_turn(task_id, lambda: self._say(task_id, pending, for_speech(spoken)))
+            return
+        self._in_turn(task_id, lambda: self._say(task_id, pending, summary.shorten(markdown)))
+
+    def _in_turn(self, task_id: int, step):
+        """Run `step` now, or after the task's speech being prepared."""
+        if task_id in self.voicing:
+            self._after(task_id, step)
+        else:
+            step()
+
+    def _after(self, task_id: int, step):
+        """Run `step` (a function, or one returning a coroutine) after the task's speech being prepared."""
+        previous = self.voicing.get(task_id)
+
+        async def run():
+            if previous:
+                await asyncio.gather(previous, return_exceptions=True)
+            if asyncio.iscoroutine(result := step()):
+                await result
+
+        job = asyncio.ensure_future(run())
+        self.voicing[task_id] = job
+
+        def done(finished: asyncio.Task):
+            if self.voicing.get(task_id) is finished:
+                del self.voicing[task_id]
+            if not finished.cancelled() and finished.exception():
+                log.error("could not speak a reply for task %s", task_id, exc_info=finished.exception())
+        job.add_done_callback(done)
+
+    def _say(self, task_id: int, pending: Pending, text: str):
+        if pending.session in self.sessions:
+            self.heard[pending.session] = task_id
+            pending.session.speak(clauses(text), task_id=task_id)
 
     def _speech_changed(self):
         for session in list(self.sessions):
-            asyncio.ensure_future(session.send(type="speech_status", speech=self.speech.snapshot()))
+            asyncio.ensure_future(session.send(type="speech_status", speech=self.status()))

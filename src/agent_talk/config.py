@@ -44,6 +44,9 @@ class Paths:
     def models(self) -> Path:
         return self.data_dir / "models"
 
+# Sections written by earlier versions and since removed: skipped, then dropped on the next save.
+RETIRED = {"assistant", "summaries"}
+
 
 @dataclass
 class ServerSettings:
@@ -97,6 +100,8 @@ class Settings:
             return settings
         data = tomllib.loads(path.read_text())
         for section, values in data.items():
+            if section in RETIRED:
+                continue
             target = getattr(settings, section, None)
             if target is None:
                 raise ValueError(f"unknown config section [{section}]")

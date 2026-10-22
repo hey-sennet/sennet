@@ -2,7 +2,9 @@
 
 Code blocks, tables, URLs and markdown are never narrated: blocks and tables
 become a short note that they are in the timeline, links keep their text, URLs
-become "a link", and file paths are read as their file name.
+become "a link", and file paths are read as their file name. Symbols are said as
+words ("$24" is "24 dollars", "~5%" is "about 5 percent"), and the ones with nothing to
+say, such as emoji and stray markdown, are dropped.
 """
 from __future__ import annotations
 
@@ -31,6 +33,47 @@ LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 HEADING = re.compile(r"^\s*#{1,6}\s+")
 QUOTE = re.compile(r"^\s*>\s?")
 RULE = re.compile(r"^\s*(?:[-*_]\s*){3,}$")
+# The version of a reply the agent wrote to be heard (agents.base.SPOKEN_INSTRUCTIONS). Only
+# at the start: elsewhere, "<spoken>" is the agent talking about the tags.
+SPOKEN = re.compile(r"^\s*<spoken>\s*(.*?)\s*</spoken>\s*", re.S)
+
+CURRENCIES = {"$": ("dollar", "cent"), "£": ("pound", "pence"), "€": ("euro", "cent"), "¥": ("yen", None),
+              "₹": ("rupee", "paise")}
+CODES = {"USD": "$", "GBP": "£", "EUR": "€", "JPY": "¥", "INR": "₹"}
+SCALES = {"k": "thousand", "m": "million", "mn": "million", "bn": "billion", "b": "billion", "tn": "trillion",
+          "thousand": "thousand", "million": "million", "billion": "billion", "trillion": "trillion"}
+AMOUNT = r"((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(?:\s?(k|mn|m|bn|b|tn|thousand|million|billion|trillion)\b)?"
+MONEY = re.compile(rf"(?<![\w$£€¥₹])(?:US)?([$£€¥₹])\s?{AMOUNT}", re.I)
+CODED_MONEY = re.compile(rf"\b{AMOUNT}\s?({'|'.join(CODES)})\b|\b({'|'.join(CODES)})\s?{AMOUNT}", re.I)
+# Said as words wherever they stand. Order matters: "->" before "-" ranges, "e.g." before ".".
+WORDS = [
+    (re.compile(r"\s*(?:->|=>|→|⇒)\s*"), " to "),
+    (re.compile(r"\s*(?:<-|←)\s*"), " from "),
+    (re.compile(r"\s*(?:<=|≤)\s*(?=\d)"), " at most "),
+    (re.compile(r"\s*(?:>=|≥)\s*(?=\d)"), " at least "),
+    (re.compile(r"(?<!\w)(?:~|≈|\bapprox\.)\s?(?=\d)"), "about "),
+    (re.compile(r"(\d)\s?%"), r"\1 percent"),
+    (re.compile(r"(\d)\s?°\s?C\b"), r"\1 degrees Celsius"),
+    (re.compile(r"(\d)\s?°\s?F\b"), r"\1 degrees Fahrenheit"),
+    (re.compile(r"(\d)\s?°"), r"\1 degrees"),
+    (re.compile(r"(\d)(?<!\b0)\s?[x×]\s?(?=\d)"), r"\1 by "),
+    (re.compile(r"(\d)\s?[x×](?!\w)"), r"\1 times"),
+    (re.compile(r"(?<=\d)\s?\*\s?(?=\d)"), " times "),
+    (re.compile(r"(?<![\w&])#(\d+)"), r"number \1"),
+    (re.compile(r"(?<![\w.:-])(\d+(?:\.\d+)?)\s?[–-]\s?(\d+(?:\.\d+)?)(?![\d-]|[.:]\d)"), r"\1 to \2"),
+    (re.compile(r"\s+[+]\s+"), " plus "),
+    (re.compile(r"\s*&\s*"), " and "),
+    (re.compile(r"\s+(?:--|—|–)\s+|(?<=\w)(?:--|—)(?=\w)"), ", "),
+    (re.compile(r"\be\.g\.(?=\W)", re.I), "for example"),
+    (re.compile(r"\bi\.e\.(?=\W)", re.I), "that is"),
+    (re.compile(r"\betc\.(?=\s+[a-z])"), "et cetera"),
+    (re.compile(r"\betc\.?"), "et cetera."),
+    (re.compile(r"\bvs\.?(?=\s)", re.I), "versus"),
+    (re.compile(r"(?<=\w)\s?@\s?(?=\d)"), " at "),
+]
+# Emoji, pictographs, arrows and box drawing, and markdown left over once the rest is read.
+UNSPOKEN = re.compile(r"[\u2190-\u21ff\u2300-\u23ff\u2460-\u27bf\u2b00-\u2bff\U0001f000-\U0001faff\ufe0f\u200d"
+                      r"*`|\\^{}\[\]<>=#]")
 
 
 def for_speech(markdown: str) -> str:
@@ -45,7 +88,17 @@ def for_speech(markdown: str) -> str:
     text = HTML.sub("", text)
     text = PATH.sub(lambda m: _path(m.group()), text)
     text = _emphasis(text)
-    return _sentences(text)
+    return _sentences(_symbols(text))
+
+
+def spoken_part(markdown: str) -> str | None:
+    """The agent's version of a reply to be heard, if it wrote one."""
+    found = SPOKEN.search(markdown)
+    return found.group(1) if found and found.group(1) else None
+
+
+def without_spoken(markdown: str) -> str:
+    return SPOKEN.sub("", markdown).strip()
 
 
 def clauses(text: str) -> list[str]:
@@ -84,6 +137,40 @@ def _emphasis(text: str) -> str:
     text = re.sub(r"(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])", r"\1", text)
     text = re.sub(r"(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)", r"\1", text)
     return re.sub(r"~~(.+?)~~", r"\1", text)
+
+
+def _symbols(text: str) -> str:
+    text = MONEY.sub(lambda m: _money(m.group(1), m.group(2), m.group(3)), text)
+    text = CODED_MONEY.sub(lambda m: _money(CODES[(m.group(3) or m.group(4)).upper()],
+                                            m.group(1) or m.group(5), m.group(2) or m.group(6)), text)
+    for pattern, words in WORDS:
+        text = pattern.sub(words, text)
+    text = "\n".join(_unspoken(line) for line in text.split("\n"))
+    return re.sub(r"[ \t]{2,}", " ", text)
+
+
+def _money(symbol: str, amount: str, scale: str | None) -> str:
+    """"$24" is "24 dollars", "£3.50" "3 pounds 50", "$1.2bn" "1.2 billion dollars"."""
+    unit, small = CURRENCIES[symbol]
+    whole, _, fraction = amount.partition(".")
+    if scale:
+        return f"{amount} {SCALES[scale.lower()]} {unit}{'' if unit == 'yen' else 's'}"
+    plural = "" if whole == "1" or unit == "yen" else "s"
+    if not fraction or not small or set(fraction) == {"0"}:
+        return f"{whole}{f'.{fraction}' if fraction and not small else ''} {unit}{plural}"
+    if len(fraction) != 2:
+        return f"{amount} {unit}s"
+    if whole == "0":
+        return f"{int(fraction)} {small}{'s' if small == 'cent' and fraction != '01' else ''}"
+    return f"{whole} {unit}{plural} {int(fraction)}" if symbol == "£" else \
+        f"{whole} {unit}{plural} and {int(fraction)} {small}{'s' if small == 'cent' and fraction != '01' else ''}"
+
+
+def _unspoken(line: str) -> str:
+    """Drop what can't be said, keeping a list or heading mark at the start of the line."""
+    lead = LIST_ITEM.match(line) or HEADING.match(line) or QUOTE.match(line)
+    start = lead.end() if lead else 0
+    return line[:start] + UNSPOKEN.sub(" ", line[start:])
 
 
 # Lines and sentences
@@ -126,7 +213,7 @@ def _sentences(text: str) -> str:
 
 def _end(sentence: str) -> str:
     sentence = sentence.strip()
-    return sentence if not sentence or sentence[-1] in ".!?:;" else sentence + "."
+    return sentence if not sentence or sentence[-1] in ".!?:;…" else sentence + "."
 
 
 def _split(sentence: str, limit: int, first_only: bool = False) -> list[str]:

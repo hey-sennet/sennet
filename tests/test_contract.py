@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk.agents.base import AgentEvent, Capabilities, check_event
+from agent_talk.agents.base import SPOKEN_INSTRUCTIONS, AgentEvent, Capabilities, check_event
 from agent_talk.agents.codex import CodexAgent, CodexSession
 from agent_talk.config import Settings
 from agent_talk.db import SCHEMA_VERSION, Database
@@ -130,6 +130,12 @@ def test_agents_report_their_capabilities(client):
     assert codex["capabilities"] == {"interrupt": True, "resume": True, "live_approvals": True,
                                      "approval_modes": ["ask", "auto", "never"],
                                      "access_levels": ["read-only", "workspace", "full"]}
+
+
+def test_agents_are_asked_for_a_version_to_be_heard(client, project, codex_log):
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi"}).json()
+    wait_for(client, task["id"], finished)
+    assert codex_log("thread/start")[0]["params"]["developerInstructions"] == SPOKEN_INSTRUCTIONS
 
 
 # Access levels and migrations

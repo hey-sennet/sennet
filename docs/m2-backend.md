@@ -90,8 +90,8 @@ on a LibriSpeech clip and checks the final text.
 - The basic target arrives in step 2: `start.task_id` as a follow-up, else a new task in
   `start.project_id`, else `no_target`.
 - Route a leading project name or alias set off by a comma or colon ("in backend, …")
-  to that project, with the routing phrase removed. Matching is exact on normalised words in M2; fuzzy matching
-  comes with the front assistant in M3.
+  to that project, with the routing phrase removed. Matching is exact on normalised words. (M3 tried fuzzy
+  routing by a local model and removed it; see m3-summaries.md.)
 - A transcript that is only "stop" stops speech; one that is only "cancel" cancels the
   target task. Neither is dispatched.
 - Which session dispatched to which task is recorded from step 2 on (`VoiceHub.owner`).
@@ -108,9 +108,10 @@ and `dispatch_failed` when `TaskManager` raises.
 - The speaker: per session, it synthesizes one segment ahead, sends `speech` then the
   audio frames, awaits each send, and ends with `speech_end`. `voice_state` is
   `speaking` while frames are going out.
-- When a task's turn completes, its last agent message from that turn is spoken on the
-  session that dispatched it, and on no other. It is spoken in full; the front assistant
-  summarises replies for speech in M3.
+- Each agent message in a spoken request's turn is spoken as it arrives, on the session
+  that dispatched it and on no other, so a preamble ("I'll move it to Trash") is heard
+  before the approval it leads to. Messages are spoken in full; M3 shortens long
+  ones for speech.
 - Pressing talk interrupts speech at once (the generation rule in voice-protocol §7).
 
 Tests: the cleaner and the splitter on fixtures; with fakes, that a reply reaches only
@@ -187,7 +188,7 @@ flowchart LR
 ## Decisions
 
 - Setup is guided, with a recommendation for each choice (step 1).
-- Replies are spoken in full until M3's front assistant summarises them.
+- Replies are spoken in full until M3 shortens long ones.
 - Pressing talk is the only way to interrupt speech in M2. Interrupting by voice needs
   the mic open during playback and reliable echo cancellation, so it stays in M6.
 - kokoro-onnx is dropped and the Kokoro ONNX model is called directly, so the base

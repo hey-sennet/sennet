@@ -1,10 +1,12 @@
-"""Direct mode: what a final transcript asks for, without a front assistant.
+"""What a final transcript asks for.
 
 A transcript is one of: "stop" (stop speaking), "cancel" (interrupt the target
-task), or a request for an agent. A request that opens with a project's name or
-alias set off by a comma or colon ("in backend, run the tests", "API: update
-the docs") goes to that project, minus the routing phrase; everything else is sent verbatim. Matching is exact on normalised words;
-fuzzy matching comes with the front assistant (M3).
+task), "read me the details" (the last reply in full, not summarised), or a
+request for an agent. A request that opens with a project's name or alias set off
+by a comma or colon ("in backend, run the tests", "API: update the docs") goes to
+that project, minus the routing phrase; everything else is sent verbatim to the
+selected task or project. Matching is exact on normalised words: a wrong project is
+worse than none.
 """
 from __future__ import annotations
 
@@ -13,6 +15,10 @@ from dataclasses import dataclass
 
 STOP = {"stop", "stop speaking", "stop talking", "be quiet", "quiet"}
 CANCEL = {"cancel", "cancel that", "cancel it", "cancel the task", "cancel task"}
+DETAILS = {"details", "read me the details", "read the details", "read me everything", "read it all",
+           "read me all of it", "read the whole thing", "read me the whole thing", "read the full reply",
+           "read me the full reply", "the details", "give me the details", "tell me the details",
+           "read it in full", "read me the reply", "read the reply"}
 PREPOSITIONS = {"in", "for", "on", "to"}
 MAX_NAME_WORDS = 4
 
@@ -35,12 +41,19 @@ class Cancel:
     pass
 
 
-def parse(transcript: str, projects: list[dict]) -> Request | Stop | Cancel:
+@dataclass
+class Details:
+    pass
+
+
+def parse(transcript: str, projects: list[dict]) -> Request | Stop | Cancel | Details:
     words = " ".join(_squash(w) for w in WORD.findall(transcript))
     if words in STOP:
         return Stop()
     if words in CANCEL:
         return Cancel()
+    if re.sub(r"^(please|ok|okay) |( please)$", "", words) in DETAILS:
+        return Details()
     routed = _route(transcript, projects)
     return routed or Request(transcript.strip())
 
