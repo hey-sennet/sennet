@@ -13,11 +13,12 @@ import secrets
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-import numpy as np
 from starlette.websockets import WebSocket, WebSocketState
 
 from ..speech import RATE, Speech
+from ..speech.stt import Caption
 from .frames import INPUT_RATE, BadFrame, decode_uplink, encode_downlink
+from .recognition import Recognition
 
 if TYPE_CHECKING:
     from .hub import VoiceHub
@@ -174,16 +175,24 @@ class VoiceSession:
     # Turns
 
     async def _listen(self, turn: Turn):
-        chunks = []
-        while (chunk := await turn.frames.get()) is not None:
-            turn.queued -= len(chunk)
-            chunks.append(chunk)
-        await self._set_state("transcribing", turn.id)
-        audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        async def caption(caption: Caption):
+            await self.send(type="caption", turn=turn.id, committed=caption.committed,
+                            provisional=caption.provisional)
+
+        recognition = Recognition(self.speech, caption)
         try:
-            text = await self.speech.run("stt", self.speech.stt.text, audio) if len(audio) else ""
+            while (chunk := await turn.frames.get()) is not None:
+                turn.queued -= len(chunk)
+                await recognition.add(chunk)
+            await recognition.stop()
+            await self._set_state("transcribing", turn.id)
+            text = await recognition.finish()
+        except asyncio.CancelledError:
+            recognition.cancel()
+            raise
         except Exception as error:
-            log.exception("final pass failed")
+            recognition.cancel()
+            log.exception("recognition failed")
             await self.error("stt_unavailable", f"recognition failed: {error}", turn.id)
             await self._close_turn(turn)
             return

@@ -12,6 +12,7 @@ import pytest
 from agent_talk import setup
 from agent_talk.config import Settings
 from agent_talk.speech import Speech, hardware, models
+from agent_talk.speech.base import AudioBuffer
 from agent_talk.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
 from agent_talk.speech.stt import StreamingTranscriber
 from agent_talk.speech.tts import VOCAB, split, tokens, trim
@@ -141,13 +142,23 @@ def test_trim_removes_quiet_ends():
 
 def test_streaming_transcriber_commits_words_two_passes_agree_on():
     stream = StreamingTranscriber(FakeRecognizer("one two three four", word_s=0.25))
-    stream.add(np.zeros(16000 // 2, dtype=np.float32))  # two words heard
-    first = stream.tick()
+    audio = AudioBuffer()
+    audio.append(np.zeros(16000 // 2, dtype=np.float32))  # two words heard
+    first = stream.tick(audio.view())
     assert (first.committed, first.provisional) == ("", "one two")
-    stream.add(np.zeros(16000 // 4, dtype=np.float32))
-    second = stream.tick()
+    audio.append(np.zeros(16000 // 4, dtype=np.float32))
+    second = stream.tick(audio.view())
     assert (second.committed, second.provisional) == ("one two", "three")
-    assert stream.finish() == "one two three four"
+
+
+def test_audio_buffer_grows_without_changing_earlier_views():
+    audio = AudioBuffer(capacity=4)
+    audio.append(np.arange(3, dtype=np.float32))
+    early = audio.view()
+    audio.append(np.arange(3, 10, dtype=np.float32))
+    assert list(early) == [0, 1, 2]
+    assert list(audio.view()) == list(range(10))
+    assert list(audio.view(2, 5)) == [2, 3, 4] and len(audio) == 10
 
 
 def test_fake_vad_hears_sound_not_silence():

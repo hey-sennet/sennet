@@ -7,9 +7,11 @@ import queue
 import threading
 from typing import Any, Callable
 
-# Lower runs first. A final pass is what the user is waiting on; captions are a preview.
+# Lower runs first. A final pass is what the user is waiting on; a segment finalized
+# during a pause will be soon; captions are a preview.
 FINAL = 0
-CAPTION = 1
+SEGMENT = 1
+CAPTION = 2
 
 
 class Worker:

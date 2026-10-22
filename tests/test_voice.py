@@ -169,6 +169,26 @@ def test_a_turn_with_no_audio_is_empty(voice, project):
     assert (final["text"], final["outcome"]) == ("", "empty")
 
 
+def test_captions_arrive_while_listening(voice, project):
+    voice.send(type="start", turn="t1", project_id=project["id"])
+    for _ in range(25):  # 0.5 s: the fake hears two words
+        voice.ws.send_bytes(SPEECH_FRAME)
+    caption = voice.next("caption")
+    assert caption == {"type": "caption", "turn": "t1", "committed": "", "provisional": "run the"}
+    voice.send(type="end", turn="t1")
+    assert voice.next("final")["outcome"] == "dispatched"
+
+
+def test_a_quiet_turn_is_empty(client, voice, project):
+    voice.send(type="start", turn="t1", project_id=project["id"])
+    for _ in range(50):
+        voice.ws.send_bytes(b"\x00" * 640)
+    voice.send(type="end", turn="t1")
+    final = voice.next("final")
+    assert (final["text"], final["outcome"]) == ("", "empty")
+    assert client.get("/api/state").json()["tasks"] == []
+
+
 def test_cancel_discards_the_turn(client, voice, project):
     voice.send(type="start", turn="t1", project_id=project["id"])
     voice.ws.send_bytes(SPEECH_FRAME)

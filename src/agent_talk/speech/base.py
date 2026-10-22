@@ -13,6 +13,33 @@ import numpy as np
 RATE = 16000
 
 
+class AudioBuffer:
+    """Audio that grows by appending, without copying the whole utterance each time.
+
+    `view()` returns the samples so far. Appends never change samples already
+    written, so a view taken on the event loop is safe to read in a worker thread.
+    """
+
+    def __init__(self, capacity: int = RATE * 10):
+        self.data = np.zeros(capacity, dtype=np.float32)
+        self.length = 0
+
+    def append(self, chunk: np.ndarray):
+        end = self.length + len(chunk)
+        if end > len(self.data):
+            grown = np.zeros(max(end, 2 * len(self.data)), dtype=np.float32)
+            grown[:self.length] = self.data[:self.length]
+            self.data = grown
+        self.data[self.length:end] = chunk
+        self.length = end
+
+    def view(self, start: int = 0, end: int | None = None) -> np.ndarray:
+        return self.data[start:self.length if end is None else min(end, self.length)]
+
+    def __len__(self) -> int:
+        return self.length
+
+
 @dataclass
 class Word:
     text: str

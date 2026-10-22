@@ -56,21 +56,19 @@ class StreamingTranscriber:
     on become committed; the rest are provisional. The window start (`anchor`)
     advances to a committed word boundary once the window exceeds `max_window`,
     so per-tick decode cost stays bounded however long the user talks.
+
+    Each tick takes the whole utterance so far; the caller owns the audio.
     """
 
     stt: Recognizer
     max_window: float = 8.0
-    audio: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
     anchor: int = 0                       # sample index where the window starts
     committed: list[str] = field(default_factory=list)
     window_committed: int = 0             # committed words that lie inside the window
     previous: list[Word] | None = None
 
-    def add(self, chunk: np.ndarray):
-        self.audio = np.concatenate([self.audio, chunk])
-
-    def tick(self) -> Caption:
-        window = self.audio[self.anchor:]
+    def tick(self, audio: np.ndarray) -> Caption:
+        window = audio[self.anchor:]
         started = time.perf_counter()
         words = self.stt.words(window) if len(window) >= RATE // 4 else []
         decode_ms = (time.perf_counter() - started) * 1000
@@ -105,10 +103,3 @@ class StreamingTranscriber:
         self.committed = self.committed[:-1]
         self.window_committed = 0
         self.previous = None
-
-    def finish(self, full_pass_limit: float = 60.0) -> str:
-        """Final transcript: one full decode of the utterance when it fits the model."""
-        if len(self.audio) / RATE <= full_pass_limit:
-            return self.stt.text(self.audio).strip()
-        tail = " ".join(w.text for w in self.stt.words(self.audio[self.anchor:])[self.window_committed:])
-        return " ".join(self.committed + [tail]).strip()

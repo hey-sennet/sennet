@@ -27,16 +27,21 @@ class Speech:
         self.vad: VoiceActivityModel | None = None
         self.stt: Recognizer | None = None
         self.tts: Synthesizer | None = None
+        # Finalize segments at pauses while the user talks (HLD §6.2): a CPU full pass
+        # over a long utterance is too slow to leave until release.
+        self.incremental = False
         self.status = {role: "loading" for role in ROLES}
         self.detail = {role: "" for role in ROLES}
         self.workers = {name: Worker(name) for name in ("vad", "stt", "tts")}
         self.listeners: set[Callable[[], Any]] = set()
 
     @classmethod
-    def with_engines(cls, vad: VoiceActivityModel | None, stt: Recognizer | None, tts: Synthesizer | None) -> Speech:
+    def with_engines(cls, vad: VoiceActivityModel | None, stt: Recognizer | None, tts: Synthesizer | None,
+                     incremental: bool = False) -> Speech:
         """Engines that are already loaded, such as the test fakes."""
         speech = cls()
         speech.vad, speech.stt, speech.tts = vad, stt, tts
+        speech.incremental = incremental
         speech._set("stt", "ready" if vad and stt else "unavailable", "" if vad and stt else "not configured")
         speech._set("tts", "ready" if tts else "unavailable", "" if tts else "not configured")
         return speech
@@ -56,6 +61,7 @@ class Speech:
             for role in ROLES:
                 self._set(role, "unavailable", str(error))
             return
+        self.incremental = device == "cpu"
         chosen = models.MODELS[device]
         missing = [m.id for m in chosen.values() if not models.present(models_root, m)]
         if missing:
@@ -100,6 +106,9 @@ class Speech:
     def close(self):
         for worker in self.workers.values():
             worker.close()
+        # Release the models (and on GPU, their memory) now rather than whenever the
+        # last reference goes.
+        self.vad = self.stt = self.tts = None
 
     def _set(self, role: str, status: str, detail: str):
         self.status[role], self.detail[role] = status, detail
