@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_talk.agents.base import AgentEvent, TurnPolicy, check_event
+from conftest import pending_approval, wait_for
+
+from agent_talk.agents.base import AgentEvent, TurnPolicy, check_event, spoken_instructions
 from agent_talk.agents.callbacks import CallbackServer
 from agent_talk.agents.claude import ClaudeAgent, ClaudeSession, approval_request, permission_args
 
@@ -206,3 +208,90 @@ async def test_status_comes_from_auth_status_and_never_shows_the_account(tmp_pat
     status = await ClaudeAgent([str(script)]).status()
     assert (status.installed, status.logged_in, status.detail) == (True, logged_in, detail)
     assert "example.com" not in status.detail
+
+
+# Whole sessions, against tests/fake_claude.py on a live server
+
+def claude_project(client, tmp_path, **settings):
+    (tmp_path / "repo").mkdir(exist_ok=True)
+    project = client.post("/api/projects", json={"path": str(tmp_path / "repo"), "agent": "claude"}).json()
+    if settings:
+        client.patch(f"/api/projects/{project['id']}", json=settings)
+    return project
+
+
+def task(client, project, text):
+    return client.post("/api/tasks", json={"project_id": project["id"], "text": text}).json()
+
+
+def settled(status="completed"):
+    return lambda t: t["status"] == status
+
+
+def test_claude_runs_with_the_session_id_as_resume_token(live, tmp_path, claude_log):
+    project = claude_project(live, tmp_path)
+    done = wait_for(live, task(live, project, "hello")["id"], settled())
+    assert done["messages"][-1]["text"] == "You said: hello"
+    argv = claude_log("argv")[0]
+    assert argv[argv.index("--session-id") + 1] == done["resume_token"]
+    assert argv[argv.index("--append-system-prompt") + 1] == spoken_instructions()
+    assert "--bare" not in argv
+    assert argv[argv.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" in argv
+    server = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["agent_talk"]
+    assert server["timeout"] > 60_000
+    assert claude_log("cwd")[0] == project["path"]
+
+
+def test_approvals_reach_the_user_through_the_prompt_tool(live, tmp_path):
+    project = claude_project(live, tmp_path)
+    started = task(live, project, "run:npm test")
+    approval = pending_approval(live)
+    assert (approval["kind"], approval["summary"]) == ("command", "run npm test")
+    live.post(f"/api/approvals/{approval['id']}", json={"decision": "approve"})
+    done = wait_for(live, started["id"], settled())
+    assert done["messages"][-1]["text"] == "Ran it."
+    finished = [e["data"] for e in done["events"] if e["kind"] == "command_finished"]
+    assert (finished[0]["status"], finished[0]["exit_code"]) == ("completed", 0)
+
+
+def test_a_declined_edit_is_declined(live, tmp_path):
+    project = claude_project(live, tmp_path)
+    started = task(live, project, "edit:notes.txt")
+    approval = pending_approval(live)
+    assert approval["kind"] == "edit" and approval["detail"]["changes"][0]["kind"] == "add"
+    live.post(f"/api/approvals/{approval['id']}", json={"decision": "decline"})
+    done = wait_for(live, started["id"], settled())
+    assert done["messages"][-1]["text"] == "Left it alone."
+    assert [e["data"]["status"] for e in done["events"] if e["kind"] == "file_change"] == ["declined"]
+
+
+def test_background_work_is_reported_in_claudes_own_turn(live, tmp_path):
+    project = claude_project(live, tmp_path)
+    started = task(live, project, "bg:make build")
+    live.post(f"/api/approvals/{pending_approval(live)['id']}", json={"decision": "approve"})
+    done = wait_for(live, started["id"], lambda t: t["status"] == "completed" and len(t["messages"]) == 3)
+    assert [m["text"] for m in done["messages"][1:]] == ["Started it in the background.",
+                                                         "The background command make build finished."]
+    kinds = [e["kind"] for e in done["events"]]
+    assert kinds.index("turn_started") > kinds.index("background")
+
+
+def test_cancelling_interrupts_and_the_next_message_resumes(live, tmp_path, claude_log):
+    project = claude_project(live, tmp_path)
+    started = task(live, project, "hang")
+    wait_for(live, started["id"], lambda t: any(e["kind"] == "command_started" for e in t["events"]))
+    live.post(f"/api/tasks/{started['id']}/cancel")
+    cancelled = wait_for(live, started["id"], settled("cancelled"))
+    live.post(f"/api/tasks/{started['id']}/messages", json={"text": "still there?"})
+    done = wait_for(live, started["id"], settled())
+    assert done["messages"][-1]["text"] == "You said: still there?"
+    second = claude_log("argv")[1]
+    assert second[second.index("--resume") + 1] == cancelled["resume_token"]
+
+
+def test_access_and_mode_reach_claude(live, tmp_path, claude_log):
+    project = claude_project(live, tmp_path, approval_mode="never", access="read-only")
+    wait_for(live, task(live, project, "hi")["id"], settled())
+    argv = claude_log("argv")[0]
+    assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    assert "Edit" in argv[argv.index("--disallowedTools"):]

@@ -1,15 +1,20 @@
 import json
+import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
+import httpx
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 
 from agent_talk.config import Paths, Settings
 from agent_talk.server import create_app
 
 FAKE_CODEX = Path(__file__).parent / "fake_codex.py"
+FAKE_CLAUDE = Path(__file__).parent / "fake_claude.py"
 HEADERS = {"X-Agent-Talk": "1"}
 
 
@@ -17,6 +22,7 @@ HEADERS = {"X-Agent-Talk": "1"}
 def settings():
     settings = Settings()
     settings.agents.commands["codex"] = [sys.executable, str(FAKE_CODEX)]
+    settings.agents.commands["claude"] = [sys.executable, str(FAKE_CLAUDE)]
     return settings
 
 
@@ -37,6 +43,38 @@ def codex_log(tmp_path, monkeypatch):
         return [e for e in entries if method is None or e["method"] == method]
 
     return calls
+
+
+@pytest.fixture
+def claude_log(tmp_path, monkeypatch):
+    path = tmp_path / "claude.log"
+    monkeypatch.setenv("FAKE_CLAUDE_LOG", str(path))
+
+    def entries(key: str) -> list:
+        if not path.exists():
+            return []
+        return [e[key] for e in map(json.loads, path.read_text().splitlines()) if key in e]
+
+    return entries
+
+
+@pytest.fixture
+def live(settings, paths, codex_log, claude_log):
+    """The app on a real loopback port, for agents that call back into it over HTTP."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        settings.server.port = probe.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(create_app(settings, paths), host="127.0.0.1",
+                                           port=settings.server.port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    with httpx.Client(base_url=f"http://127.0.0.1:{settings.server.port}", headers=HEADERS) as client:
+        yield client
+    server.should_exit = True
+    thread.join(10)
 
 
 @pytest.fixture

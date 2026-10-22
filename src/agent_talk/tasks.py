@@ -214,6 +214,7 @@ class TaskManager:
         runner = self.runners[task_id]
         if runner.session and runner.session.alive:
             return
+        await self._close_session(task_id)  # what is left of one that ended
         task = self.db.task(task_id)
         project = self.db.project(task["project_id"])
         agent = self._agent(task)

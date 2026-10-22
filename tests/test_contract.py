@@ -1,6 +1,7 @@
 """The provider-neutral agent contract: vocabularies, capabilities and migrations.
 
-Every adapter must pass the conformance checks here; Codex is the first.
+Every adapter in the registry must pass the conformance checks here, each against
+its fake CLI (tests/fake_codex.py, tests/fake_claude.py).
 """
 import json
 import sqlite3
@@ -61,7 +62,12 @@ def test_codex_translates_into_the_contract(method, params, kind, expected):
     assert check_event(event) == []
 
 
-def test_every_event_from_a_codex_session_conforms(client, project):
+@pytest.mark.parametrize("agent", registry.NAMES)
+def test_every_event_from_a_session_conforms(live, tmp_path, agent):
+    """Each adapter, against its fake CLI, through the same requests."""
+    client = live
+    (tmp_path / agent).mkdir()
+    project = client.post("/api/projects", json={"path": str(tmp_path / agent), "agent": agent}).json()
     texts = ["hello", "run:npm test", "edit:src/app.py", "hang", "crash"]
     for text in texts:
         task = client.post("/api/tasks", json={"project_id": project["id"], "text": text}).json()

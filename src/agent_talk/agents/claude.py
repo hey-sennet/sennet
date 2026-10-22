@@ -149,7 +149,8 @@ class ClaudeSession:
         self.stderr: asyncio.Task | None = None
         self.unstarted = 0              # messages sent whose turn hasn't opened
         self.in_turn = False
-        self.interrupting = False
+        self.interrupting = False       # the turn now ending was interrupted
+        self.interrupted = False        # the process was sent SIGINT, and is ending
         self.tools: dict[str, tuple[str, dict, bool]] = {}  # tool use id → name, input, whether the file existed
         self.declined: set[str] = set()
         self.background: list[dict] = []
@@ -158,8 +159,9 @@ class ClaudeSession:
 
     @property
     def alive(self) -> bool:
+        """Until interrupted: SIGINT ends the process too, so the next message needs a new one."""
         return self.process is not None and self.process.returncode is None and \
-            self.reader is not None and not self.reader.done()
+            self.reader is not None and not self.reader.done() and not self.interrupted
 
     async def start(self, command: list[str], token: str | None, policy: TurnPolicy):
         self.resume_token = token or str(uuid.uuid4())
@@ -194,7 +196,7 @@ class ClaudeSession:
     async def interrupt(self):
         """SIGINT ends the turn, and the process with it; the next turn resumes the session."""
         if self.alive:
-            self.interrupting = True
+            self.interrupting = self.interrupted = True
             self.process.send_signal(signal.SIGINT)
 
     async def close(self):
