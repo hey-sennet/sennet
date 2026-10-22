@@ -36,8 +36,12 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   const snapshot = talk.state
   const running = task?.status === 'running' || task?.status === 'queued'
   const state = strataPreview?.state ?? strataState(snapshot, { taskRunning: running, approvalPending: approvals.length > 0 })
-  const words = snapshot.words && (snapshot.words.committed || snapshot.words.provisional) ? snapshot.words : null
   const approval = approvals[0]
+  // A waiting approval replaces the agent's words (which are usually its question), not yours.
+  const said = snapshot.words && (snapshot.words.committed || snapshot.words.provisional) ? snapshot.words : null
+  // Once your request is sent, the task's progress takes over from your words.
+  const sent = said?.speaker === 'user' && running && !snapshot.listening && snapshot.state === 'idle'
+  const words = said && !sent && !(approval && said.speaker === 'agent') ? said : null
   const projectOf = (taskId: number) => projects.find((p) => p.id === tasks.find((t) => t.id === taskId)?.project_id)
 
   const label = state === 'listening' ? 'Listening'
@@ -63,8 +67,12 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   } else if (task && running) {
     body = (
       <div>
-        <Lead>{task.title}<span className="animate-pulse">…</span></Lead>
-        {current(detail) && <p className="mt-3 font-mono text-[12.5px] text-muted-foreground">› {current(detail)}</p>}
+        {activity(detail) === 'Thinking' ? <Ellipsis /> : (
+          <p key={activity(detail)} className="animate-shimmer font-serif text-[clamp(26px,6vw,34px)] leading-[1.18] tracking-[-0.01em]">
+            {activity(detail)}
+          </p>
+        )}
+        {current(detail) && <p className="mt-3 truncate font-mono text-[12.5px] text-muted-foreground">› {current(detail)}</p>}
       </div>
     )
   } else if (task && lastReply(detail)) {
@@ -120,11 +128,12 @@ function StageApproval({ approval, project }: { approval: Approval; project?: Pr
   const destructive = approval.risk === 'destructive'
   return (
     <div className="animate-word-in">
-      <p className="font-serif text-[clamp(26px,6vw,34px)] leading-[1.18] tracking-[-0.01em] text-balance">
-        {project?.name ?? 'The agent'} wants to {approval.summary}
+      <p className="line-clamp-3 font-serif text-[clamp(26px,6vw,34px)] leading-[1.18] tracking-[-0.01em] text-balance">
+        {/* The command is in the box below; repeated here, a long one pushes the buttons away. */}
+        {project?.name ?? 'The agent'} wants to {approval.kind === 'command' ? 'run a command' : approval.summary}
       </p>
       {shown && (
-        <code className={cn('mt-3 inline-block max-w-full truncate rounded-lg px-2.5 py-1.5 font-mono text-[14px]',
+        <code className={cn('mt-3 block w-fit max-h-[5.5em] max-w-full overflow-y-auto rounded-lg px-2.5 py-1.5 font-mono text-[14px] leading-[1.5] break-all whitespace-pre-wrap',
           destructive ? 'bg-destructive/14 text-destructive' : 'bg-warn/14 text-warn')}>{shown}</code>
       )}
       <div className="mt-5 flex flex-wrap gap-2 font-sans [&>*]:h-10 [&>*]:rounded-full [&>*]:px-5">
@@ -138,6 +147,26 @@ function StageApproval({ approval, project }: { approval: Approval; project?: Pr
       </div>
     </div>
   )
+}
+
+/** Thinking: three dots rising in turn. */
+function Ellipsis() {
+  return (
+    <p role="status" aria-label="Thinking" className="animate-word-in flex h-[1.18em] items-center gap-[0.22em] text-[clamp(26px,6vw,34px)] text-agent">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="animate-dot size-[0.22em] rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />
+      ))}
+    </p>
+  )
+}
+
+/** What the agent is doing, from its latest event. */
+function activity(detail: TaskDetail | null): string {
+  const last = detail?.events.findLast((e) => e.kind !== 'turn_completed' && e.kind !== 'error')
+  return last?.kind === 'command_started' ? 'Running a command'
+    : last?.kind === 'file_change' ? 'Editing files'
+    : last?.kind === 'message_delta' ? 'Writing'
+    : 'Thinking'
 }
 
 /** The command running now, if the latest command hasn't finished. */

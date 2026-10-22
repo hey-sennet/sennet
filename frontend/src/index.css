@@ -16,6 +16,37 @@
     }
 }
 
+/* A light passing over the words while the agent works; plain words without motion. */
+@utility animate-shimmer {
+    animation: word-in 0.55s var(--ease-strata) both, shimmer 2.4s linear infinite;
+    background: linear-gradient(100deg, var(--muted-foreground) 40%, var(--agent) 50%, var(--muted-foreground) 60%) 0 0 / 300% 100%;
+    background-clip: text;
+    color: transparent;
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        background: none;
+        color: var(--muted-foreground);
+    }
+}
+
+@utility animate-dot {
+    animation: dot 1.2s var(--ease-strata) infinite both;
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        opacity: 0.6;
+    }
+}
+
+@keyframes dot {
+    0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-0.18em); }
+}
+
+@keyframes shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+}
+
 /* Strata's small caps label: state names, risk kinds, section titles. */
 @utility eyebrow {
     font-size: 10px;
