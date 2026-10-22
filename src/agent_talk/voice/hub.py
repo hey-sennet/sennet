@@ -14,8 +14,9 @@ from dataclasses import dataclass
 from ..events import EventBus
 from ..speech import Speech
 from ..tasks import TaskError, TaskManager
+from . import asking
 from .dispatch import Cancel, Stop, parse
-from .session import Turn, VoiceSession
+from .session import Asking, Turn, VoiceSession
 from .speakable import clauses, for_speech
 
 log = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ class VoiceHub:
         """Act on a final transcript. Returns the `final` message's outcome fields."""
         if not text.strip():
             return {"outcome": "empty"}
+        if session.asking and session.asking.started:
+            return await self._answer(session, session.asking, text)
         command = parse(text, self.tasks.db.projects())
         if isinstance(command, Stop):
             await session.interrupt()
@@ -95,6 +98,46 @@ class VoiceHub:
                                     "ORDER BY id DESC LIMIT 1", task["id"])
         self.requests[message["id"]] = session
         return {"outcome": "dispatched", "task_id": task["id"]}
+
+    async def _answer(self, session: VoiceSession, current: Asking, text: str) -> dict:
+        """The turn after an approval question answers it (voice-protocol §8)."""
+        approval = current.approval
+        reprompt = {"outcome": "reprompt", "approval_id": approval["id"]}
+        if isinstance(parse(text, []), Stop):
+            await session.interrupt()  # stops the question; it still waits for an answer
+            return {"outcome": "stop"}
+        word = asking.answer(text)
+        if current.confirming:
+            decision = {"confirm": "approve", "decline": "decline", "cancel": "cancel"}.get(word)
+            if decision is None:
+                session.ask(asking.ask_confirm())
+                return {**reprompt, "confirm": True}
+        elif word in ("approve", "confirm"):
+            if approval["risk"] == "destructive":
+                current.confirming = True
+                session.ask(asking.ask_confirm())
+                return {**reprompt, "confirm": True}
+            decision = "approve"
+        elif word == "approve_always":
+            if not approval.get("can_always"):
+                session.ask(asking.no_always())
+                return reprompt
+            decision = "approve_always"
+        elif word in ("decline", "cancel"):
+            decision = word
+        else:
+            session.ask(asking.reprompt(approval))
+            return reprompt
+        try:
+            await self.tasks.approvals.decide(approval["id"], decision, "voice")
+        except LookupError:
+            # Answered on the card while this turn was being transcribed.
+            session.withdraw(approval["id"])
+            return {"outcome": "approval", "approval_id": approval["id"], "decision": None}
+        # The acknowledgement goes first; withdrawing queues the next question, if any.
+        session.speak(asking.acknowledge(decision, current.project), task_id=approval["task_id"])
+        session.withdraw(approval["id"])
+        return {"outcome": "approval", "approval_id": approval["id"], "decision": decision}
 
     async def _dispatch(self, turn: Turn, text: str, named_project: int | None) -> dict | None:
         """A named project wins over the selection, unless the selected task is in it."""
@@ -149,6 +192,8 @@ class VoiceHub:
                 if pending and pending.message_id == message["id"]:
                     del self.turns[task_id]
                     self._reply(task_id, pending)
+        elif kind == "approval":
+            self._approval(event["approval"])
         elif kind == "event" and event["event"]["kind"] == "turn_completed" and task_id in self.turns:
             self.turns[task_id].result = event["event"]["data"]
         elif kind == "task" and event["task"]["status"] in ("failed", "unknown", "cancelled"):
@@ -159,6 +204,17 @@ class VoiceHub:
                 pending.result = pending.result or {"status": "failed" if task["status"] != "cancelled"
                                                     else "cancelled", "error": task.get("error")}
                 self._reply(task["id"], pending)
+
+    def _approval(self, approval: dict):
+        if approval["status"] != "pending":
+            for session in self.sessions:
+                session.withdraw(approval["id"])
+            return
+        owner = self.owners.get(approval["task_id"])
+        if owner in self.sessions:
+            task = self.tasks.db.task(approval["task_id"])
+            project = self.tasks.db.project(task["project_id"]) if task else None
+            owner.offer(approval, project["name"] if project else "The agent")
 
     def _reply(self, task_id: int, pending: Pending):
         if pending.session not in self.sessions:

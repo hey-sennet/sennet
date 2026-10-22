@@ -18,6 +18,7 @@ from starlette.websockets import WebSocket, WebSocketState
 from ..speech import RATE, Speech
 from ..speech.stt import Caption
 from .frames import INPUT_RATE, BadFrame, decode_uplink, encode_downlink
+from .asking import prompt as question
 from .recognition import Recognition
 
 if TYPE_CHECKING:
@@ -47,7 +48,19 @@ class Reply:
     segments: list[str]
     generation: int                 # replies from before a stop or start are dropped
     task_id: int | None = None
-    approval_id: int | None = None
+    approval_id: int | None = None  # set on an approval question, which is never dropped
+    cancelled: bool = False         # the approval was answered elsewhere
+
+
+@dataclass
+class Asking:
+    """The approval this session is asking about (voice-protocol §8)."""
+
+    approval: dict
+    project: str
+    started: bool = False           # the question began playing: the next turn answers it
+    confirming: bool = False        # a destructive request got its yes; waiting for "confirm"
+    reply: Reply | None = None
 
 
 class VoiceSession:
@@ -64,6 +77,8 @@ class VoiceSession:
         self.floor.set()
         self.send_lock = asyncio.Lock()
         self.ignored_frames = 0
+        self.approvals: dict[int, tuple[dict, str]] = {}  # waiting to be asked: id → (approval, project)
+        self.asking: Asking | None = None
 
     # Socket loop
 
@@ -235,11 +250,47 @@ class VoiceSession:
         self.generation += 1
         await self.send(type="stopped", generation=self.generation)
 
+    # Approvals
+
+    def offer(self, approval: dict, project: str):
+        """An approval for a task this session owns. Asked oldest first, one at a time."""
+        if approval["id"] not in self.approvals and not (self.asking and self.asking.approval["id"] == approval["id"]):
+            self.approvals[approval["id"]] = (approval, project)
+            self._ask_next()
+
+    def withdraw(self, approval_id: int):
+        """The approval was answered, here or elsewhere: stop asking about it."""
+        self.approvals.pop(approval_id, None)
+        if self.asking and self.asking.approval["id"] == approval_id:
+            if self.asking.reply:
+                self.asking.reply.cancelled = True
+            self.asking = None
+            self._ask_next()
+
+    def ask(self, segments: list[str]):
+        """Say something as part of the current approval's question."""
+        asking = self.asking
+        reply = Reply(segments, self.generation, asking.approval["task_id"], asking.approval["id"])
+        if asking.reply:
+            asking.reply.cancelled = True
+        asking.reply = reply
+        self.replies.put_nowait(reply)
+
+    def _ask_next(self):
+        if self.asking is None and self.approvals:
+            approval, project = self.approvals.pop(min(self.approvals))
+            self.asking = Asking(approval, project)
+            self.ask(question(approval, project))
+
     async def _speaker(self):
         while True:
             reply = await self.replies.get()
             await self.floor.wait()
-            if reply.generation != self.generation:
+            if reply.cancelled:
+                continue
+            if reply.approval_id is not None:
+                reply.generation = self.generation  # a question waits out a stop or a turn; it is never dropped
+            elif reply.generation != self.generation:
                 continue  # queued before a stop or a new turn
             if self.speech.status["tts"] != "ready":
                 await self.error("tts_unavailable", self.speech.detail["tts"] or "speech output is loading")
@@ -250,6 +301,8 @@ class VoiceSession:
             except Exception:
                 log.exception("speech failed")
                 await self.error("tts_unavailable", "speech output failed")
+            if self.asking and reply is self.asking.reply and not self.asking.started and not reply.cancelled:
+                self.replies.put_nowait(reply)  # interrupted before a word went out: ask again afterwards
             if self.turn is None and self.replies.empty():
                 await self._set_state("idle")
 
@@ -265,12 +318,14 @@ class VoiceSession:
                 audio = await upcoming
                 # Synthesize one segment ahead of what is being sent, and no further.
                 upcoming = synthesize(reply.segments[index + 1]) if index + 1 < len(reply.segments) else None
-                if self.generation != generation:
+                if self.generation != generation or reply.cancelled:
                     return
+                if self.asking and reply is self.asking.reply:
+                    self.asking.started = True  # once the user may have heard it, the next turn answers it
                 await self.send(type="speech", generation=generation, segment=index, text=text,
                                 task_id=reply.task_id, approval_id=reply.approval_id)
                 for frame in encode_downlink(audio, tts.rate, generation, index):
-                    if self.generation != generation:
+                    if self.generation != generation or reply.cancelled:
                         return
                     await self.send_bytes(frame)
             await self.send(type="speech_end", generation=generation)

@@ -102,8 +102,12 @@ ignored.
 `final.outcome` is one of:
 
 - `dispatched`: sent to `task_id` (a follow-up, or the task created for `project_id`).
-- `approval`: taken as the answer to the approval being asked (§8). `approval_id` replaces `task_id`.
-- `reprompt`: an approval was being asked and the words weren't a clear answer. The prompt is repeated.
+- `approval`: taken as the answer to the approval being asked (§8). `approval_id` replaces
+  `task_id`, and `decision` is `approve`, `approve_always`, `decline` or `cancel`, or null
+  when the card answered first while the turn was being transcribed.
+- `reprompt`: an approval was being asked and the words weren't a clear answer, or
+  "always" can't apply. The question is put again. `confirm: true` when a destructive
+  request got its "yes" and now needs "confirm".
 - `stop`: the whole transcript was "stop" or "cancel" (§9).
 - `empty`: no speech found. Nothing is sent.
 - `failed`: the transcript couldn't be delivered (`no_target` or `dispatch_failed`, sent
@@ -141,16 +145,26 @@ The fixed flow from HLD §4.4, in direct mode:
   only (never while `listening` or `transcribing`). If that session isn't connected,
   only the card shows. The card and the voice are both live; whichever answers first
   wins, and the other side follows the `approval` event on `/api/events`.
-- The prompt is a `speech` with `approval_id` set: "Backend wants to run `git push
-  origin main`. Approve?" Commands are read out verbatim here, which is the one
-  exception to not narrating code.
-- While an approval is being asked, the session's next turn answers it instead of going
-  to the task. Accepted words: yes/approve → `approve`, no/decline → `decline`,
-  always → `approve_always` (only where the card would offer Always), cancel →
-  `cancel`. Anything else gets `reprompt`.
+- The question is `speech` with `approval_id` set, built from the provider-neutral
+  approval: the project, then the exact action, then "Approve?". "backend wants to run
+  git push origin main. This could be hard to undo. Approve?" Commands are read out
+  verbatim, which is the one exception to not narrating code; one over 200 characters
+  is cut short and points to the card. Edits use the engine's summary, tools are named
+  plainly (an MCP tool `mcp__github__create_issue` is "github create issue"), and access
+  requests give the agent's reason.
+- A question is never dropped. A stop or a new turn holds it back, and it is put again
+  afterwards; if it was interrupted before any of it was sent, it is asked again in full.
+- Once the question's first sentence has been sent, the session's next turn answers it
+  instead of going to a task. A turn started before then is an ordinary request.
+- Only a clear answer counts, as the whole transcript: yes, yeah, go ahead, okay →
+  `approve`; no, nope, don't, decline → `decline`; always, yes always → `approve_always`
+  (only where `can_always` is true; otherwise "That one can't be approved always");
+  cancel → `cancel`. "Stop" stops the question and leaves it open. Anything else gets
+  `reprompt`: "Sorry, I need a clear answer. Say yes, no, or always."
 - Destructive requests need a second step: after "yes", the server asks the user to say
-  "confirm", and only that word approves.
-- Decisions are recorded as `decided_by: "voice"`.
+  "confirm", and only that word approves. A second "yes" is not a confirm.
+- A decision is acknowledged ("Approved.", "Declined.", "Approved, and I'll remember that
+  for backend.") and recorded as `decided_by: "voice"`.
 - Several pending approvals are asked one at a time, oldest first.
 
 ## 9. Direct mode

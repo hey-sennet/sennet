@@ -64,14 +64,15 @@ class Voice:
 
 
 class GatedSynthesizer(FakeSynthesizer):
-    """Holds the second and later segments until `gate` is set."""
+    """Holds segments after the first `free` until `gate` is set."""
 
-    def __init__(self):
+    def __init__(self, free: int = 1):
         super().__init__()
+        self.free = free
         self.gate = threading.Event()
 
     def synthesize(self, text):
-        if self.spoken:
+        if len(self.spoken) >= self.free:
             self.gate.wait(10)
         return super().synthesize(text)
 
