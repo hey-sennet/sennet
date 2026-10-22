@@ -11,7 +11,7 @@ import { usePushToTalk } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
 import { useDecide } from './ApprovalCard'
 import { Caption } from './Caption'
-import { plainText } from './Markdown'
+import { plainText, spokenPart } from './Markdown'
 
 const voiceSources = { user: voice().source, agent: voice().playback.source }
 
@@ -83,7 +83,8 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
       </div>
     )
   } else if (task && lastReply(detail)) {
-    body = <Lead agent className="line-clamp-4">{plainText(lastReply(detail)!)}</Lead>
+    // What you heard stays once its caption clears, rather than the reply written to be read.
+    body = <Lead agent className="line-clamp-4">{spokenPart(lastReply(detail)!) ?? plainText(lastReply(detail)!)}</Lead>
   } else {
     body = <Lead quiet>{task ? task.title : 'What should we work on?'}</Lead>
   }

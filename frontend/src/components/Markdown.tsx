@@ -36,6 +36,11 @@ export function withoutSpoken(markdown: string): string {
   return markdown.replace(/^\s*<(?:s(?:p(?:o(?:k(?:e(?:n)?)?)?)?)?)?$/, '').replace(/^\s*<spoken>[\s\S]*?(?:<\/spoken>\s*|$(?![\s\S]))/, '')
 }
 
+/** The version of a reply the agent wrote to be heard, once it is closed (speakable.spoken_part). */
+export function spokenPart(markdown: string): string | null {
+  return markdown.match(/^\s*<spoken>\s*([\s\S]*?)\s*<\/spoken>/)?.[1].replace(/\s+/g, ' ') || null
+}
+
 /** A reply flattened to one line of prose for the stage: no markup, code blocks dropped. */
 export function plainText(markdown: string): string {
   return withoutSpoken(markdown)
