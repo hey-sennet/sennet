@@ -9,6 +9,7 @@ import asyncio
 
 from ..speech import Speech
 from ..tasks import TaskError, TaskManager
+from .dispatch import Cancel, Stop, parse
 from .session import Turn, VoiceSession
 
 
@@ -32,22 +33,49 @@ class VoiceHub:
         return self.owners.get(task_id)
 
     async def deliver(self, session: VoiceSession, turn: Turn, text: str) -> dict:
-        """Send a final transcript to its target. Returns the `final` message's outcome fields."""
+        """Act on a final transcript. Returns the `final` message's outcome fields."""
         if not text.strip():
             return {"outcome": "empty"}
-        try:
-            if turn.task_id is not None:
-                task = await self.tasks.follow_up(turn.task_id, text)
-            elif turn.project_id is not None:
-                task = await self.tasks.create(turn.project_id, text)
-            else:
-                await session.error("no_target", "choose a task or a project first", turn.id)
+        command = parse(text, self.tasks.db.projects())
+        if isinstance(command, Stop):
+            await session.interrupt()
+            return {"outcome": "stop"}
+        if isinstance(command, Cancel):
+            if turn.task_id is None:
+                await session.error("no_target", "choose the task to cancel first", turn.id)
                 return {"outcome": "failed"}
+            try:
+                await self.tasks.cancel(turn.task_id)
+            except TaskError as error:
+                await session.error("dispatch_failed", str(error), turn.id)
+                return {"outcome": "failed"}
+            return {"outcome": "stop", "task_id": turn.task_id}
+        if not command.text:
+            return {"outcome": "empty"}  # only a project name was said
+        try:
+            task = await self._dispatch(turn, command.text, command.project_id)
         except TaskError as error:
             await session.error("dispatch_failed", str(error), turn.id)
             return {"outcome": "failed"}
+        if task is None:
+            await session.error("no_target", "choose a task or a project first, or start with a project's name",
+                                turn.id)
+            return {"outcome": "failed"}
         self.owners[task["id"]] = session
         return {"outcome": "dispatched", "task_id": task["id"]}
+
+    async def _dispatch(self, turn: Turn, text: str, named_project: int | None) -> dict | None:
+        """A named project wins over the selection, unless the selected task is in it."""
+        selected = self.tasks.db.task(turn.task_id) if turn.task_id is not None else None
+        if named_project is not None:
+            if selected and selected["project_id"] == named_project:
+                return await self.tasks.follow_up(selected["id"], text)
+            return await self.tasks.create(named_project, text)
+        if turn.task_id is not None:
+            return await self.tasks.follow_up(turn.task_id, text)
+        if turn.project_id is not None:
+            return await self.tasks.create(turn.project_id, text)
+        return None
 
     def close(self):
         self.speech.listeners.discard(self._speech_changed)

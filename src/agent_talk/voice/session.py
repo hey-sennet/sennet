@@ -126,7 +126,7 @@ class VoiceSession:
             if self.turn and message.get("turn") == self.turn.id:
                 await self._discard_turn()
         elif kind == "stop":
-            await self._interrupt()
+            await self.interrupt()
         else:
             await self.error("bad_message", f"unknown message type {kind!r}")
 
@@ -145,7 +145,7 @@ class VoiceSession:
         if self.speech.status["stt"] != "ready":
             await self.error("stt_unavailable", self.speech.detail["stt"] or "speech recognition is loading", turn_id)
             return
-        await self._interrupt()  # talking stops any speech (voice-protocol §7)
+        await self.interrupt()  # talking stops any speech (voice-protocol §7)
         self.turn = Turn(turn_id, task_id, project_id)
         self.floor.clear()
         self.turn.job = asyncio.ensure_future(self._listen(self.turn))
@@ -231,7 +231,7 @@ class VoiceSession:
         if segments:
             self.replies.put_nowait(Reply(segments, self.generation, task_id, approval_id))
 
-    async def _interrupt(self):
+    async def interrupt(self):
         self.generation += 1
         await self.send(type="stopped", generation=self.generation)
 

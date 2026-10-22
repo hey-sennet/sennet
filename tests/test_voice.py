@@ -230,6 +230,93 @@ def test_start_needs_speech_recognition(settings, paths, codex_log):
     speech.close()
 
 
+# Direct mode commands
+
+@pytest.fixture
+def other_project(client, tmp_path):
+    directory = tmp_path / "site"
+    directory.mkdir()
+    return client.post("/api/projects", json={"path": str(directory), "name": "web client"}).json()
+
+
+def user_messages(client, task_id):
+    return [m["text"] for m in client.get(f"/api/tasks/{task_id}").json()["messages"] if m["role"] == "user"]
+
+
+def test_a_leading_project_name_routes_the_turn(client, voice, speech, project):
+    speech.stt.transcript = "In backend, run the tests."
+    voice.talk()  # nothing selected
+    final = voice.next("final")
+    assert final["outcome"] == "dispatched"
+    task = client.get(f"/api/tasks/{final['task_id']}").json()
+    assert task["project_id"] == project["id"]
+    assert user_messages(client, task["id"]) == ["Run the tests."]
+
+
+def test_a_named_project_wins_over_a_task_in_another_project(client, voice, speech, project, other_project):
+    selected = client.post("/api/tasks", json={"project_id": other_project["id"], "text": "fix the header"}).json()
+    wait_for(client, selected["id"], lambda t: t["status"] == "completed")
+    speech.stt.transcript = "Backend: run the tests."
+    voice.talk(task_id=selected["id"])
+    final = voice.next("final")
+    assert final["task_id"] != selected["id"]
+    assert client.get(f"/api/tasks/{final['task_id']}").json()["project_id"] == project["id"]
+
+
+def test_a_named_project_follows_up_on_its_selected_task(client, voice, speech, project):
+    selected = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
+    wait_for(client, selected["id"], lambda t: t["status"] == "completed")
+    speech.stt.transcript = "In backend, now run it."
+    voice.talk(task_id=selected["id"])
+    assert voice.next("final")["task_id"] == selected["id"]
+    wait_for(client, selected["id"], lambda t: len([m for m in t["messages"] if m["role"] == "user"]) == 2)
+    assert user_messages(client, selected["id"]) == ["add a test", "Now run it."]
+
+
+def test_only_a_project_name_sends_nothing(client, voice, speech, project):
+    speech.stt.transcript = "In backend."
+    voice.talk(project_id=project["id"])
+    assert voice.next("final")["outcome"] == "empty"
+    assert client.get("/api/state").json()["tasks"] == []
+
+
+def test_stop_stops_speech_without_dispatching(client, voice, speech, project):
+    speech.stt.transcript = "Stop."
+    voice.talk(project_id=project["id"])
+    assert voice.next("stopped")["generation"] == 1  # from starting the turn
+    seen = voice.until("final")
+    assert [m["generation"] for m in seen if m["type"] == "stopped"] == [2]
+    assert seen[-1]["outcome"] == "stop"
+    assert client.get("/api/state").json()["tasks"] == []
+
+
+def test_cancel_cancels_the_selected_task(client, voice, speech, project, monkeypatch):
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
+    wait_for(client, task["id"], lambda t: t["status"] == "completed")
+    cancelled = []
+    manager = client.app.state.tasks
+    original = manager.cancel
+
+    async def cancel(task_id):
+        cancelled.append(task_id)
+        return await original(task_id)
+
+    monkeypatch.setattr(manager, "cancel", cancel)
+    speech.stt.transcript = "Cancel that."
+    voice.talk(task_id=task["id"])
+    assert voice.next("final") == {"type": "final", "turn": "t1", "text": "Cancel that.", "outcome": "stop",
+                                   "task_id": task["id"]}
+    assert cancelled == [task["id"]]
+    assert user_messages(client, task["id"]) == ["add a test"]
+
+
+def test_cancel_needs_a_selected_task(voice, speech, project):
+    speech.stt.transcript = "Cancel."
+    voice.talk(project_id=project["id"])
+    assert voice.next("voice_error")["code"] == "no_target"
+    assert voice.next("final")["outcome"] == "failed"
+
+
 # Frames and limits
 
 def test_a_bad_frame_drops_the_turn(voice, project):

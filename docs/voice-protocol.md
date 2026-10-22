@@ -156,10 +156,15 @@ The fixed flow from HLD §4.4, in direct mode:
 
 - The final transcript goes to `start.task_id` as a follow-up, or starts a task in
   `start.project_id`. With neither, the turn fails with `no_target`.
-- A transcript that starts with a project name or alias ("in backend, …") goes to that
-  project instead, with the routing phrase removed. The rest is sent verbatim.
-- A transcript that is only "stop" or "cancel" isn't dispatched. "Stop" stops speech;
-  "cancel" interrupts the target task.
+- A transcript that opens with a project name or alias set off by a comma or colon
+  ("in backend, …", "API: …") goes to that project instead, with the routing phrase
+  removed: as a follow-up when the selected task is in that project, else as a new
+  task. The rest is sent verbatim. Without the comma or colon it isn't a route ("API
+  docs need updating" is a request); a wrong project is worse than none. A project name
+  on its own sends nothing (`empty`).
+- A transcript that is only "stop" (or "stop speaking", "be quiet") or "cancel" (or
+  "cancel that") isn't dispatched. "Stop" stops speech; "cancel" interrupts the selected
+  task, and fails with `no_target` when none is selected. Both end with outcome `stop`.
 - When the agent finishes a turn, its final message is spoken on the session that
   dispatched it and on no other, split into clauses with a short first chunk (HLD §6.4). Markdown,
   code blocks, inline code, URLs and file paths are stripped or replaced with a short

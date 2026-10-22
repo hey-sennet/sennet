@@ -89,8 +89,8 @@ on a LibriSpeech clip and checks the final text.
 
 - The basic target arrives in step 2: `start.task_id` as a follow-up, else a new task in
   `start.project_id`, else `no_target`.
-- Route a leading project name or alias ("in backend, …") to that project, with the
-  routing phrase removed. Matching is exact on normalised words in M2; fuzzy matching
+- Route a leading project name or alias set off by a comma or colon ("in backend, …")
+  to that project, with the routing phrase removed. Matching is exact on normalised words in M2; fuzzy matching
   comes with the front assistant in M3.
 - A transcript that is only "stop" stops speech; one that is only "cancel" cancels the
   target task. Neither is dispatched.
