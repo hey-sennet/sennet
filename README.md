@@ -32,8 +32,8 @@ project in Settings, or the default in `config.toml`:
 
 ```toml
 [approvals]
-mode = "ask"               # ask | auto (sandboxed, asks only to escalate) | never
-sandbox = "workspace-write"
+mode = "ask"               # ask | auto (works within its access, asks to go beyond) | never
+access = "workspace"       # read-only | workspace (edit the project) | full
 
 [tasks]
 max_concurrent = 3         # one running task per project regardless

@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS projects (
     aliases TEXT NOT NULL DEFAULT '[]',
     agent TEXT NOT NULL DEFAULT 'codex',
     approval_mode TEXT,
-    sandbox TEXT,
+    access TEXT,                   -- read-only | workspace | full; null for the default
     created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     agent TEXT NOT NULL,
     title TEXT NOT NULL,
     status TEXT NOT NULL,
-    thread_id TEXT,
+    resume_token TEXT,             -- the adapter's own id for continuing the conversation
     error TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS approval_rules (
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
+SCHEMA_VERSION = 2
+
+# Rows written before version 2 hold Codex's own words; these map them to the contract's.
+_V2_ACCESS = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
+_V2_ITEM_STATUS = {"inProgress": "running"}
+_V2_STEP_STATUS = {"inProgress": "active", "completed": "done"}
+_V2_TURN_STATUS = {"interrupted": "cancelled"}
+
 
 class Database:
     def __init__(self, path: Path):
@@ -80,8 +88,43 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
+        self._migrate()
         self.conn.executescript(SCHEMA)
+        self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.lock = threading.Lock()
+
+    def _migrate(self):
+        version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'projects'").fetchone()
+        if not exists or version >= SCHEMA_VERSION:
+            return  # a new database gets the current schema as it stands
+        self.conn.execute("BEGIN")
+        try:
+            if version < 2:
+                self._to_v2()
+            self.conn.execute("COMMIT")
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def _to_v2(self):
+        """Provider-neutral names: access levels, resume tokens and event statuses."""
+        self.conn.execute("ALTER TABLE projects RENAME COLUMN sandbox TO access")
+        for old, new in _V2_ACCESS.items():
+            self.conn.execute("UPDATE projects SET access = ? WHERE access = ?", (new, old))
+        self.conn.execute("ALTER TABLE tasks RENAME COLUMN thread_id TO resume_token")
+        rows = self.conn.execute("SELECT id, kind, data FROM task_events WHERE kind IN "
+                                 "('command_finished', 'file_change', 'plan', 'turn_completed')").fetchall()
+        for row in rows:
+            data = json.loads(row["data"])
+            if row["kind"] in ("command_finished", "file_change"):
+                data["status"] = _V2_ITEM_STATUS.get(data.get("status"), data.get("status"))
+            elif row["kind"] == "plan":
+                for step in data.get("steps") or []:
+                    step["status"] = _V2_STEP_STATUS.get(step.get("status"), step.get("status"))
+            else:
+                data["status"] = _V2_TURN_STATUS.get(data.get("status"), data.get("status"))
+            self.conn.execute("UPDATE task_events SET data = ? WHERE id = ?", (json.dumps(data), row["id"]))
 
     def close(self):
         self.conn.close()

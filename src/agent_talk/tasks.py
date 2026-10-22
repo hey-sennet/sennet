@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decision, TurnPolicy
+from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decision, TurnPolicy, check_event
 from .approvals import Approvals
 from .config import Settings
 from .db import Database
@@ -23,7 +23,6 @@ log = logging.getLogger(__name__)
 
 ACTIVE = ("running", "awaiting_approval")
 INTERRUPT_GRACE_S = 10
-TURN_STATUS = {"completed": "completed", "interrupted": "cancelled", "failed": "failed"}
 
 
 @dataclass
@@ -100,19 +99,23 @@ class TaskManager:
         if task["status"] in ACTIVE and runner and runner.job:
             runner.cancelling = True
             await self.approvals.cancel_for_task(task_id)
-            if runner.session and runner.session.alive:
+            interruptible = self._agent(task).capabilities.interrupt
+            if interruptible and runner.session and runner.session.alive:
                 try:
                     await asyncio.wait_for(runner.session.interrupt(), INTERRUPT_GRACE_S)
                 except Exception:
                     log.warning("interrupt failed for task %s; stopping the agent", task_id)
             try:
+                if not interruptible:
+                    raise asyncio.TimeoutError  # nothing to wait for: stop the process
                 await asyncio.wait_for(asyncio.shield(runner.turn_done.wait()), INTERRUPT_GRACE_S)
             except asyncio.TimeoutError:
-                # The agent ignored the interrupt. Stop its process; the outcome is unknown.
+                # The agent ignored the interrupt or can't take one. Stop its process; the outcome is unknown.
                 runner.job.cancel()
                 await asyncio.gather(runner.job, return_exceptions=True)
                 await self._close_session(task_id)
-                self.db.update_task(task_id, status="unknown", error="agent did not stop; its process was killed")
+                why = "agent did not stop" if interruptible else f"{task['agent']} can't be interrupted"
+                self.db.update_task(task_id, status="unknown", error=f"{why}; its process was stopped")
                 await self._publish_task(task_id)
         elif task["status"] == "queued":
             self.db.update_task(task_id, status="cancelled")
@@ -163,7 +166,7 @@ class TaskManager:
                 await runner.turn_done.wait()
                 runner.turn_done.clear()
                 await self._set_message_state(message["id"], "done")
-                status = "cancelled" if runner.cancelling else TURN_STATUS.get(runner.turn_result.get("status"), "failed")
+                status = "cancelled" if runner.cancelling else runner.turn_result.get("status", "failed")
                 self.db.update_task(task_id, status=status, error=runner.turn_result.get("error"))
                 if status != "completed":
                     break
@@ -189,19 +192,30 @@ class TaskManager:
             return
         task = self.db.task(task_id)
         project = self.db.project(task["project_id"])
-        agent = self.agents.get(task["agent"])
-        if agent is None:
-            raise TaskError(f"agent {task['agent']!r} is not available")
+        agent = self._agent(task)
         path = Path(project["path"])
         if not path.is_dir():
             raise TaskError(f"project directory {path} does not exist")
         policy = TurnPolicy(mode=project["approval_mode"] or self.settings.approvals.mode,
-                            sandbox=project["sandbox"] or self.settings.approvals.sandbox)
-        runner.session = await agent.open(path, task["thread_id"], policy,
+                            access=project["access"] or self.settings.approvals.access)
+        capabilities = agent.capabilities
+        if policy.mode not in capabilities.approval_modes:
+            raise TaskError(f"{agent.name} doesn't support the {policy.mode!r} approval mode")
+        if policy.access not in capabilities.access_levels:
+            raise TaskError(f"{agent.name} doesn't support {policy.access!r} access")
+        # Without resume, a new process starts a new conversation; the old one can't be continued.
+        token = task["resume_token"] if capabilities.resume else None
+        runner.session = await agent.open(path, token, policy,
                                           lambda event: self._on_event(task_id, event),
                                           lambda request: self._on_approval(task_id, request))
-        if runner.session.thread_id != task["thread_id"]:
-            self.db.update_task(task_id, thread_id=runner.session.thread_id)
+        if runner.session.resume_token != task["resume_token"]:
+            self.db.update_task(task_id, resume_token=runner.session.resume_token)
+
+    def _agent(self, task: dict) -> Agent:
+        agent = self.agents.get(task["agent"])
+        if agent is None:
+            raise TaskError(f"agent {task['agent']!r} is not available")
+        return agent
 
     def _arm_idle_close(self, task_id: int):
         runner = self.runners.get(task_id)
@@ -220,6 +234,8 @@ class TaskManager:
 
     async def _on_event(self, task_id: int, event: AgentEvent):
         runner = self.runners[task_id]
+        if problems := check_event(event):
+            log.warning("agent event breaks the contract: %s", "; ".join(problems))
         if event.kind == "message_delta":
             # Streamed text is shown live but only the completed message is stored.
             await self.publish({"type": "delta", "task_id": task_id, **event.data})

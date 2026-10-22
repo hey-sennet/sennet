@@ -14,8 +14,10 @@ from pathlib import Path
 import platformdirs
 import tomli_w
 
-APPROVAL_MODES = ("ask", "auto", "never")
-SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
+from .agents.base import ACCESS_LEVELS, APPROVAL_MODES
+
+# Before M2, access levels used Codex's sandbox names under `approvals.sandbox`.
+LEGACY_SANDBOX = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
 DEVICES = ("auto", "cpu", "cuda")
 
 
@@ -59,10 +61,11 @@ class TaskSettings:
 @dataclass
 class ApprovalSettings:
     # ask: the agent asks before anything outside its trusted set; you answer.
-    # auto: the agent runs freely inside its sandbox and asks only to escalate.
-    # never: nothing is asked; requests that need escalation fail.
+    # auto: the agent works freely within its access level and asks only to go beyond it.
+    # never: nothing is asked; anything beyond the access level fails.
     mode: str = "ask"
-    sandbox: str = "workspace-write"
+    # read-only, workspace (may edit the project directory) or full.
+    access: str = "workspace"
 
 
 @dataclass
@@ -98,6 +101,8 @@ class Settings:
             if target is None:
                 raise ValueError(f"unknown config section [{section}]")
             for key, value in values.items():
+                if section == "approvals" and key == "sandbox":
+                    key, value = "access", LEGACY_SANDBOX.get(value, value)
                 if not hasattr(target, key):
                     raise ValueError(f"unknown config key {section}.{key}")
                 setattr(target, key, value)
@@ -107,8 +112,8 @@ class Settings:
     def validate(self):
         if self.approvals.mode not in APPROVAL_MODES:
             raise ValueError(f"approvals.mode must be one of {APPROVAL_MODES}")
-        if self.approvals.sandbox not in SANDBOXES:
-            raise ValueError(f"approvals.sandbox must be one of {SANDBOXES}")
+        if self.approvals.access not in ACCESS_LEVELS:
+            raise ValueError(f"approvals.access must be one of {ACCESS_LEVELS}")
         if self.tasks.max_concurrent < 1:
             raise ValueError("tasks.max_concurrent must be at least 1")
         if self.speech.device not in DEVICES:

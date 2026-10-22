@@ -1,7 +1,8 @@
 """Codex adapter: `codex app-server` over newline-delimited JSON-RPC on stdio.
 
 One app-server process per task session. The thread is persisted by Codex, so a
-closed session resumes later with `thread/resume`.
+closed session resumes later with `thread/resume`; the thread id is the resume
+token. Codex's own statuses, kinds and modes are translated here and go no further.
 """
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ from pathlib import Path
 
 from .. import __version__
 from ..approvals import unwrap
-from .base import (AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest, Decision, EventSink,
-                   TurnPolicy)
+from .base import (AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest, Capabilities, Decision,
+                   EventSink, TurnPolicy)
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,18 @@ STREAM_LIMIT = 32 * 1024 * 1024
 OUTPUT_TAIL = 2000
 
 APPROVAL_POLICY = {"ask": "untrusted", "auto": "on-request", "never": "never"}
+SANDBOX = {"read-only": "read-only", "workspace": "workspace-write", "full": "danger-full-access"}
 COMMAND_DECISION = {"approve": "accept", "approve_always": "accept", "decline": "decline", "cancel": "cancel"}
+TURN_STATUS = {"completed": "completed", "interrupted": "cancelled", "failed": "failed"}
+ITEM_STATUS = {"inProgress": "running", "completed": "completed", "failed": "failed", "declined": "declined"}
+STEP_STATUS = {"pending": "pending", "inProgress": "active", "completed": "done"}
+
+
+def _change_kind(kind: dict) -> str:
+    """Codex reports a rename as an update with a move path."""
+    if kind.get("type") == "update" and kind.get("move_path"):
+        return "move"
+    return kind.get("type") if kind.get("type") in ("add", "delete", "update") else "update"
 
 
 class CodexError(Exception):
@@ -136,7 +148,7 @@ class CodexSession:
     def __init__(self, on_event: EventSink, on_approval: ApprovalHandler):
         self.on_event = on_event
         self.on_approval = on_approval
-        self.thread_id = ""
+        self.resume_token = ""  # the Codex thread id
         self.turn_id: str | None = None
         self.connection: Connection | None = None
         self.file_changes: dict[str, list[dict]] = {}
@@ -158,13 +170,14 @@ class CodexSession:
                 "capabilities": {"experimentalApi": False, "requestAttestation": False},
             })
             await self.connection.notify("initialized")
-            params = {"cwd": str(cwd), "approvalPolicy": APPROVAL_POLICY[policy.mode], "sandbox": policy.sandbox}
+            params = {"cwd": str(cwd), "approvalPolicy": APPROVAL_POLICY[policy.mode],
+                      "sandbox": SANDBOX[policy.access]}
             if thread_id:
                 result = await self.connection.request("thread/resume", {"threadId": thread_id, **params,
                                                                          "excludeTurns": True})
             else:
                 result = await self.connection.request("thread/start", params)
-            self.thread_id = result["thread"]["id"]
+            self.resume_token = result["thread"]["id"]
         except BaseException:
             await self.connection.close()
             raise
@@ -173,14 +186,14 @@ class CodexSession:
     async def send(self, text: str):
         self.turn_done.clear()
         result = await self.connection.request("turn/start", {
-            "threadId": self.thread_id,
+            "threadId": self.resume_token,
             "input": [{"type": "text", "text": text, "text_elements": []}],
         })
         self.turn_id = result["turn"]["id"]
 
     async def interrupt(self):
         if self.turn_id and self.alive:
-            await self.connection.request("turn/interrupt", {"threadId": self.thread_id, "turnId": self.turn_id})
+            await self.connection.request("turn/interrupt", {"threadId": self.resume_token, "turnId": self.turn_id})
 
     async def close(self):
         if self.connection:
@@ -196,7 +209,7 @@ class CodexSession:
             await self.on_event(AgentEvent("turn_completed", {"status": "failed", "error": "agent process exited"}))
 
     async def _notification(self, method: str, params: dict):
-        if params.get("threadId") not in (None, self.thread_id):
+        if params.get("threadId") not in (None, self.resume_token):
             return
         event = self._translate(method, params)
         if event:
@@ -222,22 +235,23 @@ class CodexSession:
         if method == "item/completed" and kind == "commandExecution":
             output = item.get("aggregatedOutput") or ""
             return AgentEvent("command_finished", {
-                "item_id": item["id"], "command": unwrap(item["command"]), "status": item["status"],
+                "item_id": item["id"], "command": unwrap(item["command"]), "status": _item_status(item),
                 "exit_code": item.get("exitCode"), "duration_ms": item.get("durationMs"),
                 "output_tail": output[-OUTPUT_TAIL:]})
         if method == "item/completed" and kind == "fileChange":
             self.file_changes.pop(item["id"], None)
             return AgentEvent("file_change", {
-                "item_id": item["id"], "status": item["status"],
-                "changes": [{"path": c["path"], "kind": c["kind"]["type"]} for c in item.get("changes") or []]})
+                "item_id": item["id"], "status": _item_status(item),
+                "changes": [{"path": c["path"], "kind": _change_kind(c["kind"])} for c in item.get("changes") or []]})
         if method == "turn/plan/updated":
-            return AgentEvent("plan", {"steps": [{"step": s["step"], "status": s["status"]} for s in params["plan"]]})
+            return AgentEvent("plan", {"steps": [{"step": s["step"], "status": STEP_STATUS.get(s["status"], "pending")}
+                                                 for s in params["plan"]]})
         if method == "error":
             return AgentEvent("error", {"message": params["error"]["message"], "will_retry": params.get("willRetry")})
         if method == "turn/completed":
             turn = params["turn"]
             error = (turn.get("error") or {}).get("message")
-            return AgentEvent("turn_completed", {"status": turn["status"], "error": error})
+            return AgentEvent("turn_completed", {"status": TURN_STATUS.get(turn["status"], "failed"), "error": error})
         return None
 
     async def _request(self, method: str, params: dict) -> dict | None:
@@ -262,7 +276,7 @@ class CodexSession:
             decision = await self.on_approval(ApprovalRequest(
                 kind="edit", summary=summary, paths=paths, reason=params.get("reason"),
                 detail={"grant_root": params.get("grantRoot"),
-                        "changes": [{"path": c["path"], "kind": c["kind"]["type"], "diff": c["diff"][:20000]}
+                        "changes": [{"path": c["path"], "kind": _change_kind(c["kind"]), "diff": c["diff"][:20000]}
                                     for c in changes]}))
             return {"decision": COMMAND_DECISION[decision]}
         if method == "item/permissions/requestApproval":
@@ -278,6 +292,7 @@ class CodexSession:
 
 class CodexAgent:
     name = "codex"
+    capabilities = Capabilities()  # interrupts, resumes threads, and asks mid-turn in every mode
 
     def __init__(self, command: list[str]):
         self.command = command
@@ -306,11 +321,15 @@ class CodexAgent:
             return AgentStatus(True, True, "logged in with an API key (subscription login is recommended)")
         return AgentStatus(True, True, f"logged in ({account.get('planType') or 'ChatGPT'} plan)")
 
-    async def open(self, cwd: Path, thread_id: str | None, policy: TurnPolicy, on_event: EventSink,
+    async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy, on_event: EventSink,
                    on_approval: ApprovalHandler) -> CodexSession:
         session = CodexSession(on_event, on_approval)
-        await session.start(self.command, cwd, thread_id, policy)
+        await session.start(self.command, cwd, resume_token, policy)
         return session
+
+
+def _item_status(item: dict) -> str:
+    return ITEM_STATUS.get(item.get("status"), "failed")
 
 
 async def _ignore_event(_: AgentEvent):

@@ -92,11 +92,31 @@ flowchart LR
 
 ### 4.1 Adapter contract
 
-Each adapter implements: `available()` (CLI installed and logged in), `capabilities`,
-`start_task(project, text)`, `follow_up(task, text)`, `events(task)` (async stream of
-normalized events), `respond_approval(request, decision)`, `cancel(task)`, `resume(task)`.
-Capabilities declare what the CLI really supports (live approvals, interruption,
-resume); unsupported behavior is shown in the UI, not faked.
+The contract is in `src/agent_talk/agents/base.py`. An adapter provides `status()`
+(installed, logged in), `capabilities`, and `open(cwd, resume_token, policy, on_event,
+on_approval)`, which returns a session with `send(text)`, `interrupt()` and `close()`.
+Capabilities declare what the CLI really supports (interruption, resume, live
+approvals, which approval modes and access levels); unsupported behaviour is shown in
+the UI, not faked. Without interrupt, cancelling stops the process; without resume, a
+new process starts a new conversation.
+
+Adapters translate everything into the contract's own vocabularies, and nothing
+outside an adapter sees a provider's words:
+
+| | Values |
+| --- | --- |
+| Events | `message_delta`, `message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`, `turn_completed` |
+| Turn status | `completed`, `cancelled`, `failed` |
+| Command and file change status | `running`, `completed`, `failed`, `declined` |
+| File change kind | `add`, `delete`, `update`, `move` |
+| Plan step status | `pending`, `active`, `done` |
+| Approval mode | `ask`, `auto`, `never` (§4.4) |
+| Access level | `read-only`, `workspace` (edit the project directory), `full` |
+
+The last `message` of a turn is its answer, and is what gets spoken. The resume token
+is opaque: a Codex thread id, a Claude Code session id or an ACP session id.
+`check_event` validates events against the contract, and the conformance tests run
+every adapter's events through it.
 
 Processes are spawned with argument arrays, controlled environments and the project
 directory as working directory. Transcripts are never interpolated into shell strings.
@@ -129,9 +149,9 @@ Approval requests from any task go through one policy engine:
 | Setting | Behavior |
 | --- | --- |
 | `ask` | Ask by voice and show a card on screen; either may answer. Codex: `approvalPolicy = untrusted`. |
-| `auto` | The agent works freely inside its sandbox and asks only to escalate. Codex: `on-request`. |
+| `auto` | The agent works freely within its access level and asks only to go beyond it. Codex: `on-request`. |
 | `allow-always` rules | Remembered decisions, e.g. "always allow `npm test` in backend". Created by saying "approve always" / tapping "Always". Scoped to project + command prefix or tool/file pattern. Viewable and revocable in Settings. |
-| `never-ask` | Full auto. Maps to the agent's own non-interactive mode (e.g. Codex `approval_policy = never` with a write-capable sandbox). Clearly marked in UI. |
+| `never` | Full auto. Maps to the agent's own non-interactive mode (e.g. Codex `approval_policy = never`). Anything beyond the access level fails. Clearly marked in UI. |
 
 Policy is set globally, then per project, then per agent. Each request is classified
 as read / edit / execute / network / destructive (`rm`, `git push`, force flags…).

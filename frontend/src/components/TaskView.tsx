@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { ArrowLeft, Check, FileText, Square, Terminal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { api, type Approval, type Message, type Project, type TaskDetail, type TaskEvent } from '@/lib/api'
+import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
 import { Composer } from './Composer'
@@ -132,7 +132,8 @@ function EventView({ event }: { event: TaskEvent }) {
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
         <FileText className="size-3.5" />
-        {data.status === 'completed' ? 'Changed' : data.status === 'declined' ? 'Declined changes to' : 'Changing'}
+        {data.status === 'completed' ? 'Changed' : data.status === 'declined' ? 'Declined changes to'
+          : data.status === 'failed' ? 'Failed to change' : 'Changing'}
         {data.changes.map((c: { path: string }) => <code key={c.path} className="font-mono text-xs">{c.path.split('/').pop()}</code>)}
       </div>
     )
@@ -140,9 +141,9 @@ function EventView({ event }: { event: TaskEvent }) {
   if (kind === 'plan') {
     return (
       <ol className="rounded-xl border px-4 py-3 text-sm">
-        {data.steps.map((step: { step: string; status: string }, i: number) => (
-          <li key={i} className={cn('flex gap-2 py-0.5', step.status === 'completed' && 'text-muted-foreground line-through')}>
-            <span className="text-muted-foreground">{step.status === 'inProgress' ? '→' : step.status === 'completed' ? '✓' : '·'}</span>
+        {data.steps.map((step: { step: string; status: StepStatus }, i: number) => (
+          <li key={i} className={cn('flex gap-2 py-0.5', step.status === 'done' && 'text-muted-foreground line-through')}>
+            <span className="text-muted-foreground">{step.status === 'active' ? '→' : step.status === 'done' ? '✓' : '·'}</span>
             {step.step}
           </li>
         ))}
@@ -151,7 +152,8 @@ function EventView({ event }: { event: TaskEvent }) {
   }
   if (kind === 'error') return <p className="text-sm text-destructive">{data.message}{data.will_retry ? ' (retrying)' : ''}</p>
   if (kind === 'turn_completed') {
-    return <p className="text-xs text-muted-foreground">{data.status === 'interrupted' ? 'Stopped' : `Turn ${data.status}`}{data.error ? `: ${data.error}` : ''}</p>
+    const status = data.status as TurnStatus
+    return <p className="text-xs text-muted-foreground">{status === 'cancelled' ? 'Stopped' : `Turn ${status}`}{data.error ? `: ${data.error}` : ''}</p>
   }
   return null
 }

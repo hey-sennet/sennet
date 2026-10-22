@@ -11,7 +11,7 @@ def test_task_runs_and_stores_the_reply(client, project, codex_log):
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hello there"}).json()
     task = wait_for(client, task["id"], done())
     assert [(m["role"], m["text"]) for m in task["messages"]] == [("user", "hello there"), ("agent", "You said: hello there")]
-    assert task["thread_id"] == "thread-1"
+    assert task["resume_token"] == "thread-1"
     assert codex_log("thread/start")[0]["params"]["cwd"] == project["path"]
     assert codex_log("thread/start")[0]["cwd"] == project["path"]
 

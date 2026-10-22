@@ -1,8 +1,13 @@
-// Types mirror src/agent_talk/db.py rows and server.py payloads.
+// Types mirror src/agent_talk/db.py rows and server.py payloads. Statuses, kinds and
+// modes are the agent contract's own words (src/agent_talk/agents/base.py), never a provider's.
 
 export type TaskStatus = 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'unknown'
 export type Decision = 'approve' | 'approve_always' | 'decline' | 'cancel'
 export type ApprovalMode = 'ask' | 'auto' | 'never'
+export type Access = 'read-only' | 'workspace' | 'full'
+export type TurnStatus = 'completed' | 'cancelled' | 'failed'
+export type ItemStatus = 'running' | 'completed' | 'failed' | 'declined'
+export type StepStatus = 'pending' | 'active' | 'done'
 
 export interface Project {
   id: number
@@ -11,7 +16,7 @@ export interface Project {
   aliases: string[]
   agent: string
   approval_mode: ApprovalMode | null
-  sandbox: string | null
+  access: Access | null
 }
 
 export interface Task {
@@ -20,7 +25,7 @@ export interface Task {
   agent: string
   title: string
   status: TaskStatus
-  thread_id: string | null
+  resume_token: string | null
   error: string | null
   created_at: number
   updated_at: number
@@ -70,13 +75,22 @@ export interface State {
   tasks: Task[]
   approvals: Approval[]
   rules: Rule[]
-  settings: { approvals: { mode: ApprovalMode; sandbox: string }; tasks: { max_concurrent: number } }
+  settings: { approvals: { mode: ApprovalMode; access: Access }; tasks: { max_concurrent: number } }
+}
+
+export interface Capabilities {
+  interrupt: boolean
+  resume: boolean
+  live_approvals: boolean
+  approval_modes: ApprovalMode[]
+  access_levels: Access[]
 }
 
 export interface AgentStatus {
   installed: boolean | null
   logged_in: boolean | null
   detail: string
+  capabilities: Capabilities
 }
 
 export type ServerEvent =

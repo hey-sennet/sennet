@@ -9,13 +9,13 @@ import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
   { value: '', label: 'Default' },
   { value: 'ask', label: 'Ask first' },
-  { value: 'auto', label: 'Sandboxed auto' },
+  { value: 'auto', label: 'Auto within its access' },
   { value: 'never', label: 'Never ask' },
 ]
 
 const MODE_HELP: Record<ApprovalMode, string> = {
   ask: 'The agent asks before running anything outside its trusted set.',
-  auto: 'The agent works freely inside its sandbox and asks only to go beyond it.',
+  auto: 'The agent works freely within its access level and asks only to go beyond it.',
   never: 'Nothing is asked. Actions that need more access fail instead.',
 }
 
@@ -63,7 +63,8 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
         <Section title="Projects" hint="The spoken name and aliases are how you'll pick a project by voice.">
           <div className="flex flex-col gap-2">
             {projects.map((project) => (
-              <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'} />
+              <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'}
+                supported={agents?.[project.agent]?.capabilities.approval_modes} />
             ))}
             {!projects.length && <p className="text-sm text-muted-foreground">No projects yet.</p>}
           </div>
@@ -102,8 +103,13 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   )
 }
 
-function ProjectRow({ project, defaultMode }: { project: Project; defaultMode: ApprovalMode }) {
+function ProjectRow({ project, defaultMode, supported }: {
+  project: Project
+  defaultMode: ApprovalMode
+  supported?: ApprovalMode[]  // what the project's agent can do; unknown until the agents load
+}) {
   const mode = project.approval_mode ?? defaultMode
+  const unsupported = (value: ApprovalMode | '') => !!supported && !supported.includes(value || defaultMode)
   return (
     <div className="rounded-lg border px-3 py-2.5">
       <div className="flex items-start justify-between gap-3">
@@ -128,9 +134,17 @@ function ProjectRow({ project, defaultMode }: { project: Project; defaultMode: A
           onChange={(event) => attempt(() => api.updateProject(project.id, { approval_mode: (event.target.value || null) as ApprovalMode | null }),
             'Could not update the project')}
         >
-          {MODES.map((m) => <option key={m.value} value={m.value}>{m.value === '' ? `Default (${MODES.find((x) => x.value === defaultMode)?.label})` : m.label}</option>)}
+          {MODES.map((m) => (
+            <option key={m.value} value={m.value} disabled={unsupported(m.value)}>
+              {m.value === '' ? `Default (${MODES.find((x) => x.value === defaultMode)?.label})` : m.label}
+              {unsupported(m.value) ? ` (not supported by ${project.agent})` : ''}
+            </option>
+          ))}
         </select>
         <span className="basis-full">{MODE_HELP[mode]}</span>
+        {unsupported(project.approval_mode ?? '') && (
+          <span className="basis-full text-warn">{project.agent} doesn't support this mode, so its tasks won't start.</span>
+        )}
       </label>
     </div>
   )

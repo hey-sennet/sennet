@@ -5,7 +5,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from .config import APPROVAL_MODES, SANDBOXES
+from .agents.base import ACCESS_LEVELS, APPROVAL_MODES
 from .db import Database
 
 AGENTS = ("codex",)
@@ -55,13 +55,13 @@ def update(db: Database, project_id: int, **fields) -> dict:
     project = db.project(project_id)
     if project is None:
         raise ProjectError("no such project")
-    allowed = {"name", "aliases", "agent", "approval_mode", "sandbox"}
+    allowed = {"name", "aliases", "agent", "approval_mode", "access"}
     if unknown := set(fields) - allowed:
         raise ProjectError(f"cannot change {', '.join(sorted(unknown))}")
     if "approval_mode" in fields and fields["approval_mode"] not in (None, *APPROVAL_MODES):
         raise ProjectError(f"approval_mode must be one of {APPROVAL_MODES} or null")
-    if "sandbox" in fields and fields["sandbox"] not in (None, *SANDBOXES):
-        raise ProjectError(f"sandbox must be one of {SANDBOXES} or null")
+    if "access" in fields and fields["access"] not in (None, *ACCESS_LEVELS):
+        raise ProjectError(f"access must be one of {ACCESS_LEVELS} or null")
     if "agent" in fields and fields["agent"] not in AGENTS:
         raise ProjectError(f"agent must be one of {AGENTS}")
     if "name" in fields or "aliases" in fields:

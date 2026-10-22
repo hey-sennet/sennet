@@ -157,14 +157,14 @@ class VoiceHub:
             pending = self.turns.pop(task["id"], None)
             if pending:
                 pending.result = pending.result or {"status": "failed" if task["status"] != "cancelled"
-                                                    else "interrupted", "error": task.get("error")}
+                                                    else "cancelled", "error": task.get("error")}
                 self._reply(task["id"], pending)
 
     def _reply(self, task_id: int, pending: Pending):
         if pending.session not in self.sessions:
             return
         result = pending.result or {}
-        if result.get("status") == "interrupted":
+        if result.get("status") == "cancelled":
             return  # the user cancelled it; nothing to report
         text = for_speech(pending.reply) if pending.reply else ""
         if result.get("status") != "completed":
