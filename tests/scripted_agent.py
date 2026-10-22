@@ -12,7 +12,7 @@ import asyncio
 from pathlib import Path
 
 from agent_talk.agents.base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler,
-                                    Capabilities, EventSink, TurnPolicy)
+                                    Capabilities, EventSink, ModelOption, TurnPolicy)
 
 
 class ScriptedSession:
@@ -75,13 +75,16 @@ class ScriptedAgent:
     default_command = ["scripted"]
     capabilities = Capabilities(interrupt=False, resume=False, live_approvals=False, approval_modes=APPROVAL_MODES,
                                 access_levels=ACCESS_LEVELS, background_turns=True,
-                                project_config=False)
+                                project_config=False, live_model_change=False)
 
     def __init__(self, command: list[str] | None = None):
         self.sessions: list[ScriptedSession] = []
 
     async def status(self) -> AgentStatus:
         return AgentStatus(True, True, "scripted")
+
+    async def models(self) -> list[ModelOption]:
+        return []
 
     async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy, on_event: EventSink,
                    on_approval: ApprovalHandler) -> ScriptedSession:

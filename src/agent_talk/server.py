@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from . import projects
 from .agents import registry
-from .agents.base import Agent
+from .agents.base import Agent, ModelOption
 from .agents.callbacks import CallbackServer
 from .approvals import Approvals
 from .config import Paths, ServerSettings, Settings
@@ -54,11 +54,18 @@ class ProjectPatch(BaseModel):
     approval_mode: str | None = None
     access: str | None = None
     project_config: bool | None = None
+    model: str | None = None
+    effort: str | None = None
 
 
 class TaskIn(BaseModel):
     project_id: int
     text: str
+
+
+class ModelIn(BaseModel):
+    model: str | None = None
+    effort: str | None = None
 
 
 class MessageIn(BaseModel):
@@ -121,10 +128,29 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.get("/api/agents")
     async def agent_status():
         results = await asyncio.gather(*(agent.status() for agent in agents.values()), return_exceptions=True)
+        listed = await asyncio.gather(*(agent.models() for agent in agents.values()), return_exceptions=True)
         return {name: {**(vars(result) if not isinstance(result, Exception)
                           else {"installed": None, "logged_in": None, "detail": str(result)}),
-                       "title": agent.title, "capabilities": asdict(agent.capabilities)}
-                for (name, agent), result in zip(agents.items(), results)}
+                       "title": agent.title, "capabilities": asdict(agent.capabilities),
+                       "models": [asdict(m) for m in models] if not isinstance(models, Exception) else []}
+                for (name, agent), result, models in zip(agents.items(), results, listed)}
+
+    async def check_model(agent: Agent | None, model: str | None, effort: str | None, inherited: str | None = None):
+        """Refuse a model or effort the agent doesn't list. An effort alone is for `inherited`, the
+        model otherwise in use, or the agent's default."""
+        if agent is None or (model is None and effort is None):
+            return
+        model_given, model = model is not None, model or inherited
+        try:
+            options: list[ModelOption] = await agent.models()
+        except Exception as error:
+            raise HTTPException(400, f"couldn't list {agent.title}'s models: {error}")
+        chosen = next((o for o in options if o.id == model), None) if model else \
+            next((o for o in options if o.default), None)
+        if model and chosen is None and model_given:
+            raise HTTPException(400, f"{agent.title} has no model {model!r}")
+        if effort and chosen and effort not in chosen.efforts:
+            raise HTTPException(400, f"{chosen.title} doesn't take {effort!r} effort")
 
     @app.post("/api/projects", status_code=201)
     async def add_project(body: ProjectIn, request: Request):
@@ -147,6 +173,10 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                 raise HTTPException(400, f"{agent.name} doesn't support {fields['access']!r} access")
             if fields.get("project_config") and not agent.capabilities.project_config:
                 raise HTTPException(400, f"{agent.name} has no project configuration to opt into")
+            if "model" in fields or "effort" in fields:
+                same = current and fields.get("agent", current["agent"]) == current["agent"]
+                await check_model(agent, fields.get("model"), fields.get("effort"),
+                                  current["model"] if same and "model" not in fields else None)
         try:
             project = projects.update(db(request), project_id, **fields)
         except projects.ProjectError as error:
@@ -177,6 +207,17 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         if snapshot is None:
             raise HTTPException(404, "no such task")
         return snapshot
+
+    @app.patch("/api/tasks/{task_id}")
+    async def choose_model(task_id: int, body: ModelIn, request: Request):
+        """The task's own model and effort, from its next turn; null for both follows the project."""
+        task = db(request).task(task_id)
+        if task is None:
+            raise HTTPException(404, "no such task")
+        project = db(request).project(task["project_id"])
+        inherited = project["model"] if project and project["agent"] == task["agent"] else None
+        await check_model(agents.get(task["agent"]), body.model, body.effort, inherited)
+        return await request.app.state.tasks.choose_model(task_id, body.model, body.effort)
 
     @app.post("/api/tasks/{task_id}/messages")
     async def follow_up(task_id: int, body: MessageIn, request: Request):

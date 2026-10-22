@@ -55,7 +55,7 @@ def update(db: Database, project_id: int, **fields) -> dict:
     project = db.project(project_id)
     if project is None:
         raise ProjectError("no such project")
-    allowed = {"name", "aliases", "agent", "approval_mode", "access", "project_config"}
+    allowed = {"name", "aliases", "agent", "approval_mode", "access", "project_config", "model", "effort"}
     if unknown := set(fields) - allowed:
         raise ProjectError(f"cannot change {', '.join(sorted(unknown))}")
     if "approval_mode" in fields and fields["approval_mode"] not in (None, *APPROVAL_MODES):
@@ -66,6 +66,11 @@ def update(db: Database, project_id: int, **fields) -> dict:
         raise ProjectError(f"agent must be one of {registry.NAMES}")
     if "project_config" in fields and not isinstance(fields["project_config"], bool):
         raise ProjectError("project_config must be true or false")
+    if fields.get("agent", project["agent"]) != project["agent"]:
+        fields.setdefault("model", None)  # another agent's models
+        fields.setdefault("effort", None)
+    elif "model" in fields and fields["model"] != project["model"]:
+        fields.setdefault("effort", None)  # the new model's own default
     if "name" in fields or "aliases" in fields:
         fields["name"] = (fields.get("name") or project["name"]).strip()
         fields["aliases"] = [a.strip() for a in fields.get("aliases", project["aliases"]) if a.strip()]

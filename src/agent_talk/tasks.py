@@ -41,6 +41,7 @@ class Runner:
     turn_result: dict = field(default_factory=dict)
     cancelling: bool = False
     background: list = field(default_factory=list)  # the agent's work still running after its turn
+    choice: tuple[str | None, str | None] = (None, None)  # the session's model and effort
 
 
 class TaskError(Exception):
@@ -134,6 +135,14 @@ class TaskManager:
             await self._close_session(task_id)  # the work runs in the agent's process, and ends with it
         return self.db.task(task_id)
 
+    async def choose_model(self, task_id: int, model: str | None, effort: str | None) -> dict:
+        """Use this model and effort for the task from its next turn (None for both: the project's)."""
+        if self.db.task(task_id) is None:
+            raise TaskError("no such task")
+        self.db.update_task(task_id, model=model, effort=effort)
+        await self._publish_task(task_id)
+        return self.db.task(task_id)
+
     def snapshot(self, task_id: int) -> dict | None:
         task = self.db.task(task_id)
         if task is None:
@@ -212,18 +221,26 @@ class TaskManager:
 
     async def _ensure_session(self, task_id: int):
         runner = self.runners[task_id]
-        if runner.session and runner.session.alive:
-            return
-        await self._close_session(task_id)  # what is left of one that ended
         task = self.db.task(task_id)
         project = self.db.project(task["project_id"])
         agent = self._agent(task)
+        choice = _choice(task, project)
+        if runner.session and runner.session.alive:
+            if runner.choice == choice:
+                return
+            if agent.capabilities.live_model_change:
+                await runner.session.set_model(*choice)
+                runner.choice = choice
+                return
+            if runner.background:
+                return  # restarting would end the work; the change waits for it
+        await self._close_session(task_id)  # what is left of one that ended, or used another model
         path = Path(project["path"])
         if not path.is_dir():
             raise TaskError(f"project directory {path} does not exist")
         policy = TurnPolicy(mode=project["approval_mode"] or self.settings.approvals.mode,
                             access=project["access"] or self.settings.approvals.access,
-                            project_config=project["project_config"])
+                            project_config=project["project_config"], model=choice[0], effort=choice[1])
         capabilities = agent.capabilities
         if policy.mode not in capabilities.approval_modes:
             raise TaskError(f"{agent.name} doesn't support the {policy.mode!r} approval mode")
@@ -234,6 +251,7 @@ class TaskManager:
         runner.session = await agent.open(path, token, policy,
                                           lambda event: self._on_event(task_id, event),
                                           lambda request: self._on_approval(task_id, request))
+        runner.choice = choice
         if runner.session.resume_token != task["resume_token"]:
             self.db.update_task(task_id, resume_token=runner.session.resume_token)
 
@@ -334,6 +352,15 @@ class TaskManager:
 
     async def _publish_task(self, task_id: int):
         await self.publish({"type": "task", "task": self.db.task(task_id)})
+
+
+def _choice(task: dict, project: dict) -> tuple[str | None, str | None]:
+    """The task's model and effort, else the project's when it is for the same agent. A task that
+    picks its own model takes that model's default effort, not the project's."""
+    own = project if project["agent"] == task["agent"] else {"model": None, "effort": None}
+    model = task["model"] or own["model"]
+    effort = task["effort"] or (own["effort"] if task["model"] is None else None)
+    return model, effort
 
 
 def _clean(text: str) -> str:

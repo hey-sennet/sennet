@@ -107,6 +107,17 @@ async def main():
             result = {"userAgent": "fake", "codexHome": "/tmp", "platformFamily": "unix", "platformOs": "linux"}
         elif method == "account/read":
             result = {"account": {"type": "chatgpt", "email": None, "planType": "plus"}, "requiresOpenaiAuth": True}
+        elif method == "model/list":
+            result = {"data": [
+                {"id": "gpt-fast", "model": "gpt-fast", "displayName": "GPT Fast", "isDefault": True, "hidden": False,
+                 "defaultReasoningEffort": "low", "supportedReasoningEfforts": [
+                     {"reasoningEffort": e, "description": ""} for e in ("low", "medium", "high")]},
+                {"id": "gpt-deep", "model": "gpt-deep", "displayName": "GPT Deep", "isDefault": False, "hidden": False,
+                 "defaultReasoningEffort": "high", "supportedReasoningEfforts": [
+                     {"reasoningEffort": e, "description": ""} for e in ("medium", "high", "max")]},
+                {"id": "gpt-old", "model": "gpt-old", "displayName": "Old", "isDefault": False, "hidden": True,
+                 "defaultReasoningEffort": None, "supportedReasoningEfforts": []}],
+                "nextCursor": None}
         elif method == "thread/start":
             result = {"thread": {"id": f"thread-{next(threads)}"}}
         elif method == "thread/resume":

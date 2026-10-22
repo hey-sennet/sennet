@@ -3,6 +3,7 @@
 One app-server process per task session. The thread is persisted by Codex, so a
 closed session resumes later with `thread/resume`; the thread id is the resume
 token. Codex's own statuses, kinds and modes are translated here and go no further.
+The model and reasoning effort go with each turn, so they change between turns.
 """
 from __future__ import annotations
 
@@ -13,16 +14,18 @@ import logging
 import re
 import shlex
 import shutil
+import time
 from pathlib import Path
 
 from .. import __version__
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, Decision, EventSink, FileChange, TurnPolicy, spoken_instructions)
+                   Capabilities, Decision, EventSink, FileChange, ModelOption, TurnPolicy, spoken_instructions)
 from .callbacks import CallbackServer
 
 log = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_S = 30
+MODELS_TTL_S = 600
 # Codex messages can carry whole diffs and command output.
 STREAM_LIMIT = 32 * 1024 * 1024
 OUTPUT_TAIL = 2000
@@ -71,6 +74,21 @@ def _change_kind(kind: dict) -> str:
 
 class CodexError(Exception):
     pass
+
+
+async def list_models(connection: Connection) -> list[ModelOption]:
+    result = await connection.request("model/list", {"limit": 100})
+    return [ModelOption(m["id"], m.get("displayName") or m["id"],
+                        tuple(e["reasoningEffort"] for e in m.get("supportedReasoningEfforts") or []),
+                        m.get("defaultReasoningEffort"), bool(m.get("isDefault")))
+            for m in result.get("data") or [] if not m.get("hidden")]
+
+
+async def _initialize(connection: Connection):
+    await connection.request("initialize", {
+        "clientInfo": {"name": "agent-talk", "title": "Agent Talk", "version": __version__},
+        "capabilities": {"experimentalApi": False, "requestAttestation": False}})
+    await connection.notify("initialized")
 
 
 class Connection:
@@ -187,6 +205,8 @@ class CodexSession:
         self.file_changes: dict[str, list[dict]] = {}
         self.turn_done: asyncio.Event = asyncio.Event()
         self.watcher: asyncio.Task | None = None
+        self.model: str | None = None   # sent with each turn; None leaves it to Codex
+        self.effort: str | None = None
 
     @property
     def alive(self) -> bool:
@@ -198,13 +218,13 @@ class CodexSession:
             stderr=asyncio.subprocess.PIPE, limit=STREAM_LIMIT)
         self.connection = Connection(process, self._notification, self._request)
         try:
-            await self.connection.request("initialize", {
-                "clientInfo": {"name": "agent-talk", "title": "Agent Talk", "version": __version__},
-                "capabilities": {"experimentalApi": False, "requestAttestation": False},
-            })
-            await self.connection.notify("initialized")
+            await _initialize(self.connection)
+            # A resumed thread keeps the model it last ran, so the default is asked for outright.
+            self.model, self.effort = await self._choice(policy.model, policy.effort, explicit=bool(thread_id))
             params = {"cwd": str(cwd), "approvalPolicy": APPROVAL_POLICY[policy.mode],
                       "sandbox": SANDBOX[policy.access], "developerInstructions": INSTRUCTIONS}
+            if self.model:
+                params["model"] = self.model
             if thread_id:
                 result = await self.connection.request("thread/resume", {"threadId": thread_id, **params,
                                                                          "excludeTurns": True})
@@ -218,11 +238,30 @@ class CodexSession:
 
     async def send(self, text: str):
         self.turn_done.clear()
-        result = await self.connection.request("turn/start", {
-            "threadId": self.resume_token,
-            "input": [{"type": "text", "text": text, "text_elements": []}],
-        })
+        params = {"threadId": self.resume_token, "input": [{"type": "text", "text": text, "text_elements": []}]}
+        if self.model:
+            params["model"] = self.model
+        if self.effort:
+            params["effort"] = self.effort
+        result = await self.connection.request("turn/start", params)
         self.turn_id = result["turn"]["id"]
+
+    async def set_model(self, model: str | None, effort: str | None):
+        # The thread keeps an earlier turn's choice, so going back to the default names it.
+        self.model, self.effort = await self._choice(model, effort, explicit=True)
+
+    async def _choice(self, model: str | None, effort: str | None, explicit: bool) -> tuple[str | None, str | None]:
+        """The model and effort to send: None for both leaves them to Codex, unless `explicit`,
+        when the default model and the chosen model's default effort are named."""
+        if model is None and effort is None and not explicit:
+            return None, None
+        if model is None or effort is None:
+            options = await list_models(self.connection)
+            chosen = next((o for o in options if o.id == model), None) if model else \
+                next((o for o in options if o.default), None)
+            model = model or (chosen.id if chosen else None)
+            effort = effort or (chosen.default_effort if chosen else None)
+        return model, effort
 
     async def interrupt(self):
         if self.turn_id and self.alive:
@@ -321,10 +360,11 @@ class CodexAgent:
     # Interrupts, resumes threads, and asks mid-turn in every mode. Its work ends with its turn.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
                                 approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS,
-                                background_turns=False, project_config=False)
+                                background_turns=False, project_config=False, live_model_change=True)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
         self.command = command  # Codex asks for approvals on its own pipe, not through callbacks
+        self.listed: tuple[float, list[ModelOption]] | None = None
 
     async def status(self) -> AgentStatus:
         if not shutil.which(self.command[0]):
@@ -335,10 +375,7 @@ class CodexAgent:
             stderr=asyncio.subprocess.PIPE, limit=STREAM_LIMIT)
         connection = Connection(process, session._notification, session._request)
         try:
-            await connection.request("initialize", {
-                "clientInfo": {"name": "agent-talk", "title": "Agent Talk", "version": __version__},
-                "capabilities": {"experimentalApi": False, "requestAttestation": False}})
-            await connection.notify("initialized")
+            await _initialize(connection)
             account = (await connection.request("account/read", {})).get("account")
         except (CodexError, asyncio.TimeoutError) as error:
             return AgentStatus(True, None, f"could not query codex: {error}")
@@ -349,6 +386,22 @@ class CodexAgent:
         if account.get("type") == "apiKey":
             return AgentStatus(True, True, "logged in with an API key (subscription login is recommended)")
         return AgentStatus(True, True, f"logged in ({account.get('planType') or 'ChatGPT'} plan)")
+
+    async def models(self) -> list[ModelOption]:
+        """From `model/list`, kept a few minutes: it takes a process to ask."""
+        if self.listed and time.monotonic() - self.listed[0] < MODELS_TTL_S:
+            return self.listed[1]
+        process = await asyncio.create_subprocess_exec(
+            *self.command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, limit=STREAM_LIMIT)
+        connection = Connection(process, _ignore_notification, _no_request)
+        try:
+            await _initialize(connection)
+            options = await list_models(connection)
+        finally:
+            await connection.close()
+        self.listed = (time.monotonic(), options)
+        return options
 
     async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy, on_event: EventSink,
                    on_approval: ApprovalHandler) -> CodexSession:
@@ -367,3 +420,11 @@ async def _ignore_event(_: AgentEvent):
 
 async def _decline(_: ApprovalRequest) -> Decision:
     return "decline"
+
+
+async def _ignore_notification(method: str, params: dict):
+    pass
+
+
+async def _no_request(method: str, params: dict) -> None:
+    return None

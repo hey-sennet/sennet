@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS projects (
     approval_mode TEXT,
     access TEXT,                   -- read-only | workspace | full; null for the default
     project_config INTEGER NOT NULL DEFAULT 0,  -- let the agent load the project's own hooks and servers
+    model TEXT,                    -- the agent's model id for new tasks; null for the agent's default
+    effort TEXT,                   -- reasoning effort; null for the model's default
     created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
@@ -27,6 +29,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     title TEXT NOT NULL,
     status TEXT NOT NULL,
     resume_token TEXT,             -- the adapter's own id for continuing the conversation
+    model TEXT,                    -- overrides the project's model; null to follow it
+    effort TEXT,
     error TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
@@ -73,7 +77,7 @@ CREATE TABLE IF NOT EXISTS approval_rules (
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Rows written before version 2 hold Codex's own words; these map them to the contract's.
 _V2_ACCESS = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
@@ -107,10 +111,18 @@ class Database:
                 self._to_v3()
             if version < 4:
                 self._to_v4()
+            if version < 5:
+                self._to_v5()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
+
+    def _to_v5(self):
+        """Model and effort, per project and per task."""
+        for table in ("projects", "tasks"):
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN model TEXT")
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN effort TEXT")
 
     def _to_v4(self):
         self.conn.execute("ALTER TABLE projects ADD COLUMN project_config INTEGER NOT NULL DEFAULT 0")

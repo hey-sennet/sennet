@@ -177,6 +177,20 @@ class TurnPolicy:
     access: Access
     # Load the project's own agent configuration (hooks, MCP servers), which can run code unasked.
     project_config: bool = False
+    # The model and reasoning effort, by the ids `Agent.models` lists; None for the agent's own choice.
+    model: str | None = None
+    effort: str | None = None
+
+
+@dataclass(frozen=True)
+class ModelOption:
+    """A model an agent can run, as its CLI names it."""
+
+    id: str                            # what the CLI takes, e.g. "opus" or "gpt-6.1-sol"
+    title: str
+    efforts: tuple[str, ...] = ()      # reasoning effort levels it takes, lowest first
+    default_effort: str | None = None
+    default: bool = False              # the agent's own default model
 
 
 @dataclass(frozen=True)
@@ -193,6 +207,7 @@ class Capabilities:
     access_levels: tuple[str, ...]     # of ACCESS_LEVELS
     background_turns: bool             # keeps working after its turn ends, and may start a turn itself
     project_config: bool               # leaves a project's own configuration out unless the project opts in
+    live_model_change: bool            # changes model and effort between turns; else its process restarts, resuming
 
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
@@ -218,6 +233,10 @@ class AgentSession(Protocol):
     async def interrupt(self) -> None:
         """Ask the agent to stop the current turn. Only called when `capabilities.interrupt`."""
 
+    async def set_model(self, model: str | None, effort: str | None) -> None:
+        """Use this model and effort from the next turn (None: the agent's default). Only called
+        when `capabilities.live_model_change`; otherwise the session is reopened with them."""
+
     async def close(self) -> None:
         """Stop the agent process. With `capabilities.resume`, the conversation continues
         later from `resume_token`."""
@@ -239,5 +258,10 @@ class Agent(Protocol):
 
     async def status(self) -> AgentStatus: ...
 
+    async def models(self) -> list[ModelOption]:
+        """The models the user may pick from, the agent's default marked if it is known."""
+
     async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy,
-                   on_event: EventSink, on_approval: ApprovalHandler) -> AgentSession: ...
+                   on_event: EventSink, on_approval: ApprovalHandler) -> AgentSession:
+        """Start a session. A resumed conversation may keep the model it last used, so with
+        `policy.model` None the adapter asks for the agent's default explicitly when resuming."""

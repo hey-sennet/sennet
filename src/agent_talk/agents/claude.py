@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, EventSink, FileChange, TurnPolicy, spoken_instructions)
+                   Capabilities, EventSink, FileChange, ModelOption, TurnPolicy, spoken_instructions)
 from .callbacks import CallbackServer, Registration
 
 log = logging.getLogger(__name__)
@@ -51,6 +51,12 @@ EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
 # Claude's tool for asking the user mid-turn is disallowed, so the instructions name none.
 INSTRUCTIONS = spoken_instructions()
 EXIT_CODE_RE = re.compile(r"^Exit code (\d+)")
+# Claude Code lists no models; it takes these aliases for the latest of each. Which one is the
+# default depends on the plan and the user's own settings, so none is marked. Fable needs usage
+# credits on some plans, and says so in its reply.
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+MODELS = [ModelOption("opus", "Opus", EFFORTS), ModelOption("sonnet", "Sonnet", EFFORTS),
+          ModelOption("haiku", "Haiku", EFFORTS), ModelOption("fable", "Fable", EFFORTS)]
 
 
 def permission_args(policy: TurnPolicy, cwd: Path) -> list[str]:
@@ -78,6 +84,12 @@ def permission_args(policy: TurnPolicy, cwd: Path) -> list[str]:
         # An absolute path in a rule takes a leading `//`; a bare tool name would allow edits anywhere.
         args += ["--allowedTools", *(f"{tool}(/{cwd}/**)" for tool in EDIT_TOOLS)]
     return args
+
+
+def model_args(policy: TurnPolicy, resuming: bool) -> list[str]:
+    """A resumed session keeps the model it last ran, unless told otherwise."""
+    args = ["--model", policy.model] if policy.model else ["--model", "default"] if resuming else []
+    return args + (["--effort", policy.effort] if policy.effort else [])
 
 
 def config_args(policy: TurnPolicy) -> list[str]:
@@ -178,7 +190,7 @@ class ClaudeSession:
         args = [*command, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages", "--append-system-prompt", INSTRUCTIONS,
                 *(["--resume", token] if token else ["--session-id", self.resume_token]),
-                *config_args(policy), "--mcp-config", json.dumps({"mcpServers": {"agent_talk": server}}),
+                *model_args(policy, bool(token)), *config_args(policy), "--mcp-config", json.dumps({"mcpServers": {"agent_talk": server}}),
                 "--permission-prompt-tool", PROMPT_TOOL, *permission_args(policy, self.cwd)]
         try:
             # Its own session: a Ctrl-C meant for the daemon doesn't reach it, and closing it can stop
@@ -377,9 +389,10 @@ class ClaudeAgent:
     title = "Claude Code"
     default_command = ["claude"]
     # SIGINT ends a turn and the process; the session resumes in the next. It asks mid-turn in every
-    # mode, and may report work it left running in a turn of its own.
+    # mode, and may report work it left running in a turn of its own. Its model is set at start.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True, approval_modes=APPROVAL_MODES,
-                                access_levels=ACCESS_LEVELS, background_turns=True, project_config=True)
+                                access_levels=ACCESS_LEVELS, background_turns=True, project_config=True,
+                                live_model_change=False)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
         self.command = command
@@ -403,6 +416,9 @@ class ClaudeAgent:
             return AgentStatus(True, True, f"logged in with {auth.get('authMethod') or 'an API key'} "
                                            "(subscription login is recommended)")
         return AgentStatus(True, True, f"logged in ({auth.get('subscriptionType') or 'Claude'} plan)")
+
+    async def models(self) -> list[ModelOption]:
+        return MODELS
 
     async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy, on_event: EventSink,
                    on_approval: ApprovalHandler) -> ClaudeSession:
