@@ -1,7 +1,8 @@
 # Strata
 
 The chosen voice UI direction: horizontal lines through a circle, lifted by the voice like a
-ridgeline plot. Instrument Serif for spoken words (italic for the agent), Inter for chrome.
+ridgeline plot. Instrument Serif for spoken words (italic for the agent), Inter for chrome. The
+client sets words in Newsreader instead, which stays readable at body sizes.
 This is a design reference for the React client, not product code.
 
 ```sh

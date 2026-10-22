@@ -407,8 +407,12 @@ automatically.
    (ask/auto/never, "always" rules, destructive classification) and interrupt; HTTP
    commands with a live event WebSocket; React client for desktop and phone. Tested
    against a scripted fake app-server and verified with real Codex turns.
-3. **M2 — Voice loop, direct mode.** Push-to-talk end to end, voice approvals, TTS
-   narration of agent results.
+3. **M2 — Voice loop, direct mode. Done.** Breakdown in [m2-backend.md](m2-backend.md).
+   Push-to-talk from the browser over the `/api/voice` socket, live captions and
+   segment finals, direct-mode commands and project routing, voice approvals, and
+   agent replies spoken back on the device that asked. Strata client: the disc on
+   every view, scrolling captions that follow playback, and markdown task timelines.
+   Voice path measured end to end on the real models.
 4. **M3 — Front assistant.** Bundled llama-server, model catalog, tool calling,
    announcements, project resolution by voice; benchmark candidate LLMs per tier.
 5. **M4 — More agents.** Claude Code and Gemini adapters (after the terms check).
