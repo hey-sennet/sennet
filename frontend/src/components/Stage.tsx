@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Approval, Project, Task, TaskDetail } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Strata } from '@/strata/Strata'
 import { strataPreview } from '@/strata/preview'
+import chime from '@/voice/approval-chime.mp3'
 import { strataState } from '@/voice/strata'
 import { usePushToTalk } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
@@ -42,6 +43,12 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   // Once your request is sent, the task's progress takes over from your words.
   const sent = said?.speaker === 'user' && running && !snapshot.listening && snapshot.state === 'idle'
   const words = said && !sent && !(approval && said.speaker === 'agent') ? said : null
+  // The chime is the approval's question (voice-protocol §8): once as its card shows, even over
+  // the agent's speech, and again for each approval after it.
+  const chiming = !words && !strataPreview ? approval?.id : undefined
+  useEffect(() => {
+    if (chiming !== undefined) voice().playback.cue(chime)
+  }, [chiming])
   const projectOf = (taskId: number) => projects.find((p) => p.id === tasks.find((t) => t.id === taskId)?.project_id)
 
   const label = state === 'listening' ? 'Listening'

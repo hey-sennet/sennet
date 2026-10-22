@@ -18,7 +18,6 @@ from starlette.websockets import WebSocket, WebSocketState
 from ..speech import RATE, Speech
 from ..speech.stt import Caption
 from .frames import INPUT_RATE, BadFrame, decode_uplink, encode_downlink
-from .asking import prompt as question
 from .recognition import Recognition
 
 if TYPE_CHECKING:
@@ -280,7 +279,7 @@ class VoiceSession:
         if self.asking is None and self.approvals:
             approval, project = self.approvals.pop(min(self.approvals))
             self.asking = Asking(approval, project)
-            self.ask(question(approval, project))
+            self.ask([])  # the question itself is the client's chime; it takes its turn like speech
 
     async def _speaker(self):
         while True:
@@ -292,6 +291,10 @@ class VoiceSession:
                 reply.generation = self.generation  # a question waits out a stop or a turn; it is never dropped
             elif reply.generation != self.generation:
                 continue  # queued before a stop or a new turn
+            if not reply.segments:
+                self.asking.started = True  # nothing to say: from here the next turn answers it
+                await self.send(type="asking", approval_id=reply.approval_id)
+                continue
             if self.speech.status["tts"] != "ready":
                 await self.error("tts_unavailable", self.speech.detail["tts"] or "speech output is loading")
                 continue

@@ -13,6 +13,7 @@ export type VoiceMessage =
   | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; approval_id?: number;
       decision?: string | null; confirm?: boolean }
   | { type: 'speech'; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null }
+  | { type: 'asking'; approval_id: number }
   | { type: 'speech_end'; generation: number }
   | { type: 'stopped'; generation: number }
   | { type: 'voice_error'; turn: string | null; code: string; message: string }

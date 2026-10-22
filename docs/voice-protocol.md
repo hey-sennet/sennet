@@ -95,6 +95,7 @@ ignored.
 | `{"type": "caption", "turn": "t7", "committed": "run the", "provisional": "tests in back"}` | Every ~250 ms while listening; the interval adapts on slow CPUs (HLD §6.2). Preview only, never dispatched. Each caption replaces the last. |
 | `{"type": "final", "turn": "t7", "text": "Run the tests in backend.", "outcome": "dispatched", "task_id": 12}` | The full-pass transcript and what happened to it (below). |
 | `{"type": "speech", "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `task_id` and `approval_id` say what it is about. |
+| `{"type": "asking", "approval_id": 9}` | This session is now asking about the approval: its next turn answers it (§8). Nothing is spoken; the client plays the approval chime when the approval's card shows. |
 | `{"type": "speech_end", "generation": 4}` | The last segment of this generation has been sent. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
 | `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
@@ -147,23 +148,21 @@ The fixed flow from HLD §4.4:
   only (never while `listening` or `transcribing`). If that session isn't connected,
   only the card shows. The card and the voice are both live; whichever answers first
   wins, and the other side follows the `approval` event on `/api/events`.
-- The question is `speech` with `approval_id` set, built from the provider-neutral
-  approval: the project, then the action. "backend wants to run a command. This could
-  be hard to undo." A command itself is never read out
-  (they are long and read badly); the card shows it. Edits use the engine's summary, tools are named
-  plainly (an MCP tool `mcp__github__create_issue` is "github create issue"), and access
-  requests give the agent's reason.
-- A question is never dropped. A stop or a new turn holds it back, and it is put again
-  afterwards; if it was interrupted before any of it was sent, it is asked again in full.
-- Once the question's first sentence has been sent, the session's next turn answers it
-  instead of going to a task. A turn started before then is an ordinary request.
+- The question isn't spoken. The client plays a short chime (a low singing bowl, tapped
+  twice) as the approval's card shows, on any device, over any speech still playing
+  (which dips under it), and again for each approval after it; the card says what the
+  agent wants to do.
+- The question takes its place among replies like speech: after anything already queued,
+  and never during a turn. When its turn comes the server sends `asking`, and from then
+  the session's next turn answers it instead of going to a task. A turn open before then
+  is an ordinary request, and the question is asked after it.
 - Only a clear answer counts, as the whole transcript: yes, yeah, go ahead, okay →
   `approve`; no, nope, don't, decline → `decline`; always, yes always → `approve_always`
   (only where `can_always` is true; otherwise "That one can't be approved always");
   cancel → `cancel`. "Stop" stops the question and leaves it open. Anything else gets
   `reprompt`: "Sorry, I need a clear answer. Say yes, no, or always."
-- Destructive requests need a second step: after "yes", the server asks the user to say
-  "confirm", and only that word approves. A second "yes" is not a confirm.
+- Destructive requests need a second step: after "yes", the server says "This could be
+  hard to undo. Say confirm to go ahead, or no.", and only "confirm" approves. A second "yes" is not a confirm.
 - A decision is acknowledged ("Approved.", "Declined.", "Approved, and I'll remember that
   for backend.") and recorded as `decided_by: "voice"`.
 - Several pending approvals are asked one at a time, oldest first.

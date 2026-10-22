@@ -32,11 +32,13 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
   await composer.fill('run:npm test')
+  const chimed = page.waitForRequest(/approval-chime/)
   await composer.press('Enter')
 
-  // The approval waits under the disc; the reply shows there once the task is done.
+  // The approval waits under the disc, with a chime; the reply shows there once the task is done.
   const stage = page.getByRole('main')
-  await expect(stage.getByText(`${name} wants to run npm test`)).toBeVisible()
+  await expect(stage.getByText(`${name} wants to run a command`)).toBeVisible()
+  await chimed
   await page.screenshot({ path: `test-results/${info.project.name}-approval.png` })
   await stage.getByRole('button', { name: 'Approve', exact: true }).click()
   await expect(stage.getByText('Ran it.')).toBeVisible()

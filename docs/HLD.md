@@ -161,9 +161,9 @@ edits that delete files).
 A per-class setting can raise the bar, e.g. destructive actions require repeating a
 confirmation phrase even when edits are approved by plain "yes".
 
-Voice approval is a fixed flow, not free chat. Agent Talk reads back the task and
-the kind of action ("Backend wants to run a command."); the exact command is
-on the card. Only a clear
+Voice approval is a fixed flow, not free chat. Agent Talk plays a short chime as the
+approval appears instead of reading it out; the card shows the task and the action.
+Only a clear
 yes/no/always is accepted; anything else re-prompts. Pending approvals never time out
 into approval. Every decision, and who/what made it, is logged.
 

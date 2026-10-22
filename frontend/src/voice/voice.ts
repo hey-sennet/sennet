@@ -63,6 +63,10 @@ export class Voice {
     this.socket.on((message) => this.receive(message))
     this.socket.onAudio((data) => this.hear(data))
     this.playback.onPlayingChange = (speaking) => this.update({ speaking })
+    // Any first gesture unlocks audio, so the approval chime plays before the first push-to-talk.
+    for (const type of ['pointerdown', 'keydown']) {
+      document.addEventListener(type, () => this.playback.unlock(), { once: true, capture: true })
+    }
   }
 
   /** Strata's user source: the microphone's loudness and bands, silent while it is closed. */

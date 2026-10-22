@@ -10,6 +10,9 @@ const HEADER_BYTES = 8
 // Headroom before the first chunk of a run, so network jitter between chunks doesn't gap.
 const LEAD_S = 0.08
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
+// Speech dips under a cue so the cue is heard, then comes back.
+const DUCK = 0.35
+const DUCK_S = 0.08
 
 export interface AudioFrame {
   segment: number
@@ -31,9 +34,11 @@ export function parseFrame(data: ArrayBuffer): AudioFrame | null {
 export class Playback {
   private context: AudioContext | null = null
   private analyser: AnalyserNode | null = null
+  private duck: GainNode | null = null
   private readonly sources = new Set<AudioBufferSourceNode>()
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
   private next = 0 // when the next chunk starts, in context time
+  private readonly cues = new Map<string, Promise<AudioBuffer>>()
   onPlayingChange: (playing: boolean) => void = () => {}
 
   get playing() {
@@ -47,7 +52,9 @@ export class Playback {
       this.analyser = this.context.createAnalyser()
       this.analyser.fftSize = FFT_SIZE
       this.analyser.smoothingTimeConstant = SMOOTHING
-      this.analyser.connect(this.context.destination)
+      // Ducking comes after the analyser, so Strata still sees the speech at full level.
+      this.duck = this.context.createGain()
+      this.analyser.connect(this.duck).connect(this.context.destination)
     }
     if (this.context.state === 'suspended') void this.context.resume()
   }
@@ -77,6 +84,36 @@ export class Playback {
     }
     this.sources.add(source)
     if (this.sources.size === 1) this.onPlayingChange(true)
+  }
+
+  /**
+   * Plays a short sound file straight away, over any speech, which dips while it plays. It isn't
+   * speech: it skips the analyser and doesn't count as playing, so Strata doesn't show it as the
+   * agent talking. Silent until the context has been unlocked by a gesture.
+   */
+  cue(url: string) {
+    const context = this.context
+    if (!context || context.state !== 'running') return
+    let decoded = this.cues.get(url)
+    if (!decoded) {
+      decoded = fetch(url).then((response) => response.arrayBuffer()).then((data) => context.decodeAudioData(data))
+      decoded.catch(() => this.cues.delete(url)) // try again next time
+      this.cues.set(url, decoded)
+    }
+    void decoded.then((buffer) => {
+      const source = context.createBufferSource()
+      source.buffer = buffer
+      source.connect(context.destination)
+      source.onended = () => source.disconnect()
+      const now = context.currentTime
+      const gain = this.duck!.gain
+      gain.cancelScheduledValues(now)
+      gain.setValueAtTime(gain.value, now)
+      gain.linearRampToValueAtTime(DUCK, now + DUCK_S)
+      gain.setValueAtTime(DUCK, now + buffer.duration - DUCK_S)
+      gain.linearRampToValueAtTime(1, now + buffer.duration)
+      source.start(now)
+    }, () => {})
   }
 
   /** Stops everything queued, at once. */
