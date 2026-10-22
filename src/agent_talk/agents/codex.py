@@ -159,6 +159,10 @@ class Connection:
             log.warning("codex exited: %s", last.decode(errors="replace").strip()[:500])
 
     async def close(self):
+        # Requests still waiting on the user (approvals) end with the process.
+        for handler in list(self.handlers):
+            handler.cancel()
+        await asyncio.gather(*self.handlers, return_exceptions=True)
         if self.process.returncode is None:
             if self.process.stdin:
                 self.process.stdin.close()

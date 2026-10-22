@@ -47,12 +47,14 @@ class TaskManager:
         self.approvals = approvals
         self.publish = publish
         self.runners: dict[int, Runner] = {}
+        self.stopping = False
 
     async def start(self):
         self.db.recover()
         self._schedule()
 
     async def shutdown(self):
+        self.stopping = True  # a cancelled job's cleanup must not start the next queued task
         for runner in self.runners.values():
             if runner.idle_timer:
                 runner.idle_timer.cancel()
@@ -131,6 +133,8 @@ class TaskManager:
     # Scheduling
 
     def _schedule(self):
+        if self.stopping:
+            return
         running = [t for t in self.db.query("SELECT id, project_id FROM tasks WHERE status IN ('running', 'awaiting_approval')")]
         busy_projects = {t["project_id"] for t in running}
         slots = self.settings.tasks.max_concurrent - len(running)

@@ -204,3 +204,21 @@ def test_settings_round_trip(paths):
     settings.approvals.mode = "never"
     settings.save(paths.config_file)
     assert Settings.load(paths.config_file).approvals.mode == "never"
+
+
+def test_shutdown_does_not_start_queued_tasks(settings, paths, codex_log, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from agent_talk.db import Database
+    from agent_talk.server import create_app
+    from conftest import HEADERS
+
+    (tmp_path / "repo").mkdir()
+    with TestClient(create_app(settings, paths), headers=HEADERS) as client:
+        project = client.post("/api/projects", json={"path": str(tmp_path / "repo")}).json()
+        running = client.post("/api/tasks", json={"project_id": project["id"], "text": "hang"}).json()
+        wait_for(client, running["id"], lambda t: t["messages"][0]["state"] == "sent")
+        queued = client.post("/api/tasks", json={"project_id": project["id"], "text": "next"}).json()
+    db = Database(paths.database)
+    assert db.task(queued["id"])["status"] == "queued"  # still waiting, not started as the daemon stopped
+    db.close()
