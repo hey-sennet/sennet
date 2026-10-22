@@ -3,6 +3,10 @@
 Commands are plain HTTP; live updates arrive over `/api/events`. State-changing
 requests must carry the `X-Agent-Talk` header: browsers cannot add custom headers
 to cross-site requests without CORS permission, which this server never grants.
+
+`/mcp/<secret>` is for agent CLIs on this machine, not browsers: it answers only
+local requests without an Origin, and only a live agent session's secret
+(agents.callbacks).
 """
 from __future__ import annotations
 
@@ -14,15 +18,16 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import projects
 from .agents import registry
 from .agents.base import Agent
+from .agents.callbacks import CallbackServer
 from .approvals import Approvals
-from .config import Paths, Settings
+from .config import Paths, ServerSettings, Settings
 from .db import Database
 from .events import EventBus
 from .speech import Speech
@@ -66,7 +71,8 @@ class DecisionIn(BaseModel):
 def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None = None,
                speech: Speech | None = None) -> FastAPI:
     """`agents` and `speech` default to the real ones; tests pass fakes."""
-    agents = agents if agents is not None else registry.build(settings.agents.commands)
+    callbacks = CallbackServer(_local_url(settings.server))
+    agents = agents if agents is not None else registry.build(settings.agents.commands, callbacks)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -91,6 +97,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             db.close()
 
     app = FastAPI(title="Agent Talk", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app.state.callbacks = callbacks
 
     @app.middleware("http")
     async def require_header(request: Request, call_next):
@@ -241,6 +248,21 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         finally:
             hub.remove(session)
 
+    @app.post("/mcp/{secret}", include_in_schema=False)
+    async def mcp(secret: str, request: Request):
+        local = request.client and request.client.host in ("127.0.0.1", "::1", settings.server.host)
+        if not local or request.headers.get("origin"):
+            raise HTTPException(403, "only agents on this machine may call back")
+        try:
+            message = await request.json()
+        except ValueError:
+            raise HTTPException(400, "not JSON")
+        try:
+            response = await callbacks.handle(secret, message)
+        except LookupError:
+            raise HTTPException(404, "no such session")
+        return JSONResponse(response) if response is not None else Response(status_code=202)
+
     if WEB_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
 
@@ -262,6 +284,12 @@ def _speech(settings: Settings, paths: Paths, speech: Speech | None) -> tuple[Sp
     speech = Speech()
     config = settings.speech
     return speech, asyncio.ensure_future(speech.load(paths.models, config.device, config.threads, config.voice))
+
+
+def _local_url(server: ServerSettings) -> str:
+    """Where agents on this machine reach the daemon."""
+    host = {"0.0.0.0": "127.0.0.1", "localhost": "127.0.0.1", "::": "::1"}.get(server.host, server.host)
+    return f"http://{f'[{host}]' if ':' in host else host}:{server.port}"
 
 
 def _same_origin(websocket: WebSocket) -> bool:

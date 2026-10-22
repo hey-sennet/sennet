@@ -63,8 +63,8 @@ def serve_command(settings: Settings, paths: Paths, args):
     from .server import WEB_DIR, create_app
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    host = args.host or settings.server.host
-    port = args.port or settings.server.port
+    host = settings.server.host = args.host or settings.server.host
+    port = settings.server.port = args.port or settings.server.port  # agents call back on it
     if host not in ("127.0.0.1", "::1", "localhost"):
         logging.warning("binding %s exposes Agent Talk beyond this machine; there is no login yet. "
                         "Use `tailscale serve` with the default loopback address instead.", host)
