@@ -176,16 +176,17 @@ function NewTask({ live, project, onProjectChange, onCreated, autoFocus, onOpenS
   )
 }
 
-const voiceSources = { user: voice().source }
+const voiceSources = { user: voice().source, agent: voice().playback.source }
 
-/** Strata, listening to the microphone while you talk. `?strata=` previews other states. */
+/** Strata, listening while you talk and speaking while a reply plays. `?strata=` previews other states. */
 function HomeStrata({ className }: { className?: string }) {
-  const { listening, opening } = useVoice()
+  const { listening, opening, speaking } = useVoice()
   if (strataPreview) {
     return <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className={className} />
   }
   // Listening shows once the microphone is really capturing: the cue to start talking.
-  return <Strata state={listening && !opening ? 'listening' : 'idle'} sources={voiceSources} className={className} />
+  const state = listening && !opening ? 'listening' : speaking && !listening ? 'speaking' : 'idle'
+  return <Strata state={state} sources={voiceSources} className={className} />
 }
 
 function ConnectionDot({ connection }: { connection: Connection }) {

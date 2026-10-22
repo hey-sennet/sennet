@@ -73,3 +73,21 @@ test('sliding off the button cancels', async ({ page }, info) => {
   await page.waitForTimeout(500)
   expect(await taskCount(page)).toBe(before)
 })
+
+test('the reply is spoken, and stop silences it', async ({ page }, info) => {
+  const name = `voice-speak-${info.project.name}`
+  await addProject(page, name)
+  await page.goto('/')
+  await page.getByLabel('Project').first().selectOption({ label: name })
+  const talk = page.getByRole('button', { name: 'Hold to talk' }).first()
+  await expect(talk).toBeEnabled()
+  await talk.hover()
+  await page.mouse.down()
+  await page.waitForTimeout(1000)
+  await page.mouse.up()
+
+  const stop = page.getByRole('button', { name: 'Stop speaking' })
+  await expect(stop).toBeVisible()
+  await stop.click()
+  await expect(stop).toBeHidden()
+})

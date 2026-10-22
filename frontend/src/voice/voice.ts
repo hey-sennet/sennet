@@ -1,9 +1,11 @@
 // Push-to-talk, outside React: opens the microphone on the first press, streams 20 ms frames
 // to /api/voice while a turn is open, and releases the microphone after a quiet minute.
-// React subscribes to the snapshot; Strata reads `source` each frame.
+// Replies play through `playback`, dropping any generation older than the floor (§7).
+// React subscribes to the snapshot; Strata reads `source` and `playback.source` each frame.
 import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
+import { Playback, parseFrame } from './playback'
 import { VoiceSocket, type SpeechStatus, type VoiceMessage } from './socket'
 
 const RELEASE_MIC_AFTER_MS = 60_000
@@ -16,23 +18,34 @@ export interface VoiceSnapshot {
   stt: SpeechStatus | null       // null until the server says
   listening: boolean             // a turn is open on this device
   opening: boolean               // the microphone is starting: listening, but nothing captured yet
+  speaking: boolean              // a reply is playing on this device
 }
 
 export class Voice {
   readonly socket = new VoiceSocket()
+  readonly playback = new Playback()
   private mic: Microphone | null = null
   private opening: Promise<Microphone> | null = null
   private releaseTimer: ReturnType<typeof setTimeout> | null = null
   private turn: string | null = null
   private ending: string | null = null // released, its last frame still on the way
   private turns = 0
-  private snapshot: VoiceSnapshot = { connected: false, stt: null, listening: false, opening: false }
+  private outputRate = 24000
+  private latest = 0 // the highest playback generation seen
+  private floor = 0  // frames below this generation are stale
+  private snapshot: VoiceSnapshot = { connected: false, stt: null, listening: false, opening: false, speaking: false }
   private readonly subscribers = new Set<() => void>()
   private readonly errorSubscribers = new Set<(message: string) => void>()
 
   constructor() {
-    this.socket.onOpenChange = (connected) => this.update({ connected, ...(connected ? {} : { stt: null }) })
+    this.socket.onOpenChange = (connected) => {
+      // A closed socket ends its session: the rest of the reply isn't spoken (§6).
+      if (!connected) this.playback.silence()
+      this.update({ connected, ...(connected ? {} : { stt: null }) })
+    }
     this.socket.on((message) => this.receive(message))
+    this.socket.onAudio((data) => this.hear(data))
+    this.playback.onPlayingChange = (speaking) => this.update({ speaking })
   }
 
   /** Strata's user source: the microphone's loudness and bands, silent while it is closed. */
@@ -55,6 +68,7 @@ export class Voice {
   /** Start a turn. Talking interrupts any speech (the server stops it on `start`). */
   async press(target: Target) {
     if (this.turn) return
+    this.playback.unlock() // still inside the press's gesture, so replies can play later
     if (this.snapshot.stt !== 'ready') {
       this.fail(this.snapshot.connected ? 'Speech recognition is still loading, or not set up. Run `agent-talk setup`.'
         : 'Voice is not connected yet.')
@@ -65,6 +79,7 @@ export class Voice {
       this.fail('Voice is not connected yet.')
       return
     }
+    this.interrupt()
     this.turn = turn
     this.holdMic()
     this.update({ listening: true })
@@ -95,6 +110,18 @@ export class Voice {
     if (!this.turn) return
     this.socket.send({ type: 'cancel', turn: this.turn })
     this.endTurn()
+  }
+
+  /** Stop speaking. Agent work carries on. */
+  stop() {
+    this.socket.send({ type: 'stop' })
+    this.interrupt()
+  }
+
+  /** Silence playback now, without waiting for the server's `stopped`: it applies the same +1. */
+  private interrupt() {
+    this.floor = this.latest + 1
+    this.playback.silence()
   }
 
   private endTurn() {
@@ -134,11 +161,27 @@ export class Voice {
   }
 
   private receive(message: VoiceMessage) {
+    if (message.type === 'ready') {
+      // A new session: generations start again from its own.
+      this.latest = this.floor = message.generation
+      this.outputRate = message.output.rate
+    }
     if (message.type === 'ready' || message.type === 'speech_status') this.update({ stt: message.speech.stt })
+    if (message.type === 'speech' || message.type === 'speech_end' || message.type === 'stopped') {
+      this.latest = Math.max(this.latest, message.generation)
+    }
+    if (message.type === 'stopped') this.floor = Math.max(this.floor, message.generation)
     if (message.type === 'voice_error') {
       if (message.turn && message.turn === this.turn) this.endTurn()
       this.fail(message.message)
     }
+  }
+
+  private hear(data: ArrayBuffer) {
+    const frame = parseFrame(data)
+    if (!frame) return
+    this.latest = Math.max(this.latest, frame.generation)
+    if (frame.generation >= this.floor) this.playback.play(frame.samples, this.outputRate)
   }
 
   private fail(message: string) {

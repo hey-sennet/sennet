@@ -4,7 +4,8 @@
 export type SpeechStatus = 'ready' | 'loading' | 'unavailable'
 
 export type VoiceMessage =
-  | { type: 'ready'; session: string; generation: number; speech: { stt: SpeechStatus; tts: SpeechStatus } }
+  | { type: 'ready'; session: string; generation: number; output: { rate: number }
+      speech: { stt: SpeechStatus; tts: SpeechStatus } }
   | { type: 'speech_status'; speech: { stt: SpeechStatus; tts: SpeechStatus } }
   | { type: 'voice_state'; state: 'idle' | 'listening' | 'transcribing' | 'speaking'; turn: string | null }
   | { type: 'caption'; turn: string; committed: string; provisional: string }

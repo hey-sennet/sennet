@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Mic } from 'lucide-react'
+import { Mic, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { voice, type Target } from '@/voice/voice'
@@ -14,7 +14,8 @@ export function useVoice() {
 
 /**
  * Push to talk: hold, or tap to start and tap again to send. Sliding off the button before
- * letting go cancels. Space or Enter work the same way while it has focus.
+ * letting go cancels. Space or Enter work the same way while it has focus. While a reply is
+ * playing, a stop button sits beside it; talking stops the reply too.
  */
 export function TalkButton({ target, className }: { target: Target; className?: string }) {
   const state = useVoice()
@@ -64,34 +65,42 @@ export function TalkButton({ target, className }: { target: Target; className?: 
     : 'Hold to talk'
 
   return (
-    <Button
-      type="button"
-      variant={state.listening ? 'default' : 'outline'}
-      aria-pressed={state.listening}
-      aria-label={label}
-      title={label}
-      disabled={!ready && !state.listening}
-      className={cn('h-12 touch-none gap-2 rounded-full px-5 select-none', className)}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return
-        event.currentTarget.setPointerCapture(event.pointerId)
-        down()
-      }}
-      onPointerUp={(event) => up(outside(event))}
-      onPointerCancel={() => voice().cancel()}
-      onKeyDown={(event) => {
-        if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
-          event.preventDefault()
+    <div className={cn('flex items-center gap-2', className)}>
+      {state.speaking && !state.listening && (
+        <Button type="button" variant="ghost" size="icon" aria-label="Stop speaking" title="Stop speaking"
+          className="size-12 rounded-full" onClick={() => voice().stop()}>
+          <Square />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant={state.listening ? 'default' : 'outline'}
+        aria-pressed={state.listening}
+        aria-label={label}
+        title={label}
+        disabled={!ready && !state.listening}
+        className="h-12 touch-none gap-2 rounded-full px-5 select-none"
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.currentTarget.setPointerCapture(event.pointerId)
           down()
-        }
-      }}
-      onKeyUp={(event) => {
-        if (event.key === ' ' || event.key === 'Enter') up(false)
-      }}
-      onContextMenu={(event) => event.preventDefault()}
-    >
-      <Mic className={cn(state.listening && 'animate-pulse')} />
-      {state.listening ? (state.opening ? 'Starting…' : 'Listening') : 'Talk'}
-    </Button>
+        }}
+        onPointerUp={(event) => up(outside(event))}
+        onPointerCancel={() => voice().cancel()}
+        onKeyDown={(event) => {
+          if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
+            event.preventDefault()
+            down()
+          }
+        }}
+        onKeyUp={(event) => {
+          if (event.key === ' ' || event.key === 'Enter') up(false)
+        }}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        <Mic className={cn(state.listening && 'animate-pulse')} />
+        {state.listening ? (state.opening ? 'Starting…' : 'Listening') : 'Talk'}
+      </Button>
+    </div>
   )
 }
