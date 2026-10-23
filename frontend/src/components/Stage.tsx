@@ -1,7 +1,8 @@
 import { useEffect, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { Square, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import type { Approval, Project, Task, TaskDetail } from '@/lib/api'
+import { api, type Approval, type Project, type Task, type TaskDetail } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Strata } from '@/strata/Strata'
 import { strataPreview } from '@/strata/preview'
@@ -91,6 +92,9 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
           </p>
         )}
         {current(detail) && <p className="mt-3 truncate font-mono text-[12.5px] text-muted-foreground">› {current(detail)}</p>}
+        <Button variant="ghost" size="sm" className="mt-3 -ml-2.5 font-sans text-muted-foreground" onClick={() => stopTask(task.id)}>
+          <Square className="fill-current" /> Stop task
+        </Button>
       </div>
     )
   } else if (task && lastReply(detail)) {
@@ -117,11 +121,15 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
         <p className={cn('eyebrow mb-3 flex min-h-5 items-center gap-1.5 text-muted-foreground transition-colors duration-400',
           state === 'listening' && 'text-foreground', (state === 'speaking' || state === 'thinking') && 'text-agent',
           state === 'approval' && !words && 'text-warn')}>
-          <span className="truncate">{snapshot.conversation && state !== 'listening' && state !== 'speaking' ? `Conversation · ${label}` : label}</span>
-          {label === 'Following up' && (
-            <button className="-my-1 rounded-full p-1 hover:text-foreground" aria-label="New task instead" title="New task instead" onClick={onClearTask}>
-              <X className="size-3" />
-            </button>
+          <span className="shrink-0">{snapshot.conversation && state !== 'listening' && state !== 'speaking' ? `Conversation · ${label}` : label}</span>
+          {label === 'Following up' && task && (
+            // Plain to see, so words meant for a new task don't land on an old one by accident.
+            <span className="-my-1 inline-flex min-w-0 items-center gap-1 rounded-full border border-border bg-card py-0.5 pr-0.5 pl-2.5 text-[12px] font-normal tracking-normal text-foreground normal-case">
+              <span className="truncate">{task.title}</span>
+              <button className="rounded-full p-1 text-muted-foreground hover:text-foreground" aria-label="New task instead" title="New task instead" onClick={onClearTask}>
+                <X className="size-3" />
+              </button>
+            </span>
           )}
         </p>
         <div className="min-h-[4.5em] font-serif text-[clamp(26px,6vw,34px)]">{body}</div>
@@ -136,6 +144,14 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
       </div>
     </main>
   )
+}
+
+async function stopTask(id: number) {
+  try {
+    await api.cancel(id)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Could not stop the task')
+  }
 }
 
 function Lead({ children, quiet, agent, className }: { children: ReactNode; quiet?: boolean; agent?: boolean; className?: string }) {

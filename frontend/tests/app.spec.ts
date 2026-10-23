@@ -62,6 +62,30 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   expect(external).toEqual([])
 })
 
+test('a running task stops from the main screen, and the task being followed up is named', async ({ page }, info) => {
+  const name = `stop-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  expect((await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })).ok()).toBe(true)
+  await page.goto('/')
+  await page.getByLabel('Project').selectOption({ label: name })
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
+  await composer.fill('hang')
+  await composer.press('Enter')
+
+  const stage = page.getByRole('main')
+  // Words now go to this task, and it says which.
+  await expect(stage.getByText('Following up')).toHaveCount(0) // working, not yet following up
+  await stage.getByRole('button', { name: 'Stop task' }).click()
+  await expect(stage.getByRole('button', { name: 'Stop task' })).toHaveCount(0)
+  await expect(stage.getByText('Following up')).toBeVisible()
+  await expect(stage.getByText('hang', { exact: true }).first()).toBeVisible() // the task's title, in its chip
+  await page.screenshot({ path: `test-results/${info.project.name}-following-up.png` })
+  await stage.getByRole('button', { name: 'New task instead' }).click()
+  await expect(stage.getByText(`New task · ${name}`)).toBeVisible()
+})
+
 test('an approval is asked on the device that started its task; another sees a quiet line', async ({ page, browser }, info) => {
   const name = `elsewhere-${info.project.name}`
   const directory = path.join(home, name)
