@@ -14,10 +14,10 @@ export type VoiceMessage =
   | { type: 'caption'; turn: string; committed: string; provisional: string }
   | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; approval_id?: number;
       decision?: string | null; confirm?: boolean }
-  | { type: 'speech'; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null
+  | { type: 'speech'; reply: number; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null
       cue?: boolean }
   | { type: 'asking'; approval_id: number }
-  | { type: 'speech_end'; generation: number }
+  | { type: 'speech_end'; reply: number; generation: number }
   | { type: 'stopped'; generation: number }
   | { type: 'barge_in'; generation: number }
   | { type: 'mic'; open: boolean; reason?: 'closed' | 'idle' | 'error' }
@@ -33,7 +33,7 @@ export type Control =
   | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation (docs/voice-protocol.md §12)
   | { type: 'close_mic' }
   | { type: 'codecs'; uplink: Codec; downlink: Codec } // §3: PCM unless the client asks for Opus
-  | { type: 'played'; generation: number; segment: number } // §5: a segment began playing here
+  | { type: 'played' | 'drained'; reply: number; segment: number } // §4: began playing; ran out after it
   | { type: 'audio'; state: string; hidden: boolean }       // §5: playback was suspended or resumed
 
 export type Codec = 'pcm_s16le' | 'opus'

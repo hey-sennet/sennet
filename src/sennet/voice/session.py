@@ -36,6 +36,9 @@ UPLINK_LIMIT_S = 2.0    # audio received but not yet taken by recognition
 TURN_LIMIT_S = 300.0
 PCM, OPUS = "pcm_s16le", "opus"
 PLAYBACK_TAIL_S = 0.4   # the client starts each run of audio a little late (playback.ts LEAD_S)
+# A client reports `drained` when it has played everything. One that doesn't (a page from an
+# older build) counts as done this long after the audio sent should have finished.
+DRAIN_GRACE_S = 3.0
 
 
 @dataclass(eq=False)  # each turn is itself: kept in a set while open
@@ -57,6 +60,7 @@ class Turn:
 
 @dataclass
 class Reply:
+    id: int                         # the session's count of replies: `speech`, `played` and `drained` name it
     segments: list[str]
     generation: int                 # replies from before a stop or start are dropped
     task_id: int | None = None
@@ -91,8 +95,12 @@ class VoiceSession:
         self.floor = asyncio.Event()  # set while no turn is open; speech waits for it
         self.floor.set()
         self.conversation: Conversation | None = None
-        self.playing_until = 0.0      # when the client should finish playing what was sent
+        self.replies_made = 0
+        self.sending = False          # a reply's segments are going out
+        self.last_sent: tuple[int, int] | None = None  # (reply, segment) last sent, until the client drains it
+        self.playing_until = 0.0      # the estimate of when the client finishes it: only a cap (DRAIN_GRACE_S)
         self.playing_task: int | None = None  # whose reply that is
+        self.settle_timer: asyncio.TimerHandle | None = None  # the cap, for a client that never drains
         self.spoken: deque[tuple[float, str]] = deque(maxlen=32)  # recent segments, for the echo check
         self.send_lock = asyncio.Lock()
         self.ignored_frames = 0
@@ -101,9 +109,7 @@ class VoiceSession:
         self.uplink: OpusUplink | None = None      # set once the client asks for Opus (`codecs`)
         self.downlink: OpusDownlink | None = None
         self.opus_down = False
-        # (generation, segment) → when each went out, oldest first, for `played`. Replies in one
-        # generation reuse segment numbers, and a later one can be sent before an earlier one plays.
-        self.sent: dict[tuple[int, int], deque[float]] = {}
+        self.sent: dict[tuple[int, int], float] = {}  # (reply, segment) → when it went out, for `played`
 
     # Socket loop
 
@@ -125,6 +131,8 @@ class VoiceSession:
                     await self._control(message["text"])
         finally:
             speaker.cancel()
+            if self.settle_timer:
+                self.settle_timer.cancel()
             if self.conversation is not None:
                 await self.conversation.stop()
                 self.conversation = None
@@ -182,6 +190,8 @@ class VoiceSession:
             await self._codecs(message)
         elif kind == "played":
             self._played(message)
+        elif kind == "drained":
+            await self._drained(message)
         elif kind == "audio":
             log.info("voice %s: the device's audio is %s%s", self.id[:4], message.get("state"),
                      " (page hidden)" if message.get("hidden") else "")
@@ -193,13 +203,25 @@ class VoiceSession:
 
     def _played(self, message: dict):
         """The client started playing a segment: the last step of a reply's trace."""
-        key = (message.get("generation"), message.get("segment"))
-        times = self.sent.get(key)
-        sent = times.popleft() if times else None
-        if times is not None and not times:
-            del self.sent[key]
+        key = (message.get("reply"), message.get("segment"))
+        sent = self.sent.pop(key, None)
         delay = f", {time.monotonic() - sent:.1f} s after it was sent" if sent is not None else ""
-        log.info("voice %s: device playing generation %s segment %s%s", self.id[:4], *key, delay)
+        log.info("voice %s: device playing reply %s segment %s%s", self.id[:4], *key, delay)
+
+    async def _drained(self, message: dict):
+        """The client ran out of audio, having last played (reply, segment). Unless more was sent
+        since, the reply has been heard to its end: from here nothing is playing."""
+        key = (message.get("reply"), message.get("segment"))
+        if key != self.last_sent:
+            return  # more was sent after it, or it is from before a stop
+        log.info("voice %s: device finished reply %s", self.id[:4], key[0])
+        self.last_sent = None
+        await self._settle()
+
+    async def _settle(self):
+        """Speech is over once nothing is queued, sending or still playing on the client."""
+        if self.state == "speaking" and not self.open_turns and self.replies.empty() and not self.playing:
+            await self._set_state(self._resting)
 
     async def _codecs(self, message: dict):
         """The client picks PCM or Opus for each direction; it applies to the frames after this."""
@@ -300,8 +322,11 @@ class VoiceSession:
 
     @property
     def playing(self) -> bool:
-        """Whether the client is probably still playing a reply."""
-        return time.monotonic() < self.playing_until
+        """Whether a reply is going out or still playing: until the client reports `drained` for
+        the last segment sent, or past the estimate of its end by DRAIN_GRACE_S if it never does."""
+        if self.sending:
+            return True
+        return self.last_sent is not None and time.monotonic() < self.playing_until + DRAIN_GRACE_S
 
     def echoes(self, words: list[str]) -> bool:
         """Whether a transcript is mostly words Sennet said in the last few seconds."""
@@ -423,14 +448,17 @@ class VoiceSession:
         client chimes first."""
         segments = [s for s in segments if s.strip()]
         if segments:
-            log.info("voice %s: reply for task %s queued, %d segment%s: %.60r", self.id[:4], task_id,
-                     len(segments), "" if len(segments) == 1 else "s", " ".join(segments))
-            self.replies.put_nowait(Reply(segments, self.generation, task_id, approval_id, cue=cue))
+            self.replies_made += 1
+            log.info("voice %s: reply %d for task %s queued, %d segment%s: %.60r", self.id[:4], self.replies_made,
+                     task_id, len(segments), "" if len(segments) == 1 else "s", " ".join(segments))
+            self.replies.put_nowait(Reply(self.replies_made, segments, self.generation, task_id, approval_id,
+                                          cue=cue))
 
     async def interrupt(self, barge_in: bool = False):
         """Stop speaking: a new generation. `barge_in` when it was the user talking over a reply."""
         self.generation += 1
         self.playing_until = 0.0
+        self.last_sent = None  # the client silences what it has at once
         await self.send(type="barge_in" if barge_in else "stopped", generation=self.generation)
 
     # Approvals
@@ -453,9 +481,11 @@ class VoiceSession:
     def ask(self, segments: list[str]):
         """Say something as part of the current approval's question."""
         asking = self.asking
-        log.info("voice %s: approval %s for task %s queued%s", self.id[:4], asking.approval["id"],
-                 asking.approval["task_id"], f": {' '.join(segments)!r:.60}" if segments else " (the chime)")
-        reply = Reply(segments, self.generation, asking.approval["task_id"], asking.approval["id"])
+        log.info("voice %s: reply %d, approval %s for task %s, queued%s", self.id[:4], self.replies_made + 1,
+                 asking.approval["id"], asking.approval["task_id"],
+                 f": {' '.join(segments)!r:.60}" if segments else " (the chime)")
+        self.replies_made += 1
+        reply = Reply(self.replies_made, segments, self.generation, asking.approval["task_id"], asking.approval["id"])
         if asking.reply:
             asking.reply.cancelled = True
         asking.reply = reply
@@ -471,7 +501,7 @@ class VoiceSession:
         while True:
             reply = await self.replies.get()
             if not self.floor.is_set():
-                log.info("voice %s: reply for task %s waits for the open turn", self.id[:4], reply.task_id)
+                log.info("voice %s: reply %d waits for the open turn", self.id[:4], reply.id)
             await self.floor.wait()
             if reply.cancelled:
                 continue
@@ -488,15 +518,24 @@ class VoiceSession:
                 await self.error("tts_unavailable", self.speech.detail["tts"] or "speech output is loading")
                 continue
             await self._set_state("speaking")
+            self.sending = True
             try:
                 await self._play(reply)
             except Exception:
                 log.exception("speech failed")
                 await self.error("tts_unavailable", "speech output failed")
+            finally:
+                self.sending = False
             if self.asking and reply is self.asking.reply and not self.asking.started and not reply.cancelled:
                 self.replies.put_nowait(reply)  # interrupted before a word went out: ask again afterwards
-            if not self.open_turns and self.replies.empty():
-                await self._set_state(self._resting)
+            if self.playing:
+                # The client is still playing it: `drained` settles the state, or the cap does.
+                if self.settle_timer:
+                    self.settle_timer.cancel()
+                delay = self.playing_until + DRAIN_GRACE_S - time.monotonic()
+                self.settle_timer = asyncio.get_running_loop().call_later(
+                    max(delay, 0) + 0.05, lambda: asyncio.ensure_future(self._settle()))
+            await self._settle()
 
     async def _play(self, reply: Reply):
         generation, tts = reply.generation, self.speech.tts
@@ -515,14 +554,15 @@ class VoiceSession:
                 if self.asking and reply is self.asking.reply:
                     self.asking.started = True  # once the user may have heard it, the next turn answers it
                 cue = {"cue": True} if reply.cue and index == 0 else {}
-                await self.send(type="speech", generation=generation, segment=index, text=text,
+                await self.send(type="speech", reply=reply.id, generation=generation, segment=index, text=text,
                                 task_id=reply.task_id, approval_id=reply.approval_id, **cue)
                 now = time.monotonic()
-                log.info("voice %s: sending task %s, generation %d segment %d", self.id[:4], reply.task_id,
-                         generation, index)
+                log.info("voice %s: sending reply %d segment %d (task %s)", self.id[:4], reply.id, index,
+                         reply.task_id)
                 if len(self.sent) > 64:
                     self.sent.clear()  # a client that never reports `played`
-                self.sent.setdefault((generation, index), deque()).append(now)
+                self.sent[(reply.id, index)] = now
+                self.last_sent = (reply.id, index)
                 self.playing_task = reply.task_id
                 self.playing_until = max(self.playing_until - PLAYBACK_TAIL_S, now) + len(audio) / tts.rate \
                     + PLAYBACK_TAIL_S
@@ -531,7 +571,7 @@ class VoiceSession:
                     if self.generation != generation or reply.cancelled:
                         return
                     await self.send_bytes(frame)
-            await self.send(type="speech_end", generation=generation)
+            await self.send(type="speech_end", reply=reply.id, generation=generation)
         finally:
             if upcoming is not None:
                 upcoming.cancel()

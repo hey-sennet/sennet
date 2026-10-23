@@ -120,7 +120,8 @@ JSON text frames.
 | `{"type": "cancel", "turn": "t7"}` | Discard the turn (slid off the button, or held too briefly). No final pass. |
 | `{"type": "stop"}` | Stop speaking. Audio only; agent work carries on (HLD §6.4). |
 | `{"type": "codecs", "uplink": "opus", "downlink": "opus"}` | Each `pcm_s16le` (the default) or `opus`, from those `ready` offered; for the frames after it (§3). A codec that wasn't offered gets `bad_message`. |
-| `{"type": "played", "generation": 4, "segment": 0}` | A segment's first audio began playing on this device. The server logs it, with the time since it sent the segment, so each reply can be followed from queued to heard in the service log. |
+| `{"type": "played", "reply": 3, "segment": 0}` | A segment's first audio began playing on this device. The server logs it, with the time since it sent the segment, so each reply can be followed from queued to heard in the service log (§13). |
+| `{"type": "drained", "reply": 3, "segment": 1}` | Playback ran out of audio, the last segment it started being this one. When that is the last segment the server sent, the reply has been heard to its end: the server's `playing`, and `voice_state` `speaking`, end here (§13). |
 | `{"type": "audio", "state": "suspended", "hidden": true}` | Playback's `AudioContext` changed state (`running`, `suspended`, `interrupted`, `closed`), for the same log. A phone suspends it with the screen off or when another app takes the audio; the client resumes it when it can and, if speech arrives while it can't, asks the user to tap. |
 
 The client picks the `turn` id (any short string, unique per session), so it can tag its
@@ -134,9 +135,9 @@ ignored.
 | `{"type": "voice_state", "state": "listening", "turn": "t7"}` | `idle`, `open` (a conversation is listening and nobody is talking, §12), `listening` (turn open), `transcribing` (final pass running), `speaking`. Sent on every change. |
 | `{"type": "caption", "turn": "t7", "committed": "run the", "provisional": "tests in back"}` | Every ~250 ms while listening; the interval adapts on slow CPUs (HLD §6.2). Preview only, never dispatched. Each caption replaces the last. |
 | `{"type": "final", "turn": "t7", "text": "Run the tests in backend.", "outcome": "dispatched", "task_id": 12}` | The full-pass transcript and what happened to it (below). |
-| `{"type": "speech", "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `task_id` and `approval_id` say what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
+| `{"type": "speech", "reply": 3, "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `reply` is the session's count of replies, from 1; segments count from 0 within it. `task_id` and `approval_id` say what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
 | `{"type": "asking", "approval_id": 9}` | This session is now asking about the approval: its next turn answers it (§8). Nothing is spoken; the client plays the approval chime when the approval's card shows. |
-| `{"type": "speech_end", "generation": 4}` | The last segment of this generation has been sent. |
+| `{"type": "speech_end", "reply": 3, "generation": 4}` | The last segment of this reply has been sent. It may still be playing: `drained` says when it has been heard. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
 | `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `turn_unavailable` (§12), `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
 
@@ -304,3 +305,49 @@ works as before when no conversation is open.
 - **Approvals:** a voice answer counts within 30 s of the chime. A later one asks the
   question again (a fresh `asking`, and the chime) instead, and gets `reprompt`. Pressing
   talk to answer has no window.
+
+## 13. The life of a reply
+
+Added after M7. How an agent's message becomes audio on a device, and every place it can
+wait on the way. From the session queue on, each step logs a line on
+`sennet.voice.session`, so `journalctl --user -u sennet | grep voice` follows a reply from
+queued to heard.
+
+```
+agent message ──▶ hub ──▶ session queue ──▶ socket ──▶ page ──▶ playback worklet ──▶ speaker
+   (adapter)    (per task)  (per device)   (in order)  (voice.ts)  (stream.ts)
+```
+
+1. **Hub, per task** (`voice/hub.py`). An agent message on a task this device asked
+   about is cut to what should be heard: its `<spoken>` part (as soon as the tag closes,
+   while the rest streams), or its opening sentences. It is split into clauses and handed
+   to the session. *Waits:* behind speech still being prepared for the same task, so a
+   task's messages, approvals and failure are said in order. *Dropped:* when the turn was
+   talked over (`hushed`, §12), and for requests that weren't spoken (typed ones).
+2. **Session queue, per device** (`voice/session.py`, `speak`). The reply gets its id and
+   joins one queue with the approval questions (`ask`). Logged `reply N … queued`.
+   *Waits:* for any open turn on this device to close (`floor`): nothing is said while
+   you talk (logged `waits for the open turn`). *Dropped:* if a stop or a new turn raised
+   the generation since it was queued (§7). Approval questions are never dropped.
+3. **Socket** (`_play`). Each segment is synthesized one ahead of what is sent. Its
+   `speech` message goes first, then its audio frames, in order on the one socket, so a
+   frame belongs to the latest `speech` message. Logged `sending reply N segment S`.
+   *Waits:* on the socket itself: a slow link slows synthesis rather than growing a
+   queue (§6).
+4. **Page** (`voice/voice.ts`). Frames below the client's floor are dropped (§7). The rest
+   are decoded (Opus) and pushed to playback. The first frame of each segment carries
+   a callback that captions the words and reports `played`, when it really starts.
+5. **Playback worklet** (`voice/stream.ts`). Plays everything pushed back to back, as one
+   stream. *Waits:* until 100 ms is buffered (more after an underrun), and behind the
+   approval chime when `cue` asks for it. *Paused:* when the browser or phone suspends
+   the page's `AudioContext` (screen off, another app's audio); the page reports `audio`,
+   resumes it when it can, and asks for a tap if speech arrives while it can't. When it
+   runs out of audio the page reports `drained` with the last segment it started.
+6. **Back at the server.** `played` logs the delay since the segment was sent. `drained`
+   for the last segment sent ends `playing`: the server's `voice_state` goes back to
+   `idle` or `open`, and speech in a conversation stops counting as a reply to talk over
+   (barge-in, §12). A page that never reports `drained` is treated as done
+   `DRAIN_GRACE_S` after the estimate of when its audio ends.
+
+So a device hears its replies from one queue, in order, and the server's idea of
+"speaking" is the device's own.

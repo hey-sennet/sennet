@@ -62,10 +62,11 @@ export class Voice {
   private outputRate = 24000
   private latest = 0 // the highest playback generation seen
   private floor = 0  // frames below this generation are stale
-  // Each reply's segment texts, in arrival order; frames belong to the latest `speech` message.
-  private replies = 0
+  // Each reply's segment texts, by the server's reply id. Frames belong to the latest `speech`
+  // message: the server sends a segment's `speech` and then its frames, in order, on one socket.
   private readonly replyText = new Map<number, string[]>()
   private heard: { reply: number; segment: number } | null = null
+  private lastStarted: { reply: number; segment: number } | null = null // reported in `drained`
   private wordsTimer: ReturnType<typeof setTimeout> | null = null
   private snapshot: VoiceSnapshot = {
     connected: false, stt: null, turnReady: false, conversation: false, listening: false, opening: false,
@@ -88,7 +89,11 @@ export class Voice {
     }
     this.socket.on((message) => this.receive(message))
     this.socket.onAudio((data) => this.hear(data))
-    this.playback.onPlayingChange = (speaking) => this.update({ speaking })
+    this.playback.onPlayingChange = (speaking) => {
+      // Everything sent has been heard (or silenced): the server's `playing` follows this (§7).
+      if (!speaking && this.lastStarted) this.socket.send({ type: 'drained', ...this.lastStarted })
+      this.update({ speaking })
+    }
     // The server logs these, so a reply can be followed from queued to heard in one place.
     this.playback.onAudioState = (state) => {
       if (state === 'running') this.muted = false
@@ -235,7 +240,7 @@ export class Voice {
     this.floor = floor
     this.playback.silence()
     this.replyText.clear()
-    this.heard = null
+    this.heard = this.lastStarted = null
     const words = this.snapshot.words
     if (words?.speaker === 'agent' && words.provisional) this.update({ words: { ...words, provisional: '' } })
   }
@@ -352,6 +357,8 @@ export class Voice {
     if (message.type === 'ready') {
       // A new session: generations start again from its own.
       this.latest = this.floor = message.generation
+      this.replyText.clear() // reply ids start again with the session
+      this.heard = this.lastStarted = null
       this.outputRate = message.output.rate
       this.useCodecs({ uplink: 'pcm_s16le', downlink: 'pcm_s16le' })
       void this.negotiate(message.codecs ?? [])
@@ -398,9 +405,9 @@ export class Voice {
         this.playback.resume()
         this.fail('Your phone paused Sennet\'s audio. Tap the screen to hear the reply.')
       }
-      if (message.segment === 0) this.replyText.set(++this.replies, [])
-      this.replyText.get(this.replies)?.push(message.text)
-      this.heard = { reply: this.replies, segment: message.segment }
+      if (message.segment === 0) this.replyText.set(message.reply, [])
+      this.replyText.get(message.reply)?.push(message.text)
+      this.heard = { reply: message.reply, segment: message.segment }
     }
     if (message.type === 'voice_error') {
       if (message.turn && message.turn === this.turn) this.endTurn()
@@ -417,9 +424,9 @@ export class Voice {
     const heard = this.heard
     const first = heard && heard.segment === frame.segment ? heard : null
     if (first) this.heard = null
-    const generation = frame.generation
     const onStart = first ? () => {
-      this.socket.send({ type: 'played', generation, segment: first.segment })
+      this.lastStarted = { reply: first.reply, segment: first.segment }
+      this.socket.send({ type: 'played', ...this.lastStarted })
       this.spoken(first.reply, first.segment)
     } : undefined
     if ('packets' in frame) {

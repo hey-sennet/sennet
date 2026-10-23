@@ -373,10 +373,11 @@ def test_a_reply_is_spoken_with_tagged_frames(client, voice, speech):
     speak(client, "All tests pass.", "Two files changed.", task_id=7)
     assert voice.next("voice_state")["state"] == "speaking"
     first = voice.next("speech")
-    assert first == {"type": "speech", "generation": 0, "segment": 0, "text": "All tests pass.",
+    assert first == {"type": "speech", "reply": 1, "generation": 0, "segment": 0, "text": "All tests pass.",
                      "task_id": 7, "approval_id": None}
     assert voice.next("speech")["segment"] == 1
-    assert voice.next("speech_end") == {"type": "speech_end", "generation": 0}
+    assert voice.next("speech_end") == {"type": "speech_end", "reply": 1, "generation": 0}
+    voice.send(type="drained", reply=1, segment=1)  # the device has played it all
     assert voice.next("voice_state")["state"] == "idle"
     decoded = [frames.decode_downlink(f) for f in voice.audio]
     assert {(kind, generation) for kind, _, generation, _ in decoded} == {(frames.AUDIO, 0)}
@@ -389,15 +390,38 @@ def test_a_reply_is_traced_from_queued_to_played(client, voice, speech, caplog):
     speech.tts.gate.set()
     speak(client, "All tests pass.", task_id=7)
     voice.next("speech_end")
-    voice.send(type="played", generation=0, segment=0)
+    voice.send(type="played", reply=1, segment=0)
+    voice.send(type="drained", reply=1, segment=0)
     voice.send(type="audio", state="suspended", hidden=True)
     voice.send(type="stop")
     voice.next("stopped")  # the messages before it have been handled
     trace = [r.getMessage() for r in caplog.records if r.name == "sennet.voice.session"]
-    assert any("reply for task 7 queued, 1 segment" in line for line in trace)
-    assert any("sending task 7, generation 0 segment 0" in line for line in trace)
-    assert any("device playing generation 0 segment 0, " in line for line in trace)
+    assert any("reply 1 for task 7 queued, 1 segment" in line for line in trace)
+    assert any("sending reply 1 segment 0 (task 7)" in line for line in trace)
+    assert any("device playing reply 1 segment 0, " in line for line in trace)
+    assert any("device finished reply 1" in line for line in trace)
     assert any("audio is suspended (page hidden)" in line for line in trace)
+
+
+def test_a_reply_plays_until_the_device_drains_its_last_segment(client, voice, speech):
+    speech.tts.gate.set()
+    speak(client, "First part.", "Second part.")
+    voice.next("speech_end")
+    voice_session = session(client)
+    assert voice_session.playing  # sent, not yet heard
+    voice.send(type="drained", reply=1, segment=0)  # ran dry between segments: the second is still to play
+    voice.send(type="drained", reply=1, segment=1)
+    assert voice.next("voice_state")["state"] == "idle"
+    assert not voice_session.playing
+
+
+def test_a_device_that_never_reports_stops_playing_after_the_estimate(client, voice, speech, monkeypatch):
+    monkeypatch.setattr("sennet.voice.session.DRAIN_GRACE_S", 0.1)
+    speech.tts.gate.set()
+    speak(client, "All tests pass.")
+    voice.next("speech_end")
+    assert voice.next("voice_state")["state"] == "idle"  # the 0.3 s of audio, its tail and the grace
+    assert not session(client).playing
 
 
 def test_stop_ends_speech_and_raises_the_generation(client, voice, speech):
