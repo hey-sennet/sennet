@@ -1,8 +1,9 @@
 """What Tailscale says about this machine, for setup and doctor (docs/m5-access.md).
 
-Agent Talk never configures Tailscale itself. It reads this machine's tailnet address,
-to fill `server.public_url` for pairing links, and what `tailscale serve` exposes: whether
-it passes Agent Talk's port on, and whether Funnel puts it on the public internet.
+Agent Talk reads this machine's tailnet address, to fill `server.public_url` for pairing
+links, and what `tailscale serve` exposes: whether it passes Agent Talk's port on, and
+whether Funnel puts it on the public internet. The one change it makes is `tailscale
+serve --bg <port>`, and only when setup has asked.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 
 TIMEOUT_S = 5
+SERVE_TIMEOUT_S = 300   # the first `serve` on a tailnet may wait while the user turns HTTPS on
 
 
 def _json(*args: str) -> dict | None:
@@ -60,3 +62,21 @@ def serves(serving: dict | None, port: int) -> bool:
 def funnel(serving: dict | None) -> bool:
     """Whether Funnel puts anything this machine serves on the public internet."""
     return any((serving or {}).get("AllowFunnel", {}).values())
+
+
+def serve(port: int) -> bool:
+    """Run `tailscale serve --bg <port>`, its output shown as it comes: the first time on a tailnet it
+    prints a link to turn HTTPS on and waits for it."""
+    try:
+        return subprocess.run(["tailscale", "serve", "--bg", str(port)], timeout=SERVE_TIMEOUT_S).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def serves_other(serving: dict | None, port: int) -> bool:
+    """Whether `tailscale serve` passes anything on besides Agent Talk, which serving it at / would replace."""
+    for site in ((serving or {}).get("Web") or {}).values():
+        for handler in (site.get("Handlers") or {}).values():
+            if not serves({"Web": {"_": {"Handlers": {"/": handler}}}}, port):
+                return True
+    return bool((serving or {}).get("TCP")) and not serves(serving, port)

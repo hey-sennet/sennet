@@ -1,6 +1,7 @@
 """Reading Tailscale for the phone address: setup's question and doctor's checks."""
 from agent_talk import cli, setup, tailscale
 from agent_talk.config import Settings
+import pytest
 from test_setup import LAPTOP, Scripted
 
 UP = {"BackendState": "Running", "Self": {"DNSName": "desk.tail1234.ts.net."}}
@@ -25,15 +26,44 @@ def test_serving_agent_talk_and_funnel():
     assert tailscale.funnel({**SERVING, "AllowFunnel": {"desk.tail1234.ts.net:443": True}})
 
 
-def machine(tailnet=None, served=False):
-    return setup.Machine(LAPTOP, False, tailnet, served)
+def test_other_things_served_are_noticed():
+    assert not tailscale.serves_other(SERVING, 7710)
+    assert tailscale.serves_other(SERVING, 7799)
+    other = {"Web": {"x:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8080"}}}}}
+    assert tailscale.serves_other(other, 7710)
+    assert not tailscale.serves_other(None, 7710)
 
 
-def test_setup_offers_the_tailnet_address():
-    settings, ui = Settings(), Scripted(True)
+def machine(tailnet=None, served=False, serves_other=False):
+    return setup.Machine(LAPTOP, False, tailnet, served, serves_other)
+
+
+def test_setup_offers_the_tailnet_address_and_to_serve_it(monkeypatch):
+    served = []
+    monkeypatch.setattr(tailscale, "serve", lambda port: served.append(port) or True)
+    settings, ui = Settings(), Scripted(True, True)
     setup._choose_address(ui, machine("https://desk.tail1234.ts.net"), settings)
     assert settings.server.public_url == "https://desk.tail1234.ts.net"
-    assert "tailscale serve --bg 7710" in ui.output()
+    assert served == [7710]
+    assert ui.asked[1][0] == "Run `tailscale serve --bg 7710` now, so that address reaches Agent Talk?"
+    assert ui.asked[1][2] is True
+    assert "now passes requests on to Agent Talk" in ui.output()
+
+
+def test_declining_to_serve_says_how_to_later(monkeypatch):
+    monkeypatch.setattr(tailscale, "serve", lambda port: pytest.fail("ran tailscale serve"))
+    settings, ui = Settings(), Scripted(True, False)
+    setup._choose_address(ui, machine("https://desk.tail1234.ts.net"), settings)
+    assert "Run `tailscale serve --bg 7710` yourself" in ui.output()
+
+
+def test_serving_over_something_else_warns_and_defaults_to_no(monkeypatch):
+    monkeypatch.setattr(tailscale, "serve", lambda port: False)
+    settings, ui = Settings(), Scripted(True, True)
+    setup._choose_address(ui, machine("https://desk.tail1234.ts.net", serves_other=True), settings)
+    assert ui.asked[1][2] is False
+    output = ui.output()
+    assert "would replace" in output and "didn't work" in output and "--operator=$USER" in output
 
 
 def test_setup_says_nothing_of_serve_when_it_already_serves():

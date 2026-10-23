@@ -8,7 +8,9 @@ what will be downloaded; then the checks: speech hears itself, and the voice is
 chosen by ear.
 
 Phone access: with Tailscale up, its HTTPS address becomes `server.public_url`, which
-pairing links use. M6 adds the service.
+pairing links use, and setup offers to run `tailscale serve` for it. Last, setup installs
+the service (or updates and restarts it, so it picks up the new settings) and prints a
+pairing link when no browser is paired yet.
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ import numpy as np
 from rich.panel import Panel
 from rich.table import Table
 
-from . import tailscale
+from . import service, tailscale
 from .config import Paths, Settings
 from .prompts import Abort, Option, Prompter, gigabytes, size, tagged
 from .speech import hardware, models, voices
@@ -52,6 +54,7 @@ class Machine:
     speech_loaded: bool            # Agent Talk is running, so its speech is in the free figures
     tailnet: str | None = None     # this machine's HTTPS address on the tailnet, when Tailscale is up
     served: bool = False           # `tailscale serve` passes that address on to Agent Talk
+    serves_other: bool = False     # it serves something else, which serving Agent Talk would replace
 
 
 def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) -> int:
@@ -116,15 +119,26 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None) -> 
     finally:
         speech.close()
 
-    _show_summary(ui, settings, device)
+    ui.heading("Service")
+    running = _choose_service(ui, settings)
+
+    _show_summary(ui, settings, device, running)
+    from .cli import pair_command, paired
+
+    if not paired(paths):
+        ui.console.print()
+        pair_command(settings, paths)
     return 0
 
 
 # What this computer has
 
 def _machine(settings: Settings) -> Machine:
-    return Machine(hardware.detect(), _daemon_running(settings), tailscale.address(tailscale.status()),
-                   tailscale.serves(tailscale.serve_status(), settings.server.port))
+    tailnet = tailscale.address(tailscale.status())
+    serving = tailscale.serve_status() if tailnet else None
+    port = settings.server.port
+    return Machine(hardware.detect(), _daemon_running(settings), tailnet,
+                   tailscale.serves(serving, port), tailscale.serves_other(serving, port))
 
 
 def _show_machine(ui: Prompter, machine: Machine):
@@ -349,20 +363,94 @@ def _choose_address(ui: Prompter, machine: Machine, settings: Settings):
     if ui.confirm(f"Reach Agent Talk from your phone at {machine.tailnet}, through Tailscale?"):
         settings.server.public_url = machine.tailnet
         if not machine.served:
-            ui.note(f"Then run `tailscale serve --bg {settings.server.port}` so that address reaches Agent Talk.")
+            _serve_on_tailnet(ui, machine, settings.server.port)
     elif current:
         settings.server.public_url = ""
 
 
-def _show_summary(ui: Prompter, settings: Settings, device: str):
+def _serve_on_tailnet(ui: Prompter, machine: Machine, port: int):
+    """Offer to run `tailscale serve`, which passes the tailnet address on to Agent Talk."""
+    command = f"tailscale serve --bg {port}"
+    if machine.serves_other:
+        ui.warn(f"{machine.tailnet} serves something else now, which `{command}` would replace "
+                "(`tailscale serve status` shows what).")
+    if not ui.confirm(f"Run `{command}` now, so that address reaches Agent Talk?", default=not machine.serves_other):
+        ui.note(f"Run `{command}` yourself when you're ready.")
+        return
+    if tailscale.serve(port):
+        ui.ok(f"{machine.tailnet} now passes requests on to Agent Talk.")
+        return
+    ui.fail(f"`{command}` didn't work; see its output above.")
+    if machine.hardware.system == "Linux":
+        ui.info("If it said access was denied, let your user change Tailscale's settings with "
+                "`sudo tailscale set --operator=$USER`, then run it again.")
+
+
+# Service
+
+def _choose_service(ui: Prompter, settings: Settings) -> bool:
+    """Install the service, or update and restart it so it runs with the new settings. True when it runs."""
+    try:
+        manager = service.manager()
+    except service.ServiceError as error:
+        ui.info(str(error))
+        return False
+    status = manager.status()
+    if status.installed:
+        options = [Option("install", "Update and restart it", "so it uses these settings",
+                          tags=("recommended", "current")),
+                   Option("skip", "Leave it as it is", "until `agent-talk service restart`")]
+    else:
+        options = [Option("install", "Run it in the background", f"as a {manager.name}, from login",
+                          note="Phones can reach it whenever this computer is on and you're logged in.",
+                          tags=("recommended",)),
+                   Option("skip", "Not now", "start it with `agent-talk serve` when you want it")]
+    if ui.select("Agent Talk runs", options, "install") == "skip":
+        return status.running
+    with ui.working("Starting the service…"):
+        try:
+            manager, found = service.install(settings.server.port)
+        except service.ServiceError as error:
+            failure = error
+        else:
+            failure = None
+    if failure is not None:
+        ui.fail(str(failure))
+        return False
+    ui.ok(f"Agent Talk {found['version']} is running as a {manager.name}, and starts at login.")
+    if manager.lingering() is False:
+        _choose_linger(ui, manager)
+    return True
+
+
+def _choose_linger(ui: Prompter, manager):
+    options = [Option("no", "Only while I'm logged in", "a locked screen counts as logged in",
+                      tags=("recommended",)),
+               Option("yes", "Always, from boot", "turns on `loginctl enable-linger` for your user",
+                      note="Your user's services then start at boot and keep running after you log out.")]
+    if ui.select("Keep it running when you log out?", options, "no") == "no":
+        return
+    try:
+        manager.linger()
+    except service.ServiceError as error:
+        ui.fail(str(error))
+        ui.info("Run `sudo loginctl enable-linger $USER` to turn it on.")
+        return
+    ui.ok("Agent Talk keeps running after you log out.")
+
+
+def _show_summary(ui: Prompter, settings: Settings, device: str, running: bool):
     voice = next((v.name for v in voices.VOICES if v.id == settings.speech.voice), settings.speech.voice)
     lines = [f"[green]✓[/] Speech on {NAMES[device]}, voice {voice}"]
     if settings.server.public_url:
         lines.append(f"[green]✓[/] Phones reach it at {settings.server.public_url}")
-    lines += ["",
-              "Next: [bold]agent-talk project add ~/code/app --name app[/]",
-              "      [bold]agent-talk serve[/]",
-              "      [bold]agent-talk pair[/] for each browser and phone"]
+    if running:
+        lines.append(f"[green]✓[/] Running in the background on {settings.server.local_url}")
+    steps = ["[bold]agent-talk project add ~/code/app --name app[/]"]
+    if not running:
+        steps.append("[bold]agent-talk serve[/]")
+    steps.append("[bold]agent-talk pair[/] for each browser and phone")
+    lines += ["", "Next: " + steps[0], *("      " + step for step in steps[1:])]
     ui.console.print()
     ui.console.print(Panel("\n".join(lines), title="[bold green]Agent Talk is ready[/]", title_align="left",
                            border_style="green", expand=False, padding=(0, 1)))

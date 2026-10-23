@@ -123,7 +123,7 @@ def service_command(settings: Settings, paths: Paths, args) -> int:
             print(f"  {manager.file}")
             if manager.lingering() is False:
                 print("It stops when you log out. To keep it running then, run `loginctl enable-linger`.")
-            if not _paired(paths):
+            if not paired(paths):
                 print()
                 pair_command(settings, paths)
             return 0
@@ -179,7 +179,7 @@ def _show_service(manager, status: service.Status, port: int) -> int:
     return 0 if status.running else 3
 
 
-def _paired(paths: Paths) -> bool:
+def paired(paths: Paths) -> bool:
     db = Database(paths.database)
     try:
         return bool(db.devices())

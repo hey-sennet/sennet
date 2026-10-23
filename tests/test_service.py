@@ -6,10 +6,11 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk import __version__, cli, service
+from agent_talk import __version__, cli, service, setup
 from agent_talk.agents import registry
 from agent_talk.config import Settings
 from agent_talk.server import create_app
+from test_setup import Scripted
 
 
 @pytest.fixture
@@ -272,3 +273,76 @@ def test_doctor_flags_an_agent_the_service_cant_find(monkeypatch, capsys):
 
     ok, out = check(monkeypatch, capsys, running(), {"app": "agent-talk", "version": __version__}, which=which)
     assert not ok and "can't find claude (Claude Code)" in out and "can't find codex" not in out
+
+
+# setup's last step
+
+class Manager(Installed):
+    def __init__(self, status, lingering=False, fail_linger=False):
+        super().__init__(status, lingering)
+        self.lingered, self.fail_linger = False, fail_linger
+
+    def linger(self):
+        if self.fail_linger:
+            raise service.ServiceError("loginctl enable-linger failed: denied")
+        self.lingered = True
+
+
+def test_setup_installs_the_service_and_asks_about_linger(monkeypatch):
+    manager = Manager(service.Status(False, False))
+    installed = []
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.setattr(service, "install",
+                        lambda port: installed.append(port) or (manager, {"version": __version__}))
+    ui = Scripted("install", "yes")
+    assert setup._choose_service(ui, Settings()) is True
+    assert installed == [7710] and manager.lingered
+    assert ui.options("Agent Talk runs")["install"].tags == ("recommended",)
+    assert ui.asked[1][2] == "no"  # linger isn't the default
+    assert "keeps running after you log out" in ui.output()
+
+
+def test_setup_updates_an_installed_service(monkeypatch):
+    manager = Manager(running(), lingering=True)
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.setattr(service, "install", lambda port: (manager, {"version": __version__}))
+    ui = Scripted("install")
+    assert setup._choose_service(ui, Settings()) is True
+    assert "Update and restart it" in ui.options("Agent Talk runs")["install"].label
+    assert len(ui.asked) == 1  # linger is on already
+
+
+def test_setup_can_leave_the_service_out(monkeypatch):
+    monkeypatch.setattr(service, "manager", lambda: Manager(service.Status(False, False)))
+    monkeypatch.setattr(service, "install", lambda port: pytest.fail("installed"))
+    assert setup._choose_service(Scripted("skip"), Settings()) is False
+
+
+def test_setup_reports_a_service_that_wont_start(monkeypatch):
+    def fail(port):
+        raise service.ServiceError("the service started but didn't answer")
+
+    monkeypatch.setattr(service, "manager", lambda: Manager(service.Status(False, False)))
+    monkeypatch.setattr(service, "install", fail)
+    ui = Scripted("install")
+    assert setup._choose_service(ui, Settings()) is False
+    assert "didn't answer" in ui.output()
+
+
+def test_a_refused_linger_says_how_to_do_it_with_sudo(monkeypatch):
+    manager = Manager(service.Status(False, False), fail_linger=True)
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.setattr(service, "install", lambda port: (manager, {"version": __version__}))
+    ui = Scripted("install", "yes")
+    setup._choose_service(ui, Settings())
+    assert "sudo loginctl enable-linger $USER" in ui.output()
+
+
+def test_setup_skips_the_service_where_there_is_none(monkeypatch):
+    def unsupported():
+        raise service.ServiceError("services aren't supported on Windows; run `agent-talk serve` instead")
+
+    monkeypatch.setattr(service, "manager", unsupported)
+    ui = Scripted()
+    assert setup._choose_service(ui, Settings()) is False
+    assert "aren't supported on Windows" in ui.output()
