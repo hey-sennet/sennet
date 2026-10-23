@@ -109,18 +109,23 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None) -> 
         return 1
 
     ui.heading("Speech check")
-    speech = _speech_check(ui, paths, device, settings)
-    if speech is None:
-        return 1
+    paused = _pause_service(ui, machine)
     try:
-        ui.heading("Voice")
-        settings.speech.voice = _choose_voice(ui, speech, settings.speech.voice if configured else None)
-        settings.save(paths.config_file)
-    finally:
-        speech.close()
+        speech = _speech_check(ui, paths, device, settings)
+        if speech is None:
+            return 1
+        try:
+            ui.heading("Voice")
+            settings.speech.voice = _choose_voice(ui, speech, settings.speech.voice if configured else None)
+            settings.save(paths.config_file)
+        finally:
+            speech.close()
 
-    ui.heading("Service")
-    running = _choose_service(ui, settings)
+        ui.heading("Service")
+        running = _choose_service(ui, settings, paused is not None)
+    finally:
+        if paused is not None and not paused.status().running:
+            _resume_service(ui, paused, settings.server.port)
 
     _show_summary(ui, settings, device, running)
     from .cli import pair_command, paired
@@ -367,8 +372,45 @@ def _serve_on_tailnet(ui: Prompter, machine: Machine, port: int):
 
 # Service
 
-def _choose_service(ui: Prompter, settings: Settings) -> bool:
-    """Install the service, or update and restart it so it runs with the new settings. True when it runs."""
+def _pause_service(ui: Prompter, machine: Machine):
+    """Stop a running service while setup loads speech itself: both copies of the models may not fit.
+    Returns the service's manager when it was stopped, to start it again."""
+    if not machine.speech_loaded:
+        return None
+    try:
+        manager = service.manager()
+        running = manager.status().running
+    except service.ServiceError:
+        running = False
+    if not running:
+        ui.warn("Agent Talk is running outside the service and holds its speech models, so this check may run "
+                "out of memory. Stop it (Ctrl+C where `agent-talk serve` runs) if it does.")
+        return None
+    with ui.working("Stopping the service while speech is checked…"):
+        try:
+            manager.stop()
+        except service.ServiceError as error:
+            ui.warn(escape(str(error)))
+            return None
+    ui.note("Stopped the service for the check; it starts again at the end.")
+    return manager
+
+
+def _resume_service(ui: Prompter, manager, port: int):
+    try:
+        manager.start()
+    except service.ServiceError as error:
+        ui.fail(escape(str(error)))
+        return
+    if service.wait_until_up(port) is None:
+        ui.fail("The service didn't come back; `agent-talk service logs` shows why.")
+    else:
+        ui.ok("Started the service again.")
+
+
+def _choose_service(ui: Prompter, settings: Settings, paused: bool = False) -> bool:
+    """Install the service, or update and restart it so it runs with the new settings. True when it runs
+    (or will once setup starts again the service it `paused`)."""
     try:
         manager = service.manager()
     except service.ServiceError as error:
@@ -385,7 +427,7 @@ def _choose_service(ui: Prompter, settings: Settings) -> bool:
                           tags=("recommended",)),
                    Option("skip", "Not now", "start it with `agent-talk serve` when you want it")]
     if ui.select("Agent Talk runs", options, "install") == "skip":
-        return status.running
+        return status.running or paused
     with ui.working("Starting the service…"):
         try:
             manager, found = service.install(settings.server.port)

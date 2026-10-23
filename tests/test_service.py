@@ -10,7 +10,7 @@ from agent_talk import __version__, cli, service, setup
 from agent_talk.agents import registry
 from agent_talk.config import Settings
 from agent_talk.server import create_app
-from test_setup import Scripted
+from test_setup import LAPTOP, Scripted
 
 
 @pytest.fixture
@@ -346,3 +346,41 @@ def test_setup_skips_the_service_where_there_is_none(monkeypatch):
     ui = Scripted()
     assert setup._choose_service(ui, Settings()) is False
     assert "aren't supported on Windows" in ui.output()
+
+
+class Stoppable(Manager):
+    def __init__(self, running=True):
+        super().__init__(service.Status(True, running), lingering=True)
+        self.calls = []
+
+    def stop(self):
+        self.calls.append("stop")
+        self._status = service.Status(True, False)
+
+    def start(self):
+        self.calls.append("start")
+        self._status = service.Status(True, True)
+
+
+def test_setup_stops_a_running_service_for_the_speech_check_and_starts_it_again(monkeypatch):
+    manager = Stoppable()
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.setattr(service, "wait_until_up", lambda port: {"version": __version__})
+    ui = Scripted()
+    paused = setup._pause_service(ui, setup.Machine(LAPTOP, speech_loaded=True))
+    assert paused is manager and manager.calls == ["stop"]
+    assert setup._choose_service(Scripted("skip"), Settings(), paused=True) is True
+    setup._resume_service(ui, manager, 7710)
+    assert manager.calls == ["stop", "start"] and "Started the service again" in ui.output()
+
+
+def test_setup_leaves_a_service_alone_when_nothing_is_running(monkeypatch):
+    monkeypatch.setattr(service, "manager", lambda: pytest.fail("looked for the service"))
+    assert setup._pause_service(Scripted(), setup.Machine(LAPTOP, speech_loaded=False)) is None
+
+
+def test_setup_warns_about_agent_talk_running_outside_the_service(monkeypatch):
+    monkeypatch.setattr(service, "manager", lambda: Stoppable(running=False))
+    ui = Scripted()
+    assert setup._pause_service(ui, setup.Machine(LAPTOP, speech_loaded=True)) is None
+    assert "outside the service" in ui.output()
