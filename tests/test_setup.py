@@ -174,5 +174,6 @@ def test_leaving_with_ctrl_c_says_how_to_continue(settings, paths, monkeypatch, 
         raise Abort()
 
     monkeypatch.setattr(setup, "_run", stop)
+    monkeypatch.setattr(setup, "_pause_service", lambda ui: None)
     assert setup.run(settings, paths, None, assume_yes=True) == 130
     assert "pick up where you left off" in capsys.readouterr().out

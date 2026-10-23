@@ -1,4 +1,5 @@
 import json
+import shlex
 import socket
 import sys
 import threading
@@ -11,13 +12,23 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from sennet import access
+from sennet import access, service
 from sennet.config import Paths, Settings
 from sennet.server import create_app
 
 FAKE_CODEX = Path(__file__).parent / "fake_codex.py"
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude.py"
 HEADERS = {"X-Sennet": "1"}
+
+
+@pytest.fixture(autouse=True)
+def no_real_service(monkeypatch):
+    """Keep tests off this machine's service: a test that stops it kills Sennet, and an agent running
+    the tests inside Sennet with it. Tests that drive the service manager fake `_run` themselves."""
+    def refuse(command, check=True):
+        pytest.fail(f"a test ran {shlex.join(command)} for real; fake service.manager or service._run")
+
+    monkeypatch.setattr(service, "_run", refuse)
 
 
 def pair(client, db) -> dict:
