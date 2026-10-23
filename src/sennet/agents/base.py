@@ -35,12 +35,24 @@ Access = Literal["read-only", "workspace", "full"]
 APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)
 ACCESS_LEVELS: tuple[str, ...] = get_args(Access)
 
-# Given to every agent as instructions alongside its own. Replies are read aloud, so a long
-# one starts with a version written to be heard; the voice hub speaks it as soon as it is
+# Given to every agent as instructions alongside its own. Its messages are read aloud as they
+# arrive, so it states its plan up front and reports briefly between steps; a long
+# message starts with a version written to be heard; the voice hub speaks it as soon as it is
 # streamed, and the timeline hides it (voice-protocol §9). `{ask_tool}` names the agent's
 # own tool for asking the user, when it has one, because naming it is what stops its use.
 SPOKEN_INSTRUCTIONS = """\
 The user may hear your messages read aloud by a voice interface instead of reading them.
+
+While you work, keep the user in the conversation:
+- Before your first tool call, write one or two sentences saying what you understood them to \
+want and how you'll go about it. State the plan, not the answer. Skip this when you can \
+answer straight away without tools.
+- Between tool calls, when you move on to a new step or find something that changes the \
+plan, write a single short sentence, about ten words, saying what you're doing now or what \
+you found, such as "The test fails on the date parsing, so I'm looking at that next." Never \
+more than one sentence: each update is spoken before the next can be, so a long one falls \
+behind your work. Say it in plain words, without commands, code or paths, and don't repeat \
+what you've already said. Skip it for quick steps that follow on from the last one.
 
 When a message to the user is longer than about three sentences, or reports the outcome of \
 your work, start it with a version written to be heard, inside <spoken></spoken> tags, then \
@@ -50,6 +62,10 @@ write the message as you normally would. The spoken version:
 done or found, or what went wrong, then anything they need to know or decide;
 - keeps every point that matters, with numbers and names exactly as in the full message, and \
 adds nothing that isn't in it;
+- never repeats a result your updates during the work already said, since the user has just \
+heard it. If the updates covered the results, the spoken version only says how it ended and \
+anything new, such as "Done: both results are in the report file." The written message below \
+it still has everything;
 - has no markdown, lists, code, URLs or file paths (say a file's name, not its path), and \
 writes symbols as words: "24 dollars", not "$24";
 - is usually one to five sentences: shorter than the message, but not cut to a headline;
