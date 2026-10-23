@@ -20,9 +20,10 @@ Voice uses its own WebSocket, `/api/voice`, rather than adding binary frames to
 - Each socket keeps its own backpressure (§6), so a slow phone downlink never holds up
   task events.
 
-The voice socket gets the same Origin check as `/api/events` (and the Tailscale
-identity check once §8 lands). A client opens it when the voice UI mounts and keeps it
-open, because replies are spoken over it even when the user isn't talking.
+The voice socket gets the same Origin check as `/api/events`, and the same device check
+once M5's pairing lands (HLD §8): an unpaired socket closes with code 4401. A client
+opens it when the voice UI mounts and keeps it open, because replies are spoken over it
+even when the user isn't talking.
 
 Nothing new is published on `/api/events`. A dispatched transcript already appears
 there as the task's user `message`, and the agent's reply as its `message`.

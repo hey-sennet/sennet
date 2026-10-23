@@ -7,7 +7,7 @@ pre-selects the current settings. All questions come first, then one summary of
 what will be downloaded; then the checks: speech hears itself, and the voice is
 chosen by ear.
 
-M5 adds the service and Tailscale steps.
+M5 adds the Tailscale step, M6 the service.
 """
 from __future__ import annotations
 

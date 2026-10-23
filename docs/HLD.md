@@ -30,7 +30,7 @@ results, in a version the agent writes to be heard.
   choose when a GPU or Apple Silicon is available.
 
 Scope for v1: Linux and macOS, English only, push-to-talk, phone and desktop browsers
-over Tailscale. Deferred: wake word, open-mic conversation sessions (designed for, see
+over HTTPS (Tailscale recommended, any reverse proxy works). Deferred: wake word, open-mic conversation sessions (designed for, see
 §6.5), Windows, native mobile apps, other languages.
 
 ## 2. Architecture
@@ -68,7 +68,7 @@ flowchart LR
 | Frontend | React + TypeScript + Vite, shadcn/ui (Radix + Tailwind), PWA | Largest contributor pool and component ecosystem. The prototype's UI is the visual reference. The built assets ship inside the Python wheel. |
 | Storage | SQLite (WAL) + `config.toml` | Data under XDG data dir on Linux, `~/Library/Application Support/agent-talk` on macOS. |
 | Speech models | ONNX Runtime (CPU / CUDA / CoreML execution providers); onnx-asr for Parakeet, kokoro-onnx for Kokoro | Installed from pip; no system packages. Our own pipeline code, not Pipecat (§6). |
-| Remote access | Tailscale (`tailscale serve`) | Provides HTTPS and identity. Daemon itself binds loopback only. |
+| Remote access | Tailscale (`tailscale serve`) recommended, or any HTTPS reverse proxy | Provides HTTPS. Daemon itself binds loopback only; who may use it is decided by device pairing (§8), not by the transport. |
 | Service | systemd `--user` unit / launchd LaunchAgent | Installed by `agent-talk service install`. Runs as the user. |
 
 ## 3. Core concepts
@@ -263,7 +263,7 @@ returns:
   protection). One WebSocket per client (`/api/events`) pushes live events; on
   reconnect the client reloads state, so missed events never matter. Audio uses a
   separate per-device WebSocket (`/api/voice`), specified in
-  [voice-protocol.md](voice-protocol.md). This is adequate on a LAN or Tailscale.
+  [voice-protocol.md](voice-protocol.md). All of them need a paired device (§8).
 - AudioWorklet captures at the device rate and downsamples once to 16 kHz mono PCM16,
   sent in 20 ms frames. Browser echo cancellation and automatic gain control are on;
   noise suppression is off. In Q7's browser check (Kokoro speech as Chromium's fake
@@ -357,7 +357,8 @@ Replies:
   task panel with per-task event detail, and settings.
 - Views: tasks (list + detail with events, diffs summary,
   cancel), approvals, projects, settings (models, approval policy and remembered
-  rules, agents and login status, each project's agent, model and effort).
+  rules, agents and login status, each project's agent, model and effort, paired
+  devices).
 - A model button beside the dock's keyboard sets the selected task's model and effort,
   or, with no task selected, those of the next task started.
 - Audio code (worklets, playback scheduling) lives outside React state.
@@ -366,11 +367,23 @@ Replies:
 
 ## 8. Access and security
 
-- The daemon binds `127.0.0.1` only. Remote/phone access is via `tailscale serve`,
-  which provides HTTPS (required for microphone access) and the requesting user's
-  identity. Requests from Tailscale are checked against an allowlist of Tailscale
-  identities (default: the device owner).
-- WebSocket Origin is validated, and state-changing HTTP requests are CSRF-protected.
+Planned for M5; breakdown in [m5-access.md](m5-access.md).
+
+- The daemon binds `127.0.0.1` only. Remote/phone access goes through something that
+  provides HTTPS (required for microphone access): `tailscale serve` is recommended and
+  documented, and a reverse proxy (Caddy, nginx) or tunnel works the same way.
+- **Devices are paired, Jupyter-style.** No accounts or passwords: a device redeems a
+  single-use, short-lived pairing code and gets a token of its own, kept in an HttpOnly,
+  SameSite=Strict cookie and stored only as a hash. `agent-talk pair` prints a pairing
+  link (and a terminal QR code); a paired device shows a QR code and a typed code in
+  Settings to pair a phone. Settings and `agent-talk devices` list and revoke devices.
+- **Every request is checked, loopback included**: behind a proxy on the same machine
+  every request comes from 127.0.0.1, so "local" proves nothing. Only the app shell, the
+  pairing endpoint (rate-limited) and the agents' `/mcp/<secret>` endpoint are exempt.
+- WebSocket Origin is validated, state-changing HTTP requests are CSRF-protected, and
+  responses carry a strict Content-Security-Policy.
+- Exposing Agent Talk publicly (Tailscale Funnel, an open port) works but is warned
+  against: a paired device is a remote shell as the user.
 - Agents run with the user's permissions; Agent Talk adds the approval policy (§4.4)
   and relies on each agent's sandbox modes. It does not claim to be a sandbox.
 - Logs exclude audio, transcripts, command output and credentials by default.
@@ -383,6 +396,7 @@ Replies:
 uv tool install agent-talk
 agent-talk setup            # detect hardware, choose tier, download models, verify checksums
 agent-talk project add ~/code/api --name backend
+agent-talk pair             # one-time link and QR code to pair a browser or phone
 agent-talk service install  # systemd --user unit or launchd agent; starts now and at login
 agent-talk doctor           # agent CLIs found and logged in, models present, GPU, ports, Tailscale
 ```
@@ -394,7 +408,7 @@ agent-talk doctor           # agent CLIs found and logged in, models present, GP
 
 ## 10. Persistence
 
-SQLite tables: `projects` (including the agent, model, effort and project-config
+SQLite tables: `devices` and `pairing_codes` (token and code hashes only), `projects` (including the agent, model, effort and project-config
 opt-in), `tasks` (project, agent, provider thread/session ID, model, effort, status),
 `task_events` (bounded per task), `approvals` (requests and
 decisions), `approval_rules`, `settings`. `config.toml` holds models and policy
@@ -429,8 +443,10 @@ automatically.
    adapter, with approvals through the daemon's MCP endpoint and turns the agent starts
    itself to report background work; agent picker in Settings; model and effort per
    project and per task, from Settings or the dock's model button. Gemini CLI next.
-6. **M5 — Packaging.** `setup`, `doctor`, service install, Tailscale guide, NOTICES, release CI.
-7. **M6 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
+6. **M5 — Access.** Breakdown in [m5-access.md](m5-access.md). Device pairing, and
+   hosting guides for Tailscale and reverse proxies.
+7. **M6 — Packaging.** `setup`, `doctor`, service install, NOTICES, release CI.
+8. **M7 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 
 ## 12. Open questions
 
@@ -440,8 +456,10 @@ automatically.
 - What a rebuilt local LLM should do between turns (status, announcements), and on
   which hardware it is worth enabling (§5.2).
 - Turn detection good enough for open-mic sessions: real-speech evaluation and a
-  possible transcript-completeness signal (blocks M6, not v1).
+  possible transcript-completeness signal (blocks M7, not v1).
 - Speech numbers for Apple Silicon (CoreML) and a low-end 4-core CPU, to set the
   minimum supported tier.
 - Whether ACP can replace per-provider adapters.
+- Whether to trust Tailscale's identity headers to pair the tailnet owner without a
+  code, and whether to add passkeys for signing in again (both after v1, §8).
 

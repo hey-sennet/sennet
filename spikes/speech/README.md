@@ -67,7 +67,7 @@ Data: LibriSpeech validation-clean sample (73 read utterances, CC-BY-4.0).
   The CPU int8 model is clearly worse than the GPU fp32 one.
 - **Caveat:** LibriSpeech is read audiobook prose; smart-turn is trained on
   conversational speech. Evaluate on real recorded commands before drawing conclusions.
-- **Not a blocker for v1:** push-to-talk ends on release. Open-mic sessions (M6)
+- **Not a blocker for v1:** push-to-talk ends on release. Open-mic sessions (M7)
   need real-speech evaluation and probably a second signal (transcript completeness).
 
 ### Text to speech (Kokoro v1.0 via kokoro-onnx)

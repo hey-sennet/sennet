@@ -26,7 +26,7 @@ completes or an approval appears. `TaskManager` and `Approvals` need no new hook
 (fixed captions, a tone for TTS), just as `fake_codex.py` stands in for Codex. CI never
 downloads models. Tests against real models are opt-in, behind a pytest marker.
 
-Smart-turn is left out: push-to-talk ends turns on release. It comes back in M6, which
+Smart-turn is left out: push-to-talk ends turns on release. It comes back in M7, which
 also drops its `transformers` dependency.
 
 ## Steps
@@ -45,7 +45,7 @@ also drops its `transformers` dependency.
   itself with the `cuda` extra through uv. It then downloads the pinned models into the
   data dir, checks their SHA-256, and runs a short self-test: it speaks a phrase,
   transcribes it back, and reports the timings. `--yes` accepts the recommendation
-  without asking. M5 adds the service, Tailscale and llama-server steps to the same
+  without asking. M6 adds the service, Tailscale and llama-server steps to the same
   command.
 - Engines load in the background at startup. The status feeds `ready.speech` in the
   protocol (`loading`, `ready`, `unavailable`), and the daemon starts and serves
@@ -190,7 +190,7 @@ flowchart LR
 - Setup is guided, with a recommendation for each choice (step 1).
 - Replies are spoken in full until M3 shortens long ones.
 - Pressing talk is the only way to interrupt speech in M2. Interrupting by voice needs
-  the mic open during playback and reliable echo cancellation, so it stays in M6.
+  the mic open during playback and reliable echo cancellation, so it stays in M7.
 - kokoro-onnx is dropped and the Kokoro ONNX model is called directly, so the base
   package has no onnxruntime dependency. `cpu` and `cuda` extras provide one (as
   onnx-asr's extras do), and setup installs the one it recommends.
