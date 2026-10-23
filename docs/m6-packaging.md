@@ -1,6 +1,7 @@
 # M6: packaging
 
-Status: planned. Date: 2026-10-23.
+Status: steps 1 to 5 done; step 6 (the first release) is being tried on a clean
+machine. Date: 2026-10-23.
 
 M6 takes Agent Talk from a source checkout to the one-line install in HLD §1:
 `uv tool install agent-talk && agent-talk setup`. It adds the user service, upgrade
@@ -75,18 +76,21 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-`install` writes it, runs `systemctl --user daemon-reload` and
-`enable --now`, and waits for a new `/api/health` to answer. It returns the version
-only, and like the app shell needs no paired device. Logs go to the
-journal; `service logs` runs `journalctl --user -u agent-talk -f`.
+`install` writes it, runs `systemctl --user daemon-reload`, `enable` and `restart`, and
+waits for `/api/health` to answer. That returns `{"app": "agent-talk", "version": …}`
+only, and like the app shell needs no paired device. Logs go to the journal;
+`service logs [-f]` runs `journalctl --user -u agent-talk`. The variables that choose
+where data lives (`AGENT_TALK_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`) are carried into
+the unit when set, so the service uses the same data as the shell that installed it.
 
 A user service starts at login and stops at logout. For a machine that should answer
 while nobody is logged in, `loginctl enable-linger` keeps it running; setup explains
 that and asks, since it is a system-wide setting for the user.
 
-**macOS.** A LaunchAgent at `~/Library/LaunchAgents/dev.agent-talk.plist` with
-`RunAtLoad`, `KeepAlive` on crash, and logs under `~/Library/Logs/agent-talk/`, loaded
-with `launchctl bootstrap gui/<uid>`. There's no Mac on the development machine, so
+**macOS.** A LaunchAgent at `~/Library/LaunchAgents/agent-talk.plist` (label
+`agent-talk`) with `RunAtLoad`, `KeepAlive` on crash, and logs in
+`~/Library/Logs/agent-talk/agent-talk.log`, loaded with `launchctl bootstrap gui/<uid>`.
+`stop` boots it out, since `KeepAlive` would restart a killed agent. There's no Mac on the development machine, so
 this is written against Apple's documentation and needs a real Mac before release.
 
 **PATH.** The agents are found on `PATH`, and a service doesn't get the login shell's:
@@ -97,36 +101,45 @@ differ. Resolving each agent to an absolute path was rejected: nvm and Homebrew 
 change on every Node or package upgrade.
 
 **Running twice.** `serve` in a terminal while the service holds the port fails with a
-message naming the service and how to stop it, rather than a bare "address in use".
-The pairing link `serve` prints on first run goes to the journal under the service,
-which is why setup prints one itself.
+message naming the service and how to stop it, rather than a bare "address in use";
+another program on the port gets its own message. `service install` refuses while an
+`agent-talk serve` outside the service holds the port. The pairing link `serve` prints
+on first run goes to the journal under the service, which is why `service install` and
+setup print one themselves when nothing is paired.
 
 ### Upgrade and uninstall
 
-- **`agent-talk --version`**, and the version in `doctor`, `/api/health` and Settings.
+- **`agent-talk --version`**, and the version in `doctor`, `/api/health`, `/api/state`
+  and Settings → About.
 - **`agent-talk upgrade`** runs `uv tool upgrade agent-talk` (which keeps the extra
   from the receipt), then restarts the service. A restart ends running tasks, which
   recovery marks `unknown`, so `upgrade` first reads the database for running or
-  background tasks and asks before going on. Outside a uv tool install it prints the
-  command to run instead.
-- **The client notices a new version.** The service worker caches the app, so an open
-  tab would keep the old client against a new server. The client compares its build's
-  version with the server's on each reconnect and offers to reload.
+  background tasks and asks before going on (`--yes` doesn't). Outside a uv tool install
+  from the index (a checkout, a wheel file, git) it says how to update that instead.
+- **The client notices a new version.** An open tab would keep the old client against
+  the new server. The client remembers the version it first loaded with, compares it with
+  `/api/state`'s on each reconnect, and offers to reload when it differs.
 - **`agent-talk service uninstall`** stops and removes the unit or agent.
   `uv tool uninstall agent-talk` then removes the program.
-- **`agent-talk remove-data`** lists the config, database and models with their sizes,
-  asks, and deletes them. It refuses while the service is running.
+- **`agent-talk remove-data`** lists the config and data directories with their sizes,
+  asks (default no; `--yes` doesn't), and deletes them. It refuses while the service runs
+  or anything holds the port, since an Agent Talk too old to answer `/api/health` is still
+  using the data.
 
 ### Notices
 
 - `LICENSE` and `NOTICES` go into the wheel's metadata (`license-files`).
-- The built client bundles npm packages (React, Radix and others) whose MIT and ISC
-  licenses ask for their notice to travel with the code. The client build writes their
-  license texts to `web/licenses.txt`, from the bundle's actual contents, and NOTICES
-  points to it.
-- **Settings → About** shows the version, Agent Talk's license, NOTICES (served by the
-  daemon) and the bundled-package licenses. HLD §5.1 requires Parakeet's CC-BY
+- The built client bundles npm packages (React, Base UI, the markdown stack and others)
+  whose MIT and ISC licenses ask for their notice to travel with the code. A Vite plugin
+  (`frontend/licenses.ts`) writes `licenses.txt` beside the client: every package in the
+  bundle, found from the bundle's own modules and assets plus the stylesheet's `@import`s
+  (which Tailwind inlines), with its license file. It also copies NOTICES to
+  `notices.txt`. Both are static files, served without pairing like the app shell.
+- **Settings → About** shows the version and license, names the speech models and the
+  GPL-3 components, and links to both files. HLD §5.1 requires Parakeet's CC-BY
   attribution in the app as well as in NOTICES; this is where it goes.
+- NOTICES listed Instrument Serif, which the client no longer uses; it now lists
+  Newsreader.
 
 ### Release CI
 
@@ -137,59 +150,80 @@ GitHub Actions, two workflows.
 - Backend: `uv sync --extra cpu`, `pytest`, on Ubuntu and macOS.
 - Client: `npm ci`, lint, unit tests, `npm run build`, and the Playwright suites
   (desktop and phone) on Ubuntu. Screenshot baselines are Linux-only, as now.
-- Package: build the wheel and sdist after the client, and check the wheel contains
-  `agent_talk/web/index.html`, NOTICES and the license files.
+- Package: build the wheel and sdist after the client, check them
+  (`scripts/check-dist.sh`: the client, the notices, no caches or models, under 10 MB),
+  and run the smoke test below.
 
 The `models` tests download about 3 GB and need a GPU for the CUDA tier, so they stay
 manual, run before a release on the development machine.
 
 **On a `v*` tag:**
 
-- Check the tag matches `__version__` and `pyproject.toml`.
+- Check the tag matches `__version__`, which is the package's only version
+  (`pyproject.toml` reads it).
 - Build the client and the wheel and sdist, as above.
-- Smoke test the built wheel on a clean runner: `uv tool install ./dist/*.whl`,
-  `agent-talk --version`, `agent-talk serve` in the background, then `/` serves the app
-  and `/api/projects` answers 401.
-- Publish to PyPI with trusted publishing (no stored token), and create a GitHub release
-  with the wheel, sdist and notes.
+- Smoke test the built wheel on Ubuntu and macOS (`scripts/smoke-test.sh`): install it
+  with `uv tool install` into a throwaway tool directory, check `--version`, start
+  `serve`, and check `/api/health`, the app shell, `licenses.txt` and `notices.txt`, that
+  `/api/state` answers 401, that a pairing link is printed, and that `doctor` runs.
+- Publish with trusted publishing (no stored token): a tag to PyPI, then a GitHub release
+  with the wheel, sdist and generated notes; running the workflow by hand publishes to
+  TestPyPI instead.
+
+The sdist holds the package, its tests, the client's source and the built client; not
+the spikes, whose models and caches are gigabytes.
 
 ## Steps
 
 ### 1. Service
 
-`service` commands for systemd and launchd, the recorded `PATH`, the "already running"
-message, `/api/health`, and `doctor` reporting whether the service is installed, enabled and
-answering. Tests write the unit and plist into a temporary home and check their
-contents; a test on the CI runner, which has a systemd user session, installs and starts
-the real unit.
+Done (029529c). `service.py` and `service install | uninstall | start | stop | restart |
+status | logs`, the recorded `PATH`, the "already running" messages, `/api/health`, and
+`doctor` reporting the version, the client, and whether the service runs this install,
+answers with this version, and finds each agent on its `PATH`. Tests write the unit and
+plist into a temporary home and stand in for `systemctl` and `launchctl`. GitHub's
+runners have no systemd user session, so the real unit was tried by hand here: install,
+status, logs, stop, start, restart, a `kill -9` (back in 5 s), reinstall while running,
+and uninstall. launchd is untested.
 
 ### 2. Setup and doctor
 
-The Tailscale serve and service steps in `setup`, linger on Linux, and the pairing link
-at the end. `doctor` checks agents from the service's `PATH`, and that the web client is
-present.
+Done (a1a7e77). The Tailscale serve and service steps in `setup`, linger on Linux, and
+the pairing link at the end. Serving over something else Tailscale serves warns and
+defaults to no; a refusal suggests `tailscale set --operator`. An installed service is
+updated and restarted, so it picks up the new settings.
 
 ### 3. Version, upgrade and data removal
 
-`--version`, the version in `doctor` and the client, the reload offer, `upgrade`
-with its running-task check, and `remove-data`.
+Done (33037e6). `install.py`: `upgrade` with its running-task check, `remove-data`, and
+how the install is recognised (moved from setup). The version in `/api/state`, the reload
+offer and Settings → About, with a browser test that drops the events socket and comes
+back "upgraded". Later (05975f6), setup learned to reinstall a wheel-file install with
+the extra it picks, so a local build goes through the same path as PyPI, and the extra no
+longer vanishes from its messages (Rich took `[cuda]` for markup).
 
 ### 4. Notices
 
-License files in the wheel, `web/licenses.txt` from the client build, and Settings →
-About.
+Done (2d461cf). License files in the wheel's metadata, `licenses.txt` and `notices.txt`
+from the client build, Settings → About, the sdist limited to what it needs (it was
+picking up 6 GB of spike models), and `scripts/smoke-test.sh`.
 
 ### 5. CI
 
-The test workflow, then the release workflow with the smoke test. The first release
-goes to TestPyPI.
+Done (7449d68). `.github/workflows/test.yml` (backend on Ubuntu and macOS, client, package)
+and `release.yml` (build, smoke test on both, publish, GitHub release), checked with
+actionlint. Not run yet: the repository has no remote. The Playwright screenshots were
+made on this machine and may need regenerating on the runner.
 
 ### 6. First release
 
 A clean Linux machine and a Mac, from `uv tool install` to a task spoken from a real
 phone: setup, service, pairing over Tailscale, Codex and Claude Code. M5 hasn't been
-tried on a real phone yet, and this is where it is. Then the README's install section
-moves to `uv tool install`, HLD §9 and §11 are updated, and 0.1.0 is tagged.
+tried on a real phone yet, and this is where it is. Until Agent Talk is on PyPI, the
+install is from a locally built wheel. Then 0.1.0 is tagged.
+
+Found on the way: `uv tool install` picks the newest Python it can (3.14 here, against
+`>=3.12`), and the speech stack worked on it.
 
 ## Open questions
 

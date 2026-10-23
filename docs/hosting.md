@@ -31,13 +31,19 @@ gives the computer an HTTPS address on it. Nothing is exposed to the internet.
    both. In the tailnet's admin console, turn on MagicDNS and HTTPS certificates.
 2. Run `agent-talk setup`. It finds the computer's address, such as
    `https://desk.tail1234.ts.net`, and saves it as `server.public_url`.
-3. Pass that address on to Agent Talk:
+3. Setup then offers to pass that address on to Agent Talk, which is:
 
    ```sh
    tailscale serve --bg 7710
    ```
 
-4. Run `agent-talk pair` and scan the QR code with the phone.
+   The first time on a tailnet, it prints a link to turn HTTPS on and waits. On Linux,
+   if it says access is denied, let your user change Tailscale's settings with
+   `sudo tailscale set --operator=$USER` and run it again. It replaces whatever this
+   computer already serves at `/` on its tailnet address; setup warns when there is
+   something.
+4. Setup ends by printing a pairing link and QR code (or run `agent-talk pair`); scan it
+   with the phone.
 
 `agent-talk doctor` checks each of these.
 

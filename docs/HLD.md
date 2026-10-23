@@ -378,8 +378,9 @@ Built in M5; breakdown in [m5-access.md](m5-access.md), hosting in [hosting.md](
   link (and a terminal QR code); a paired device shows a QR code and a typed code in
   Settings to pair a phone. Settings and `agent-talk devices` list and revoke devices.
 - **Every request is checked, loopback included**: behind a proxy on the same machine
-  every request comes from 127.0.0.1, so "local" proves nothing. Only the app shell, the
-  pairing endpoint (rate-limited) and the agents' `/mcp/<secret>` endpoint are exempt.
+  every request comes from 127.0.0.1, so "local" proves nothing. Only the app shell and
+  its static files, the pairing endpoint (rate-limited), `/api/health` (the version only)
+  and the agents' `/mcp/<secret>` endpoint are exempt.
 - WebSocket Origin is validated, state-changing HTTP requests are CSRF-protected, and
   responses carry a strict Content-Security-Policy.
 - Exposing Agent Talk publicly (Tailscale Funnel, an open port) works but is warned
@@ -392,19 +393,29 @@ Built in M5; breakdown in [m5-access.md](m5-access.md), hosting in [hosting.md](
 
 ## 9. Install and operations
 
+Built in M6; breakdown in [m6-packaging.md](m6-packaging.md).
+
 ```sh
 uv tool install agent-talk
-agent-talk setup            # detect hardware, choose tier, download models, verify checksums
+agent-talk setup            # hardware and speech tier, models, phone address, `tailscale serve`, the service
 agent-talk project add ~/code/api --name backend
 agent-talk pair             # one-time link and QR code to pair a browser or phone
-agent-talk service install  # systemd --user unit or launchd agent; starts now and at login
-agent-talk doctor           # agent CLIs found and logged in, models present, GPU, ports, Tailscale
+agent-talk doctor           # agents, speech, devices, Tailscale, and whether the service runs this install
 ```
 
+- The service is a systemd `--user` unit or a LaunchAgent running this install's
+  `agent-talk serve`, with the installing shell's `PATH` so it finds the agents.
+  `agent-talk service install | uninstall | start | stop | restart | status | logs`.
 - Agent CLIs are installed and logged in by the user with their official tools;
-  `doctor` checks them and links to instructions.
-- `agent-talk upgrade` / `uv tool upgrade agent-talk`; data and models persist.
-- Uninstall removes the service; data removal is a separate, explicit command.
+  `doctor` checks them, including from the service's `PATH`.
+- `agent-talk upgrade` runs `uv tool upgrade agent-talk` (keeping the speech extra) and
+  restarts the service, asking first if tasks are running; data and models persist. Open
+  pages offer to reload.
+- `agent-talk service uninstall` removes the service; `agent-talk remove-data` deletes the
+  config, data and models, after asking; `uv tool uninstall agent-talk` removes the program.
+- One pure-Python wheel with the built client, `LICENSE` and `NOTICES` inside. Release CI
+  tests on Ubuntu and macOS, smoke-tests the built wheel, and publishes to PyPI by trusted
+  publishing.
 
 ## 10. Persistence
 
@@ -448,8 +459,9 @@ automatically.
    paired device, the phone address filled from Tailscale, and a hosting guide for
    Tailscale, Caddy and nginx ([hosting.md](hosting.md)).
 7. **M6 — Packaging.** Breakdown in [m6-packaging.md](m6-packaging.md). The user
-   service, setup's last steps, upgrade and data removal, notices in the wheel and the
-   app, and release CI to PyPI.
+   service, setup's last steps (`tailscale serve`, the service, a pairing link),
+   `upgrade` and `remove-data`, notices in the wheel and in Settings → About, and release
+   CI to PyPI. Built; the first release waits on a clean-machine test and a PyPI name.
 8. **M7 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 
 ## 12. Open questions

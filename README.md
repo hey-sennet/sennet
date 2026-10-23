@@ -12,21 +12,31 @@ today; Gemini CLI is next. See the
 [high-level design](docs/HLD.md) for the plan. The earlier Rust/Docker prototype is on
 the `archive/rust-prototype` branch.
 
-## Try it (development)
+## Install
 
-Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node 22+ (to build the
-client), and at least one agent: the [Codex CLI](https://developers.openai.com/codex)
-logged in with `codex login`, or [Claude Code](https://code.claude.com/docs) logged in
-with `claude auth login` on your Claude subscription.
+Requirements: Linux or macOS, [uv](https://docs.astral.sh/uv/), and at least one agent:
+the [Codex CLI](https://developers.openai.com/codex) logged in with `codex login`, or
+[Claude Code](https://code.claude.com/docs) logged in with `claude auth login` on your
+Claude subscription. uv brings its own Python; there's no Node, Docker or compiler to
+install.
 
 ```sh
-(cd frontend && npm ci && npm run build)
-uv run agent-talk setup                         # recommends a speech tier, installs it, downloads models
-uv run agent-talk doctor                        # checks the agents, speech, devices and Tailscale
-uv run agent-talk project add ~/code/my-app --name app --alias frontend --agent claude
-uv run agent-talk serve                         # http://127.0.0.1:7710
-uv run agent-talk pair                          # a one-time link to pair this browser, or a phone
+uv tool install agent-talk
+agent-talk setup            # speech, the phone address, then the background service
+agent-talk project add ~/code/my-app --name app --alias frontend --agent claude
+agent-talk pair             # a one-time link to pair this browser, or a phone
+agent-talk doctor           # checks the agents, speech, devices, Tailscale and the service
 ```
+
+Agent Talk isn't on PyPI yet; until it is, build a wheel from a checkout and install that
+(see [Develop](#develop)).
+
+The service runs Agent Talk from login (a systemd user service on Linux, a LaunchAgent on
+macOS): `agent-talk service status | logs | restart | stop | uninstall`. Without it,
+`agent-talk serve` runs it in the terminal. `agent-talk upgrade` upgrades and restarts it,
+keeping your data and models. To remove everything: `agent-talk service uninstall`,
+`agent-talk remove-data` (config, tasks, paired devices and models; your projects are
+not touched), then `uv tool uninstall agent-talk`.
 
 Every browser pairs once before it can use Agent Talk, this computer's included: open the
 link `agent-talk pair` prints, or type its code. A paired device can show a code for
@@ -76,14 +86,26 @@ dependencies is GPL-3; see [NOTICES](NOTICES).
 
 `agent-talk doctor` prints where the config and data live. The server binds to
 127.0.0.1 only. A phone needs an HTTPS address in front of it: Tailscale (`agent-talk setup`
-finds its address, then `tailscale serve --bg 7710`) or a reverse proxy; see
+finds its address and offers to run `tailscale serve --bg 7710`) or a reverse proxy; see
 [docs/hosting.md](docs/hosting.md).
 
 ## Develop
 
+Also needs Node 22+, to build the client.
+
 ```sh
+(cd frontend && npm ci && npm run build)
 uv sync --extra cuda          # or --extra cpu
+uv run agent-talk setup       # as above, but from the checkout (`uv run agent-talk serve` to run it)
 uv run pytest                 # backend, against scripted fake agents and fake speech
 AGENT_TALK_MODELS=~/.local/share/agent-talk/models uv run pytest -m models   # real speech models
 cd frontend && npm test       # browser tests, desktop and phone
+```
+
+To install your build the way users do:
+
+```sh
+(cd frontend && npm run build) && uv build
+uv tool install dist/agent_talk-*.whl    # then `agent-talk setup`, which adds the speech extra
+scripts/smoke-test.sh dist/agent_talk-*.whl   # what release CI checks on each wheel
 ```
