@@ -1,6 +1,6 @@
 # Agent Talk — High-Level Design
 
-Status: draft for review. Date: 2026-10-21.
+Status: draft for review. Date: 2026-10-23.
 
 The Rust/Docker prototype is preserved on the `archive/rust-prototype` branch. This
 document describes the Python rewrite.
@@ -74,12 +74,14 @@ flowchart LR
 ## 3. Core concepts
 
 - **Project.** A registered directory with a name, optional spoken aliases (e.g.
-  "backend", "api"), a default agent, and an approval policy. Added via UI or
+  "backend", "api"), a default agent with its model and effort, and an approval policy.
+  Added via UI or
   `agent-talk project add ~/code/api --name backend --alias api`.
-- **Task.** One unit of agent work: project + agent + agent session/thread + status.
-  Tasks are long-lived; follow-ups to the same work go to the same task, so the
-  agent keeps its context. Status:
-  `queued → running ↔ awaiting_approval → completed | failed | cancelled | unknown`.
+- **Task.** One unit of agent work: project + agent + agent session/thread + status,
+  with an optional model and effort that override the project's. Tasks are long-lived;
+  follow-ups to the same work go to the same task, so the agent keeps its context.
+  Status: `queued → running ↔ awaiting_approval → completed | failed | cancelled |
+  unknown`, and `background` when the turn is over but the agent's work goes on (§4.1).
 - **Event.** Normalized agent output: text, command started/finished, file changed,
   plan update, approval request, completion. Events are stored per task (bounded)
   and fan out to clients and the voice hub.
@@ -355,7 +357,9 @@ Replies:
   task panel with per-task event detail, and settings.
 - Views: tasks (list + detail with events, diffs summary,
   cancel), approvals, projects, settings (models, approval policy and remembered
-  rules, agents and login status).
+  rules, agents and login status, each project's agent, model and effort).
+- A model button beside the dock's keyboard sets the selected task's model and effort,
+  or, with no task selected, those of the next task started.
 - Audio code (worklets, playback scheduling) lives outside React state.
 - The service worker caches app assets only, never conversations or API responses.
 - Built by CI into the Python wheel; users never need Node.
@@ -390,7 +394,8 @@ agent-talk doctor           # agent CLIs found and logged in, models present, GP
 
 ## 10. Persistence
 
-SQLite tables: `projects`, `tasks` (project, agent, provider thread/session ID, status),
+SQLite tables: `projects` (including the agent, model, effort and project-config
+opt-in), `tasks` (project, agent, provider thread/session ID, model, effort, status),
 `task_events` (bounded per task), `approvals` (requests and
 decisions), `approval_rules`, `settings`. `config.toml` holds models and policy
 defaults. It is editable by hand and through the UI.
@@ -416,13 +421,14 @@ automatically.
    agent replies spoken back on the device that asked. Strata client: the disc on
    every view, scrolling captions that follow playback, and markdown task timelines.
    Voice path measured end to end on the real models.
-4. **M3 — Spoken replies.** Breakdown in [m3-summaries.md](m3-summaries.md).
+4. **M3 — Spoken replies. Done.** Breakdown in [m3-summaries.md](m3-summaries.md).
    Agents write a version of long replies to be heard; symbols are said as words;
    guided setup with voice previews. A routing assistant and a local summary model were
    tried; the first was removed and the second parked (§5.2).
 5. **M4 — More agents.** Breakdown in [m4-agents.md](m4-agents.md). Claude Code
    adapter, with approvals through the daemon's MCP endpoint and turns the agent starts
-   itself to report background work; agent picker in Settings. Gemini CLI next.
+   itself to report background work; agent picker in Settings; model and effort per
+   project and per task, from Settings or the dock's model button. Gemini CLI next.
 6. **M5 — Packaging.** `setup`, `doctor`, service install, Tailscale guide, NOTICES, release CI.
 7. **M6 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 

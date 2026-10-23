@@ -1,8 +1,8 @@
 # M4: more agents
 
-Status: Claude Code adapter done (steps 1 to 7); model and effort selection (step 8)
-awaiting review; Gemini CLI next.
-Date: 2026-10-22.
+Status: Claude Code adapter (steps 1 to 7) and model and effort selection (step 8)
+done; Gemini CLI next.
+Date: 2026-10-23.
 
 M4 adds adapters beyond Codex: Claude Code first, then Gemini CLI. The generic layer was
 cleaned of Codex specifics first (commit 00ca47d): adapters are listed in
@@ -192,6 +192,8 @@ Done. HLD §4.1, §4.2, §11 and §12, the README, voice-protocol §5 and §9, a
 breakdown.
 
 ### 8. Model and effort
+
+Done (f049157, f04c5e2, ce3cb14, da64273).
 
 Each agent lists the models the user may pick (`Agent.models`): Codex from
 `model/list` (hidden models left out, the default marked, each with its effort levels),
