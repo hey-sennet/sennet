@@ -44,6 +44,7 @@ REPLY_TIME = {"cpu": "~1.4 s", "cuda": "~0.2 s"}
 SELF_TEST = "Agent Talk is ready to listen."
 
 MORE = "more"
+RESUME = "AGENT_TALK_SETUP_RESUME_SERVICE"   # set across setup's re-exec when it stopped the service
 
 
 @dataclass
@@ -63,14 +64,22 @@ def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) 
               "or pass --yes to accept its recommendations.", file=sys.stderr)
         return 2
     ui = Prompter(interactive=not assume_yes)
+    # A running service holds its speech models: stop it first, so free memory is measured without them
+    # and the speech check fits, and start it again however setup ends.
+    paused = _pause_service(ui)
+    if paused is not None:
+        os.environ[RESUME] = "1"  # for the setup that runs on after reinstalling the runtime
     try:
-        return _run(ui, settings, paths, device)
+        return _run(ui, settings, paths, device, paused is not None)
     except Abort:
         ui.console.print("\n[yellow]Setup stopped.[/] Run `agent-talk setup` again to pick up where you left off.")
         return 130
+    finally:
+        if paused is not None and not paused.status().running:
+            _resume_service(ui, paused, settings.server.port)
 
 
-def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None) -> int:
+def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None, paused: bool = False) -> int:
     configured = paths.config_file.exists()
     ui.console.print()
     with ui.working("Looking at this computer…"):
@@ -109,23 +118,21 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None) -> 
         return 1
 
     ui.heading("Speech check")
-    paused = _pause_service(ui, machine)
+    if machine.speech_loaded:
+        ui.warn("Agent Talk is running outside the service and holds its speech models, so this check may run "
+                "out of memory. Stop it (Ctrl+C where `agent-talk serve` runs) if it does.")
+    speech = _speech_check(ui, paths, device, settings)
+    if speech is None:
+        return 1
     try:
-        speech = _speech_check(ui, paths, device, settings)
-        if speech is None:
-            return 1
-        try:
-            ui.heading("Voice")
-            settings.speech.voice = _choose_voice(ui, speech, settings.speech.voice if configured else None)
-            settings.save(paths.config_file)
-        finally:
-            speech.close()
-
-        ui.heading("Service")
-        running = _choose_service(ui, settings, paused is not None)
+        ui.heading("Voice")
+        settings.speech.voice = _choose_voice(ui, speech, settings.speech.voice if configured else None)
+        settings.save(paths.config_file)
     finally:
-        if paused is not None and not paused.status().running:
-            _resume_service(ui, paused, settings.server.port)
+        speech.close()
+
+    ui.heading("Service")
+    running = _choose_service(ui, settings, paused)
 
     _show_summary(ui, settings, device, running)
     from .cli import pair_command, paired
@@ -372,27 +379,26 @@ def _serve_on_tailnet(ui: Prompter, machine: Machine, port: int):
 
 # Service
 
-def _pause_service(ui: Prompter, machine: Machine):
-    """Stop a running service while setup loads speech itself: both copies of the models may not fit.
-    Returns the service's manager when it was stopped, to start it again."""
-    if not machine.speech_loaded:
-        return None
+def _pause_service(ui: Prompter):
+    """Stop the service while setup runs, if it is running. Returns its manager when setup is to start it
+    again: when this run stopped it, or when the run before this one did and then reinstalled itself."""
+    stopped_before = os.environ.pop(RESUME, None) == "1"
     try:
         manager = service.manager()
-        running = manager.status().running
+        status = manager.status()
     except service.ServiceError:
-        running = False
-    if not running:
-        ui.warn("Agent Talk is running outside the service and holds its speech models, so this check may run "
-                "out of memory. Stop it (Ctrl+C where `agent-talk serve` runs) if it does.")
         return None
-    with ui.working("Stopping the service while speech is checked…"):
+    if stopped_before and status.installed and not status.running:
+        return manager
+    if not status.running:
+        return None
+    with ui.working("Stopping the service while setup runs…"):
         try:
             manager.stop()
         except service.ServiceError as error:
             ui.warn(escape(str(error)))
             return None
-    ui.note("Stopped the service for the check; it starts again at the end.")
+    ui.note("Stopped the service while setup runs; it starts again at the end.")
     return manager
 
 

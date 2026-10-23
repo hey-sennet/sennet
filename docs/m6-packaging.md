@@ -191,7 +191,10 @@ and uninstall. launchd is untested.
 Done (a1a7e77). The Tailscale serve and service steps in `setup`, linger on Linux, and
 the pairing link at the end. Serving over something else Tailscale serves warns and
 defaults to no; a refusal suggests `tailscale set --operator`. An installed service is
-updated and restarted, so it picks up the new settings.
+updated and restarted, so it picks up the new settings. A running service is stopped while
+setup runs and started again however it ends (across its re-exec after a runtime
+reinstall too): it holds the speech models, so free GPU memory read low (setup
+recommended CPU) and the speech check ran out of memory.
 
 ### 3. Version, upgrade and data removal
 

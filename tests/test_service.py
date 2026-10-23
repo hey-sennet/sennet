@@ -362,25 +362,44 @@ class Stoppable(Manager):
         self._status = service.Status(True, True)
 
 
-def test_setup_stops_a_running_service_for_the_speech_check_and_starts_it_again(monkeypatch):
+def test_setup_stops_a_running_service_and_starts_it_again(monkeypatch):
     manager = Stoppable()
     monkeypatch.setattr(service, "manager", lambda: manager)
     monkeypatch.setattr(service, "wait_until_up", lambda port: {"version": __version__})
+    monkeypatch.delenv(setup.RESUME, raising=False)
     ui = Scripted()
-    paused = setup._pause_service(ui, setup.Machine(LAPTOP, speech_loaded=True))
-    assert paused is manager and manager.calls == ["stop"]
+    assert setup._pause_service(ui) is manager and manager.calls == ["stop"]
     assert setup._choose_service(Scripted("skip"), Settings(), paused=True) is True
     setup._resume_service(ui, manager, 7710)
     assert manager.calls == ["stop", "start"] and "Started the service again" in ui.output()
 
 
-def test_setup_leaves_a_service_alone_when_nothing_is_running(monkeypatch):
-    monkeypatch.setattr(service, "manager", lambda: pytest.fail("looked for the service"))
-    assert setup._pause_service(Scripted(), setup.Machine(LAPTOP, speech_loaded=False)) is None
+def test_setup_leaves_a_stopped_service_alone(monkeypatch):
+    manager = Stoppable(running=False)
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.delenv(setup.RESUME, raising=False)
+    assert setup._pause_service(Scripted()) is None and not manager.calls
 
 
-def test_setup_warns_about_agent_talk_running_outside_the_service(monkeypatch):
-    monkeypatch.setattr(service, "manager", lambda: Stoppable(running=False))
-    ui = Scripted()
-    assert setup._pause_service(ui, setup.Machine(LAPTOP, speech_loaded=True)) is None
-    assert "outside the service" in ui.output()
+def test_setup_after_reinstalling_itself_still_starts_the_service_it_stopped(monkeypatch):
+    manager = Stoppable(running=False)
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.setenv(setup.RESUME, "1")
+    assert setup._pause_service(Scripted()) is manager
+    assert setup.RESUME not in setup.os.environ
+
+
+def test_setup_stops_and_restarts_the_service_around_the_whole_run(monkeypatch, paths):
+    manager = Stoppable()
+    monkeypatch.setattr(service, "manager", lambda: manager)
+    monkeypatch.setattr(service, "wait_until_up", lambda port: {"version": __version__})
+    monkeypatch.delenv(setup.RESUME, raising=False)
+
+    def stop_early(*args):
+        assert manager.calls == ["stop"]
+        raise setup.Abort()
+
+    monkeypatch.setattr(setup, "_run", stop_early)
+    monkeypatch.setattr(setup.sys.stdin, "isatty", lambda: True)
+    assert setup.run(Settings(), paths, None, assume_yes=True) == 130
+    assert manager.calls == ["stop", "start"]
