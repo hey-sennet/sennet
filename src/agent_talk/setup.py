@@ -7,7 +7,8 @@ pre-selects the current settings. All questions come first, then one summary of
 what will be downloaded; then the checks: speech hears itself, and the voice is
 chosen by ear.
 
-M5 adds the Tailscale step, M6 the service.
+Phone access: with Tailscale up, its HTTPS address becomes `server.public_url`, which
+pairing links use. M6 adds the service.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ import numpy as np
 from rich.panel import Panel
 from rich.table import Table
 
+from . import tailscale
 from .config import Paths, Settings
 from .prompts import Abort, Option, Prompter, gigabytes, size, tagged
 from .speech import hardware, models, voices
@@ -48,6 +50,8 @@ class Machine:
 
     hardware: hardware.Hardware
     speech_loaded: bool            # Agent Talk is running, so its speech is in the free figures
+    tailnet: str | None = None     # this machine's HTTPS address on the tailnet, when Tailscale is up
+    served: bool = False           # `tailscale serve` passes that address on to Agent Talk
 
 
 def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) -> int:
@@ -78,6 +82,9 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None) -> 
         device = _choose_speech(ui, machine, settings.speech.device if configured else None)
     if not _runtime_ready(ui, device):
         return 1
+
+    ui.heading("Phone access")
+    _choose_address(ui, machine, settings)
 
     ui.heading("Downloads")
     speech_models = list(models.MODELS[device].values())
@@ -116,7 +123,8 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None) -> 
 # What this computer has
 
 def _machine(settings: Settings) -> Machine:
-    return Machine(hardware.detect(), _daemon_running(settings))
+    return Machine(hardware.detect(), _daemon_running(settings), tailscale.address(tailscale.status()),
+                   tailscale.serves(tailscale.serve_status(), settings.server.port))
 
 
 def _show_machine(ui: Prompter, machine: Machine):
@@ -325,12 +333,36 @@ def _choose_voice(ui: Prompter, speech, current: str | None) -> str:
     return voice
 
 
+# Phone access
+
+def _choose_address(ui: Prompter, machine: Machine, settings: Settings):
+    """The address pairing links use on a phone: Tailscale's, unless another is set already."""
+    current = settings.server.public_url
+    if current and current != machine.tailnet:
+        ui.ok(f"Phones reach Agent Talk at {current} (server.public_url).")
+        return
+    if machine.tailnet is None:
+        ui.info("A phone needs an HTTPS address to reach Agent Talk. Tailscale (tailscale.com) is the "
+                "simplest; a reverse proxy works too. Set server.public_url to the address to get "
+                "pairing links and QR codes for it.")
+        return
+    if ui.confirm(f"Reach Agent Talk from your phone at {machine.tailnet}, through Tailscale?"):
+        settings.server.public_url = machine.tailnet
+        if not machine.served:
+            ui.note(f"Then run `tailscale serve --bg {settings.server.port}` so that address reaches Agent Talk.")
+    elif current:
+        settings.server.public_url = ""
+
+
 def _show_summary(ui: Prompter, settings: Settings, device: str):
     voice = next((v.name for v in voices.VOICES if v.id == settings.speech.voice), settings.speech.voice)
-    lines = [f"[green]✓[/] Speech on {NAMES[device]}, voice {voice}",
-             "",
-             "Next: [bold]agent-talk project add ~/code/app --name app[/]",
-             "      [bold]agent-talk serve[/]"]
+    lines = [f"[green]✓[/] Speech on {NAMES[device]}, voice {voice}"]
+    if settings.server.public_url:
+        lines.append(f"[green]✓[/] Phones reach it at {settings.server.public_url}")
+    lines += ["",
+              "Next: [bold]agent-talk project add ~/code/app --name app[/]",
+              "      [bold]agent-talk serve[/]",
+              "      [bold]agent-talk pair[/] for each browser and phone"]
     ui.console.print()
     ui.console.print(Panel("\n".join(lines), title="[bold green]Agent Talk is ready[/]", title_align="left",
                            border_style="green", expand=False, padding=(0, 1)))

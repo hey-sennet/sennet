@@ -172,11 +172,42 @@ def doctor(settings: Settings, paths: Paths) -> int:
         problems += not ok
         print(f"{name + ':':<9} {'ok' if ok else 'problem'}: {status.detail}")
     problems += not speech_ok(settings, paths)
-    if shutil.which("tailscale"):
-        print("tailscale: installed (phone access: `tailscale serve --bg 7710`)")
-    else:
-        print("tailscale: not installed (needed only for phone access)")
+    problems += not access_ok(settings, paths)
     return 1 if problems else 0
+
+
+def access_ok(settings: Settings, paths: Paths) -> bool:
+    """Paired devices, the address phones use, and what Tailscale exposes."""
+    from . import tailscale
+
+    db = Database(paths.database)
+    try:
+        paired = len(db.devices())
+    finally:
+        db.close()
+    print(f"devices:  {paired} paired" if paired else "devices:  none paired yet; run `agent-talk pair`")
+    port = settings.server.port
+    tailnet = tailscale.address(tailscale.status()) if shutil.which("tailscale") else None
+    serving = tailscale.serve_status() if tailnet else None
+    if settings.server.public_url:
+        print(f"phones:   {settings.server.public_url} (server.public_url)")
+    elif tailnet:
+        print(f"phones:   not set; run `agent-talk setup` to use {tailnet}")
+    else:
+        print("phones:   not set (needs Tailscale or a reverse proxy with HTTPS; see server.public_url)")
+    if not shutil.which("tailscale"):
+        print("tailscale: not installed (one way to reach Agent Talk from a phone)")
+    elif tailnet is None:
+        print("tailscale: installed, not connected")
+    elif tailscale.funnel(serving):
+        print("tailscale: problem: Funnel is on, so this machine serves the public internet. A paired device "
+              "can run commands as you; turn it off with `tailscale funnel reset` unless you mean it.")
+        return False
+    elif tailscale.serves(serving, port):
+        print(f"tailscale: ok: {tailnet} serves Agent Talk")
+    else:
+        print(f"tailscale: up at {tailnet}, not serving Agent Talk; run `tailscale serve --bg {port}`")
+    return True
 
 
 def speech_ok(settings: Settings, paths: Paths) -> bool:
