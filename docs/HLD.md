@@ -335,7 +335,7 @@ Replies:
 - Each agent message is spoken as it arrives. A short one is spoken as it is.
 - Symbols are said as words: "$24" is "24 dollars", "~5%" is "about 5 percent".
 - The agent writes the spoken version itself: its developer instructions ask it to start
-  a long message with one, in `<spoken>` tags, and it is heard as soon as it is streamed.
+  a long message with one, in `<spoken>` tags, and it is heard a sentence at a time as it streams.
   The agent knows what mattered, so this is the most faithful version; it costs a few
   sentences of the user's agent usage per long reply. The timeline hides it.
 - A long message without one is cut to its opening sentences.

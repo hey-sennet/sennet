@@ -230,8 +230,9 @@ The fixed flow from HLD §4.4:
   "£3.50" "3 pounds 50", "~5%" "about 5 percent", "->" "to"); emoji are dropped.
 - Agents are asked (developer instructions, `agents.base.SPOKEN_INSTRUCTIONS`) to start a
   long message with a version written to be heard, in `<spoken>` tags. The hub follows the
-  message as it streams and speaks that version as soon as its closing tag arrives, before
-  the rest is written; the timeline hides it, and "read me the details" leaves it out.
+  message as it streams and speaks that version a sentence at a time as each is written,
+  as one reply that stays open until the closing tag, so the voice starts before the rest
+  is written; the timeline hides it, and "read me the details" leaves it out.
 - A long message without one, longer than six sentences or 600 characters, is cut to
   its first four sentences.
 - A turn the agent starts itself, to report work it left running when its last turn
@@ -321,9 +322,9 @@ agent message ──▶ hub ──▶ session queue ──▶ socket ──▶ p
 ```
 
 1. **Hub, per task** (`voice/hub.py`). An agent message on a task this device asked
-   about is cut to what should be heard: its `<spoken>` part (as soon as the tag closes,
-   while the rest streams), or its opening sentences. It is split into clauses and handed
-   to the session. *Waits:* behind speech still being prepared for the same task, so a
+   about is cut to what should be heard: its `<spoken>` part (a sentence at a time as it
+   streams, in a reply left open until the tag closes), or its opening sentences. It is
+   split into clauses and handed to the session. *Waits:* behind speech still being prepared for the same task, so a
    task's messages, approvals and failure are said in order. *Dropped:* when the turn was
    talked over (`hushed`, §12), and for requests that weren't spoken (typed ones).
 2. **Session queue, per device** (`voice/session.py`, `speak`). The reply gets its id and
@@ -335,7 +336,8 @@ agent message ──▶ hub ──▶ session queue ──▶ socket ──▶ p
    `speech` message goes first, then its audio frames, in order on the one socket, so a
    frame belongs to the latest `speech` message. Logged `sending reply N segment S`.
    *Waits:* on the socket itself: a slow link slows synthesis rather than growing a
-   queue (§6).
+   queue (§6). A reply still streaming waits for its next sentence, until it is closed
+   (or nothing more comes for a minute, logged `reply N was never closed`).
 4. **Page** (`voice/voice.ts`). Frames below the client's floor are dropped (§7). The rest
    are decoded (Opus) and pushed to playback. The first frame of each segment carries
    a callback that captions the words and reports `played`, when it really starts.

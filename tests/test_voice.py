@@ -447,6 +447,30 @@ def test_a_reply_plays_until_the_device_drains_its_last_segment(client, voice, s
     assert not voice_session.playing
 
 
+def test_a_streaming_reply_plays_sentences_as_they_are_added(client, voice, speech):
+    speech.tts.gate.set()
+    voice_session = session(client)
+    reply = client.portal.call(lambda: voice_session.speak(["First sentence."], streaming=True))
+    assert voice.next("speech")["text"] == "First sentence."
+    client.portal.call(lambda: reply.append(["Second sentence."]))
+    second = voice.next("speech")
+    assert (second["reply"], second["segment"], second["text"]) == (1, 1, "Second sentence.")
+    client.portal.call(reply.close)
+    assert voice.next("speech_end")["reply"] == 1
+
+
+def test_stop_ends_a_reply_waiting_for_its_next_sentence(client, voice, speech):
+    speech.tts.gate.set()
+    voice_session = session(client)
+    reply = client.portal.call(lambda: voice_session.speak(["First sentence."], streaming=True))
+    voice.next("speech")
+    voice.send(type="stop")
+    voice.next("stopped")
+    client.portal.call(lambda: reply.append(["Too late."]))
+    assert nothing_spoken(voice)
+    assert not voice_session.sending
+
+
 def test_a_device_that_never_reports_stops_playing_after_the_estimate(client, voice, speech, monkeypatch):
     monkeypatch.setattr("sennet.voice.session.DRAIN_GRACE_S", 0.1)
     speech.tts.gate.set()

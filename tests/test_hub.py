@@ -4,14 +4,30 @@ from sennet.speech import Speech
 from sennet.voice.hub import VoiceHub
 
 
+class Reply:
+    def __init__(self, segments, task_id, streaming):
+        self.segments, self.task_id, self.streaming = list(segments), task_id, streaming
+
+    def append(self, segments):
+        self.segments += segments
+
+    def close(self):
+        self.streaming = False
+
+
 class Session:
     def __init__(self):
-        self.spoken = []
+        self.replies = []
         self.cues = []
 
-    def speak(self, segments, task_id=None, approval_id=None, cue=False):
-        self.spoken.append((" ".join(segments), task_id))
+    @property
+    def spoken(self):
+        return [(" ".join(r.segments), r.task_id) for r in self.replies]
+
+    def speak(self, segments, task_id=None, approval_id=None, cue=False, streaming=False):
+        self.replies.append(reply := Reply(segments, task_id, streaming))
         self.cues.append(cue)
+        return reply
 
 
 def user(task_id, message_id, state):
@@ -93,19 +109,47 @@ REPLY = ("<spoken>The retry is in, and all 12 tests pass. Should it add a backof
 HEARD = "The retry is in, and all 12 tests pass. Should it add a backoff limit?"
 
 
-def test_the_spoken_version_is_heard_as_soon_as_it_streams_and_only_once():
+def test_the_spoken_version_is_heard_a_sentence_at_a_time_as_it_streams_and_only_once():
     hub, session, speech = hub_with_request(message_id=2)
     hub._observe(user(7, 2, "sent"))
+    second = REPLY.index("Should")
     for i in range(0, len(REPLY), 7):   # in pieces that split the tags
         hub._observe(delta(7, REPLY[i:i + 7]))
-        if i + 7 < REPLY.index("</spoken>") + len("</spoken>"):
+        if i + 7 <= second:
             assert session.spoken == []
+        elif i + 7 < REPLY.index("</spoken>") + len("</spoken>"):
+            # The first sentence is said once the next begins, in a reply still open for the rest.
+            assert session.spoken == [("The retry is in, and all 12 tests pass.", 7)]
+            assert session.replies[0].streaming
     assert session.spoken == [(HEARD, 7)]  # before the message ends
+    assert not session.replies[0].streaming
     hub._observe(agent(7, REPLY))
     hub._observe(completed(7))
     hub._observe(user(7, 2, "done"))
     assert session.spoken == [(HEARD, 7)]
     assert hub.streams == {} and hub.early == {}
+    speech.close()
+
+
+def test_a_spoken_version_cut_off_mid_stream_is_finished_from_the_message():
+    hub, session, speech = hub_with_request(message_id=2)
+    hub._observe(user(7, 2, "sent"))
+    hub._observe(delta(7, REPLY[:REPLY.index("Should") + 3]))
+    hub._observe(agent(7, REPLY))  # the closing tag never streamed
+    assert session.spoken == [(HEARD, 7)] and not session.replies[0].streaming
+    hub._observe(completed(7))
+    hub._observe(user(7, 2, "done"))
+    assert session.spoken == [(HEARD, 7)]
+    assert hub.live == {}
+    speech.close()
+
+
+def test_a_turn_that_ends_mid_spoken_version_closes_its_reply():
+    hub, session, speech = hub_with_request(message_id=2)
+    hub._observe(user(7, 2, "sent"))
+    hub._observe(delta(7, REPLY[:REPLY.index("Should") + 3]))
+    hub._observe({"type": "task", "task": {"id": 7, "status": "cancelled", "error": None}})
+    assert not session.replies[0].streaming and hub.live == {}
     speech.close()
 
 

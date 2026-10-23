@@ -41,6 +41,8 @@ PLAYBACK_TAIL_S = 0.4   # the client starts each run of audio a little late (pla
 # A client reports `drained` when it has played everything. One that doesn't (a page from an
 # older build) counts as done this long after the audio sent should have finished.
 DRAIN_GRACE_S = 3.0
+STREAM_WAIT_S = 0.25    # how often a reply waiting for its next sentence checks for a stop
+STREAM_IDLE_S = 60.0    # a streaming reply with nothing more for this long is ended, so later ones aren't held
 
 
 @dataclass(eq=False)  # each turn is itself: kept in a set while open
@@ -77,6 +79,18 @@ class Reply:
     played: int = 0                 # segments the device started
     audio_s: float = 0.0            # of speech sent
     done: bool = False              # its last segment has been sent
+    # Still being written (the agent is streaming it): more segments may be appended, and playing
+    # waits for them until `close`.
+    streaming: bool = False
+    more: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def append(self, segments: list[str]):
+        self.segments += [s for s in segments if s.strip()]
+        self.more.set()
+
+    def close(self):
+        self.streaming = False
+        self.more.set()
 
 
 @dataclass
@@ -483,16 +497,20 @@ class VoiceSession:
     # Speech out
 
     def speak(self, segments: list[str], task_id: int | None = None, approval_id: int | None = None,
-              cue: bool = False):
+              cue: bool = False, streaming: bool = False) -> Reply | None:
         """Queue a reply, spoken once no turn is open, after any reply before it. With `cue`, the
-        client chimes first."""
+        client chimes first. A `streaming` reply takes more segments (`Reply.append`) until closed."""
         segments = [s for s in segments if s.strip()]
-        if segments:
-            self.replies_made += 1
-            log.debug("voice %s: reply %d for task %s queued, %d segment%s: %.60r", self.id[:4], self.replies_made,
-                     task_id, len(segments), "" if len(segments) == 1 else "s", " ".join(segments))
-            self.replies.put_nowait(Reply(self.replies_made, segments, self.generation, task_id, approval_id,
-                                          cue=cue))
+        if not segments:
+            return None
+        self.replies_made += 1
+        log.debug("voice %s: reply %d for task %s queued, %d segment%s%s: %.60r", self.id[:4], self.replies_made,
+                  task_id, len(segments), "" if len(segments) == 1 else "s", " so far" if streaming else "",
+                  " ".join(segments))
+        reply = Reply(self.replies_made, segments, self.generation, task_id, approval_id, cue=cue,
+                      streaming=streaming)
+        self.replies.put_nowait(reply)
+        return reply
 
     async def interrupt(self, barge_in: bool = False):
         """Stop speaking: a new generation. `barge_in` when it was the user talking over a reply."""
@@ -582,6 +600,23 @@ class VoiceSession:
                     max(delay, 0) + 0.05, lambda: asyncio.ensure_future(self._settle()))
             await self._settle()
 
+    async def _more(self, reply: Reply, index: int) -> bool:
+        """Whether segment `index` is there to play, waiting for it while the reply is streaming."""
+        since = time.monotonic()
+        while index >= len(reply.segments) and reply.streaming:
+            if self.generation != reply.generation or reply.cancelled:
+                return False
+            if time.monotonic() - since > STREAM_IDLE_S:
+                log.warning("voice %s: reply %d was never closed; ending it", self.id[:4], reply.id)
+                reply.close()
+                break
+            reply.more.clear()
+            try:
+                await asyncio.wait_for(reply.more.wait(), STREAM_WAIT_S)
+            except asyncio.TimeoutError:
+                pass  # check for a stop, then wait again
+        return index < len(reply.segments) and self.generation == reply.generation and not reply.cancelled
+
     async def _play(self, reply: Reply):
         generation, tts = reply.generation, self.speech.tts
 
@@ -589,8 +624,16 @@ class VoiceSession:
             return asyncio.ensure_future(self.speech.run("tts", tts.synthesize, text))
 
         upcoming = synthesize(reply.segments[0])
+        index = 0
         try:
-            for index, text in enumerate(reply.segments):
+            while True:
+                if upcoming is None:
+                    if not await self._more(reply, index):
+                        if self.generation != generation or reply.cancelled:
+                            return  # stopped while waiting for the next sentence
+                        break
+                    upcoming = synthesize(reply.segments[index])
+                text = reply.segments[index]
                 audio = await upcoming
                 # Synthesize one segment ahead of what is being sent, and no further.
                 upcoming = synthesize(reply.segments[index + 1]) if index + 1 < len(reply.segments) else None
@@ -621,6 +664,7 @@ class VoiceSession:
                     if self.generation != generation or reply.cancelled:
                         return
                     await self.send_bytes(frame)
+                index += 1
             reply.done = True
             await self.send(type="speech_end", reply=reply.id, generation=generation)
         finally:

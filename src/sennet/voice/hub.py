@@ -8,7 +8,8 @@ preamble ("I'll move it to Trash") is heard before the approval it leads to.
 
 A long message starts with the agent's own version to be heard, in <spoken> tags
 (agents.base.SPOKEN_INSTRUCTIONS). The hub follows the message as it streams and
-speaks that version as soon as its closing tag arrives, before the rest is written.
+speaks that version a sentence at a time as each is written, as one reply that
+stays open until the closing tag, so the voice starts before the rest is written.
 A long message without one is cut to its opening sentences (`summary.shorten`).
 Speech still being prepared for a task holds back its later messages, approval
 questions and failure, so they are heard in order. "Read me the details" reads
@@ -22,7 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 
 from ..events import EventBus
 from ..speech import Speech
@@ -30,10 +32,12 @@ from ..tasks import TaskError, TaskManager
 from . import asking
 from . import summary
 from .dispatch import Cancel, Details, Stop, parse
-from .session import Asking, Turn, VoiceSession
+from .session import Asking, Reply, Turn, VoiceSession
 from .speakable import clauses, for_speech, spoken_part, without_spoken
 
 OPENING_TAG = "<spoken>"
+# The end of a sentence, once the next one has begun (as speakable.clauses splits them).
+SENTENCE_END = re.compile(r"[.!?][\"')\]]*\s+(?=[A-Z0-9\"'(])")
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +53,27 @@ class Pending:
     hushed: bool = False            # talked over: the rest of this turn isn't spoken
 
 
+@dataclass
+class Live:
+    """A spoken version being said while it streams, a sentence at a time."""
+
+    said: int = 0                   # characters of it handed to speech
+    waiting: list[str] = field(default_factory=list)  # segments written before its reply was queued
+    reply: Reply | None = None
+    closed: bool = False
+
+    def add(self, segments: list[str]):
+        if self.reply is not None:
+            self.reply.append(segments)
+        else:
+            self.waiting += segments
+
+    def close(self):
+        self.closed = True
+        if self.reply is not None:
+            self.reply.close()
+
+
 class VoiceHub:
     def __init__(self, speech: Speech, tasks: TaskManager, bus: EventBus):
         self.speech = speech
@@ -61,6 +86,7 @@ class VoiceHub:
         self.voicing: dict[int, asyncio.Task] = {}     # task id → its speech still being prepared
         self.streams: dict[int, dict[str, str | None]] = {}  # task id → message item → text so far, None once read
         self.early: dict[int, list[str]] = {}          # task id → spoken versions said before their message ended
+        self.live: dict[int, Live] = {}                # task id → its spoken version being said as it streams
         self.heard: dict[VoiceSession, int] = {}       # session → the task it last heard a reply from
         self.watcher: asyncio.Task | None = None
         speech.listeners.add(self._speech_changed)
@@ -314,13 +340,47 @@ class VoiceHub:
         elif (spoken := spoken_part(text)) is not None:
             items[item_id] = None
             self.early.setdefault(task_id, []).append(spoken)
-            self._in_turn(task_id, lambda: self._say(task_id, pending, for_speech(spoken)))
+            self._finish_live(task_id, pending, spoken)
         else:
             items[item_id] = text
+            if len(start) == len(OPENING_TAG):
+                body = text.lstrip()[len(OPENING_TAG):].lstrip()
+                if (ends := list(SENTENCE_END.finditer(body))):
+                    self._say_live(task_id, pending, body, ends[-1].end())
+
+    def _say_live(self, task_id: int, pending: Pending, body: str, end: int):
+        """Speak the spoken version's sentences up to `end`, those not said yet."""
+        live = self.live.get(task_id)
+        if live is None:
+            live = self.live[task_id] = Live()
+            self._in_turn(task_id, lambda: self._queue_live(task_id, pending, live))
+        if end > live.said:
+            live.add(clauses(for_speech(body[live.said:end])))
+            live.said = end
+
+    def _finish_live(self, task_id: int, pending: Pending, spoken: str):
+        """The spoken version is complete: say what is left of it, and end its reply."""
+        live = self.live.pop(task_id, None)
+        if live is None:
+            self._in_turn(task_id, lambda: self._say(task_id, pending, for_speech(spoken)))
+            return
+        if rest := spoken[live.said:].strip():
+            live.add(clauses(for_speech(rest)))
+        live.close()
+
+    def _queue_live(self, task_id: int, pending: Pending, live: Live):
+        if pending.hushed or pending.session not in self.sessions:
+            return
+        self.heard[pending.session] = task_id
+        live.reply = pending.session.speak(live.waiting, task_id=task_id, cue=pending.cue, streaming=not live.closed)
+        live.waiting = []
+        pending.cue = False
 
     def _forget(self, task_id: int):
         self.streams.pop(task_id, None)
         self.early.pop(task_id, None)
+        if (live := self.live.pop(task_id, None)) is not None:
+            live.close()  # the message ended without closing its spoken version
 
     def _voice(self, task_id: int, pending: Pending, markdown: str):
         """Speak an agent message: its spoken version, or itself cut to its opening, in turn."""
@@ -328,7 +388,7 @@ class VoiceHub:
             if spoken in self.early.get(task_id, []):
                 self.early[task_id].remove(spoken)  # already heard while it streamed
             else:
-                self._in_turn(task_id, lambda: self._say(task_id, pending, for_speech(spoken)))
+                self._finish_live(task_id, pending, spoken)  # the rest of it, if it was streaming
             return
         self._in_turn(task_id, lambda: self._say(task_id, pending, summary.shorten(markdown)))
 
