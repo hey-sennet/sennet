@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { refreshAgents, useAgents } from '@/lib/agents'
 import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { Devices } from './Devices'
 import { ModelPicker } from './ModelPicker'
 
@@ -21,6 +22,10 @@ const MODE_HELP: Record<ApprovalMode, string> = {
   auto: 'The agent works freely within its access level and asks only to go beyond it.',
   never: 'Nothing is asked. Actions that need more access fail instead.',
 }
+
+// The main screen's shapes: pills for controls, rounded cards for rows.
+const field = 'h-8 rounded-full border border-border bg-background px-3 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
+const card = 'min-w-0 rounded-[22px] border bg-card'
 
 async function attempt(action: () => Promise<unknown>, failure: string) {
   try {
@@ -49,23 +54,35 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+      {/* A column of its own, scrolled inside, so nothing wide (a long path) pushes it off a phone. */}
+      <DialogContent className="flex max-h-[min(90dvh,880px)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-[28px] border border-border bg-background p-0 ring-0 duration-300 ease-strata sm:max-w-2xl">
+        <div className="flex min-w-0 flex-col gap-9 overflow-y-auto overscroll-contain px-6 pt-8 pb-10 sm:px-10 sm:pt-10">
+        <DialogHeader className="animate-word-in gap-1.5 pr-8 motion-reduce:animate-none">
+          <DialogTitle className="font-serif text-[30px] leading-[1.1] font-normal tracking-[-0.01em]">Settings</DialogTitle>
           <DialogDescription>Projects, approvals, agents and paired devices on this computer.</DialogDescription>
         </DialogHeader>
 
-        <Section title="Agents">
+        <Section title="Agents" order={1}>
           {!agents && <p className="text-sm text-muted-foreground">Checking…</p>}
-          {agents && Object.entries(agents).map(([name, status]) => (
-            <div key={name} className="flex items-baseline justify-between gap-4 text-sm">
-              <span className="font-medium">{status.title}</span>
-              <span className={status.installed && status.logged_in ? 'text-foreground' : 'text-warn'}>{status.detail}</span>
+          {agents && (
+            <div className={cn(card, 'divide-y')}>
+              {Object.entries(agents).map(([name, status]) => {
+                const ready = status.installed && status.logged_in
+                return (
+                  <div key={name} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
+                    <span className="font-medium">{status.title}</span>
+                    <span className={cn('flex min-w-0 items-center gap-2 text-right', ready ? 'text-muted-foreground' : 'text-warn')}>
+                      <span className={cn('size-1.5 shrink-0 rounded-full', ready ? 'bg-agent' : 'bg-warn')} />
+                      {status.detail}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
-          ))}
+          )}
         </Section>
 
-        <Section title="Projects" hint="The spoken name and aliases are how you'll pick a project by voice.">
+        <Section title="Projects" hint="The spoken name and aliases are how you'll pick a project by voice." order={2}>
           <div className="flex flex-col gap-2">
             {projects.map((project) => (
               <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'} agents={agents} />
@@ -75,29 +92,34 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
           <AddProject agents={agents} />
         </Section>
 
-        <Section title="Remembered approvals" hint={'Created when you choose "Always". Destructive actions are always asked.'}>
+        <Section title="Remembered approvals" hint={'Created when you choose "Always". Destructive actions are always asked.'} order={3}>
           {!rules.length && <p className="text-sm text-muted-foreground">None yet.</p>}
-          {rules.map((rule) => (
-            <div key={rule.id} className="flex items-center justify-between gap-3 text-sm">
-              <span>
-                <span className="text-muted-foreground">{projects.find((p) => p.id === rule.project_id)?.name}: </span>
-                {rule.kind === 'edit' ? 'all file edits'
-                  : rule.kind === 'tool' ? <>the <code className="font-mono text-xs">{rule.pattern}</code> tool</>
-                  : <code className="font-mono text-xs">{rule.pattern} …</code>}
-              </span>
-              <Button variant="ghost" size="icon-sm" aria-label="Forget this approval"
-                onClick={() => attempt(() => api.removeRule(rule.id), 'Could not remove the rule')}>
-                <X />
-              </Button>
+          {!!rules.length && (
+            <div className={cn(card, 'divide-y')}>
+              {rules.map((rule) => (
+                <div key={rule.id} className="flex items-center justify-between gap-3 py-1.5 pr-1.5 pl-4 text-sm">
+                  <span className="min-w-0">
+                    <span className="text-muted-foreground">{projects.find((p) => p.id === rule.project_id)?.name}: </span>
+                    {rule.kind === 'edit' ? 'all file edits'
+                      : rule.kind === 'tool' ? <>the <code className="font-mono text-xs">{rule.pattern}</code> tool</>
+                      : <code className="font-mono text-xs [overflow-wrap:anywhere]">{rule.pattern} …</code>}
+                  </span>
+                  <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="Forget this approval"
+                    onClick={() => attempt(() => api.removeRule(rule.id), 'Could not remove the rule')}>
+                    <X />
+                  </Button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </Section>
 
-        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use.">
+        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use." order={4}>
           <Devices subscribe={subscribe} />
         </Section>
 
         <About version={version} />
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -106,7 +128,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
 function About({ version }: { version: string | null }) {
   const link = 'underline underline-offset-2 hover:text-foreground'
   return (
-    <Section title="About">
+    <Section title="About" order={5}>
       <p className="text-sm">
         Sennet {version ?? ''}
         <span className="text-muted-foreground"> · free and open source under the Apache License 2.0</span>
@@ -121,12 +143,13 @@ function About({ version }: { version: string | null }) {
   )
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, hint, order, children }: { title: string; hint?: string; order: number; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 border-t pt-4">
+    // Each section rises in after the one above it, as words do under the disc.
+    <section className="flex min-w-0 animate-word-in flex-col gap-3 motion-reduce:animate-none" style={{ animationDelay: `${order * 60}ms` }}>
       <div>
-        <h3 className="text-sm font-medium">{title}</h3>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        <h3 className="eyebrow text-muted-foreground">{title}</h3>
+        {hint && <p className="mt-1.5 text-[13px] text-muted-foreground">{hint}</p>}
       </div>
       {children}
     </section>
@@ -143,7 +166,7 @@ function ProjectRow({ project, defaultMode, agents }: {
   const mode = project.approval_mode ?? defaultMode
   const unsupported = (value: ApprovalMode | '') => !!supported && !supported.includes(value || defaultMode)
   return (
-    <div className="rounded-lg border px-3 py-2.5">
+    <div className={cn(card, 'px-4 py-3.5')}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">
@@ -152,7 +175,7 @@ function ProjectRow({ project, defaultMode, agents }: {
           </p>
           <p className="truncate font-mono text-xs text-muted-foreground">{project.path}</p>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label={`Remove ${project.name}`}
+        <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label={`Remove ${project.name}`}
           onClick={() => confirm(`Remove ${project.name}? Its files are not touched.`)
             && attempt(() => api.removeProject(project.id), 'Could not remove the project')}>
           <Trash2 />
@@ -176,7 +199,7 @@ function ProjectRow({ project, defaultMode, agents }: {
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         Approvals
         <select
-          className="rounded-md border bg-background px-2 py-1 text-xs text-foreground"
+          className={field}
           value={project.approval_mode ?? ''}
           onChange={(event) => attempt(() => api.updateProject(project.id, { approval_mode: (event.target.value || null) as ApprovalMode | null }),
             'Could not update the project')}
@@ -216,7 +239,7 @@ function AgentSelect({ agents, value, onChange, label = 'Agent' }: {
 }) {
   const names = agents ? Object.keys(agents) : [value]
   return (
-    <select className="rounded-md border bg-background px-2 py-1 text-xs text-foreground" value={value}
+    <select className={field} value={value}
       disabled={!agents} onChange={(event) => onChange(event.target.value)} aria-label={label}>
       {names.map((name) => {
         const status = agents?.[name]
@@ -226,6 +249,8 @@ function AgentSelect({ agents, value, onChange, label = 'Agent' }: {
     </select>
   )
 }
+
+const input = 'h-10 min-w-0 rounded-full bg-card px-4'
 
 function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) {
   const [path, setPath] = useState('')
@@ -246,11 +271,11 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
     }
   }
   return (
-    <form onSubmit={add} className="grid gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
-      <Input placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
-      <Input placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Spoken name" />
-      <Input placeholder="Aliases, comma separated" value={aliases} onChange={(e) => setAliases(e.target.value)} aria-label="Aliases" />
-      <Button type="submit" disabled={!path.trim() || !agent}>Add</Button>
+    <form onSubmit={add} className="grid min-w-0 gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
+      <Input className={input} placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
+      <Input className={input} placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Spoken name" />
+      <Input className={input} placeholder="Aliases, comma separated" value={aliases} onChange={(e) => setAliases(e.target.value)} aria-label="Aliases" />
+      <Button type="submit" className="h-10 rounded-full px-5" disabled={!path.trim() || !agent}>Add</Button>
       <label className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-4">
         Agent
         <AgentSelect agents={agents} value={agent ?? ''} onChange={setChosen} label="Agent for the new project" />

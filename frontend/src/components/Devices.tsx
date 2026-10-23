@@ -47,7 +47,7 @@ export function Devices({ subscribe }: {
         <DeviceRow key={`${device.id}:${device.name}`} device={device} onRevoke={() => revoke(device)} />
       ))}
       {pairing ? <ShowPairing pairing={pairing} onDone={() => setPairing(null)} /> : (
-        <Button variant="outline" className="self-start" onClick={() => api.newPairing().then(setPairing, (error) =>
+        <Button variant="outline" className="self-start rounded-full px-4" onClick={() => api.newPairing().then(setPairing, (error) =>
           toast.error(error instanceof Error ? error.message : 'Could not make a pairing code'))}>
           Pair a device
         </Button>
@@ -68,7 +68,7 @@ function DeviceRow({ device, onRevoke }: { device: Device; onRevoke: () => void 
     }
   }
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-[22px] border bg-card px-4 py-2.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <Input value={name} onChange={(event) => setName(event.target.value)} onBlur={save}
@@ -100,7 +100,7 @@ function ShowPairing({ pairing, onDone }: { pairing: Pairing; onDone: () => void
   }, [left, onDone])
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border px-3 py-3 sm:flex-row sm:items-center sm:gap-5">
+    <div className="flex flex-col gap-3 rounded-[22px] border bg-card px-4 py-4 sm:flex-row sm:items-center sm:gap-5">
       {!pairing.local_only && (
         <img src={pairing.qr} alt="QR code to pair a device" className="size-40 shrink-0 rounded-md" />
       )}

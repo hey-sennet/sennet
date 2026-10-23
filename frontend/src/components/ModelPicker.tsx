@@ -1,6 +1,6 @@
 import type { AgentStatus, ModelOption } from '@/lib/api'
 
-const select = 'rounded-md border bg-background px-2 py-1 text-xs text-foreground disabled:opacity-50'
+const select = 'h-8 rounded-full border border-border bg-background px-3 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
 
 export type Inherited = { model: string | null; effort: string | null; from: string }
 
