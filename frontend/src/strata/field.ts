@@ -42,10 +42,14 @@ const STROKE = 1.3
 const FADE = 0.65 // each line fades to nothing over this fraction of R before the circle
 const HEIGHT = 0.4 // peak lift at full voice, as a fraction of R
 const MARGIN = 0.92 // the disc's radius as a fraction of half the canvas, leaving room for the swell
-// Points and gradient stops per line: they look the same as 120 and 24 at phone size and hold
-// 60 fps on a Pixel 8 (design/README.md, Performance).
-const POINTS = 60
-const STOPS = 12
+// Points along each line: one every SPACING device pixels, so a line keeps the same detail at
+// any size, from a short one near the poles to the middle of a large disc on a laptop. The
+// path curves through the midpoints between them, so no corners show between points either.
+// Capped so a huge window can't run away with the frame (design/README.md, Performance).
+const SPACING = 4
+const MIN_POINTS = 12
+const MAX_POINTS = 240
+const STOPS = 12 // gradient stops per line
 
 // The swell reacts quickly but never jumps. Loudness drives a critically damped spring, so
 // each change eases in and out (no corners, no overshoot) while still landing within a
@@ -108,6 +112,15 @@ function blend(palette: Palette, mix: Mix): Rgb {
   return total ? [r / total, g / total, b / total] : palette.base
 }
 
+/** A line through `points + 1` heights, curving through the midpoints between them. */
+function trace(ctx: CanvasRenderingContext2D, heights: Float32Array, points: number, x0: number, dx: number) {
+  ctx.moveTo(x0, heights[0])
+  for (let s = 1; s < points; s++) {
+    ctx.quadraticCurveTo(x0 + s * dx, heights[s], x0 + (s + 0.5) * dx, (heights[s] + heights[s + 1]) / 2)
+  }
+  ctx.lineTo(x0 + points * dx, heights[points])
+}
+
 /** One Strata disc's drawing and the eased state it carries from frame to frame. */
 export function createField() {
   let lift: number | null = null
@@ -116,7 +129,7 @@ export function createField() {
   let shade = 0
   const history: { t: number; lift: number }[] = []
   const ringLift = new Float32Array(RINGS + 1)
-  const heights = new Float32Array(POINTS + 1) // one line's points, reused
+  const heights = new Float32Array(MAX_POINTS + 1) // one line's points, reused
 
   /** The eased lift `ago` seconds back, so outer parts of the surface follow a moment later. */
   function liftAgo(ago: number) {
@@ -181,8 +194,9 @@ export function createField() {
       const half = Math.sqrt(Math.max(0, R * R - (y - cy) ** 2))
       if (half < 2) continue
       const lineShape = bell(yr, 0.6)
-      for (let s = 0; s <= POINTS; s++) {
-        const xr = ((s / POINTS) * 2 * half - half) / R
+      const points = Math.min(MAX_POINTS, Math.max(MIN_POINTS, Math.ceil((2 * half) / SPACING)))
+      for (let s = 0; s <= points; s++) {
+        const xr = ((s / points) * 2 * half - half) / R
         const r = Math.sqrt(xr * xr + yr * yr)
         // The voice reaches the centre of the mound first and rolls outward from there.
         const swell = HEIGHT * liftAt(r) * live + breath
@@ -194,11 +208,10 @@ export function createField() {
         const drift = R * 0.009 * (noise(xr * 1.8 + driftClock * 0.23 + k * 0.27) - 0.5) * 2
         heights[s] = y - Math.max(0, amp) - drift
       }
-      const x0 = cx - half, dx = (2 * half) / POINTS
+      const x0 = cx - half, dx = (2 * half) / points
       // Fill under each line with the background so nearer lines occlude farther ones.
       ctx.beginPath()
-      ctx.moveTo(x0, heights[0])
-      for (let s = 1; s <= POINTS; s++) ctx.lineTo(x0 + s * dx, heights[s])
+      trace(ctx, heights, points, x0, dx)
       ctx.lineTo(cx + half, y + R * 0.08)
       ctx.lineTo(x0, y + R * 0.08)
       ctx.closePath()
@@ -206,8 +219,7 @@ export function createField() {
       ctx.fill()
 
       ctx.beginPath()
-      ctx.moveTo(x0, heights[0])
-      for (let s = 1; s <= POINTS; s++) ctx.lineTo(x0 + s * dx, heights[s])
+      trace(ctx, heights, points, x0, dx)
       // Opacity eases to zero where the line meets the circle. The fade length is absolute
       // (a fraction of R), so short lines near the poles never reach full strength, which
       // gives the disc a soft spherical falloff. Along the way the shade field dims patches.

@@ -68,7 +68,13 @@ Listening state. Headless runs use a 390×844 viewport at 2×; the canvas is cap
 | The same, 40 points, 8 stops | 0.5 / 2.0 / 2.6 ms | |
 
 - 60 points and 12 stops look the same as 120 and 24 at phone size and halve the script time,
-  so they are the defaults. Even 40 points draws smooth curves.
+  so they were the defaults. Even 40 points draws smooth curves.
+- The web client (`frontend/src/strata/field.ts`) has since moved from a fixed count to one
+  point every 4 device pixels along each line (12 to 240), with the path curving through the
+  midpoints, after the disc looked jagged on a laptop and on a phone. Timed in the client's
+  own draw under headless Chromium: the Pixel 7 sized canvas (728 px) went from 2.9 to 4.7 ms
+  at 6× throttling (p95 3.7 to 5.6), and the desktop one (370 px) from 2.8 to 3.1 ms. Not
+  yet checked on the Pixel 8; at a guess it lands near 8 ms of its 16.7 ms frame.
 - Painting costs more than the script, mostly the gradient strokes and then the fills under
   each line. The number of stops barely matters; having a gradient at all does. On the Pixel
   8, trimming the script (a per-frame table for the delayed lift instead of a history search
