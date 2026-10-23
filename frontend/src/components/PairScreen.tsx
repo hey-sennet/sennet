@@ -37,7 +37,7 @@ export function PairScreen() {
   return (
     <main className="grid min-h-dvh place-items-center px-6">
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <p className="font-serif text-[22px]">sennet<span className="text-muted-foreground">.</span></p>
+        <p className="font-serif text-[22px] tracking-[0.08em] uppercase">Sennet<span className="-ml-[0.08em] text-muted-foreground">.</span></p>
         <div className="flex flex-col gap-2">
           <h1 className="font-serif text-3xl">Pair this device</h1>
           <p className="text-sm text-muted-foreground">

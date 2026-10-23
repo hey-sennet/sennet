@@ -160,8 +160,8 @@ export default function App() {
       style={{ '--rail': railOpen ? '280px' : '0px', '--panel': panelOpen ? 'min(424px, 36vw)' : '0px' } as React.CSSProperties}
     >
       <header className="col-span-full flex items-center justify-between gap-3 px-5 lg:px-8">
-        <button className="font-serif text-[22px]" onClick={newTask}>
-          sennet<span className="text-muted-foreground">.</span>
+        <button className="font-serif text-[22px] tracking-[0.08em] uppercase" onClick={newTask}>
+          Sennet<span className="-ml-[0.08em] text-muted-foreground">.</span>
         </button>
         <div className="flex min-w-0 items-center gap-2">
           {live.projects.length > 0 && homeProject && (
