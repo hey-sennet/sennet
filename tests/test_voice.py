@@ -385,22 +385,38 @@ def test_a_reply_is_spoken_with_tagged_frames(client, voice, speech):
     assert sum(len(samples) for _, _, _, samples in decoded) == int(24000 * 0.6)
 
 
-def test_a_reply_is_traced_from_queued_to_played(client, voice, speech, caplog):
-    caplog.set_level(logging.INFO, logger="sennet.voice.session")
+def voice_log(caplog, level=logging.INFO):
+    return [r.getMessage() for r in caplog.records if r.name == "sennet.voice.session" and r.levelno >= level]
+
+
+def test_a_heard_reply_logs_one_line_at_info(client, voice, speech, caplog):
+    caplog.set_level(logging.DEBUG, logger="sennet.voice.session")
     speech.tts.gate.set()
     speak(client, "All tests pass.", task_id=7)
     voice.next("speech_end")
     voice.send(type="played", reply=1, segment=0)
     voice.send(type="drained", reply=1, segment=0)
     voice.send(type="audio", state="suspended", hidden=True)
+    voice.next("voice_state", state="idle")
+    info = voice_log(caplog)
+    assert [line for line in info if "reply 1" in line] == [
+        "voice %s: reply 1 (task 7) heard: 1 segment, 0.3 s of speech, first heard 0.0 s after it was queued"
+        % session(client).id[:4]]
+    assert any("audio is suspended (page hidden)" in line for line in info)
+    steps = voice_log(caplog, logging.DEBUG)
+    assert any("reply 1 for task 7 queued, 1 segment" in line for line in steps)
+    assert any("sending reply 1 segment 0 (task 7)" in line for line in steps)
+    assert any("device playing reply 1 segment 0, " in line for line in steps)
+
+
+def test_a_stopped_reply_says_how_far_it_got(client, voice, speech, caplog):
+    caplog.set_level(logging.INFO, logger="sennet.voice.session")
+    speak(client, "First part.", "Second part.", task_id=7)
+    voice.next("speech", segment=0)
+    voice.send(type="played", reply=1, segment=0)
     voice.send(type="stop")
-    voice.next("stopped")  # the messages before it have been handled
-    trace = [r.getMessage() for r in caplog.records if r.name == "sennet.voice.session"]
-    assert any("reply 1 for task 7 queued, 1 segment" in line for line in trace)
-    assert any("sending reply 1 segment 0 (task 7)" in line for line in trace)
-    assert any("device playing reply 1 segment 0, " in line for line in trace)
-    assert any("device finished reply 1" in line for line in trace)
-    assert any("audio is suspended (page hidden)" in line for line in trace)
+    voice.next("stopped")
+    assert any("reply 1 (task 7) stopped: after 1 of 1 segments" in line for line in voice_log(caplog))
 
 
 def test_a_reply_plays_until_the_device_drains_its_last_segment(client, voice, speech):

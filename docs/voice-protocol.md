@@ -309,9 +309,11 @@ works as before when no conversation is open.
 ## 13. The life of a reply
 
 Added after M7. How an agent's message becomes audio on a device, and every place it can
-wait on the way. From the session queue on, each step logs a line on
-`sennet.voice.session`, so `journalctl --user -u sennet | grep voice` follows a reply from
-queued to heard.
+wait on the way. Each reply logs one line on `sennet.voice.session` at info when it ends:
+`heard`, `stopped` (after how many segments), or `sent, with no report from the device`,
+with how long it waited for a turn and how soon it was first heard. With
+`server.log_level = "debug"` each step below logs its own line too, so `sennet service
+logs | grep voice` follows a reply from queued to heard.
 
 ```
 agent message ──▶ hub ──▶ session queue ──▶ socket ──▶ page ──▶ playback worklet ──▶ speaker

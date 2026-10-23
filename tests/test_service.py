@@ -1,4 +1,5 @@
 """The user service: the files it writes, what it reads back, and doctor's checks (docs/m6-packaging.md)."""
+import logging
 import plistlib
 import subprocess
 import sys
@@ -179,7 +180,35 @@ def test_install_waits_for_the_daemon_to_answer(home, monkeypatch):
 def test_serve_refuses_when_sennet_already_runs(monkeypatch, paths):
     monkeypatch.setattr(service, "health", lambda port, timeout=1.0: {"app": "sennet", "version": "0.1.0"})
     with pytest.raises(SystemExit, match="already running"):
-        cli.serve_command(Settings(), paths, type("Args", (), {"host": None, "port": None})())
+        cli.serve_command(Settings(), paths, type("Args", (), {"host": None, "port": None, "log_level": None})())
+
+
+@pytest.mark.parametrize(("configured", "flag", "sennet", "libraries"), [
+    ("info", None, logging.INFO, logging.INFO),
+    ("debug", None, logging.DEBUG, logging.INFO),  # libraries stay at info, or they drown Sennet out
+    ("info", "warning", logging.WARNING, logging.WARNING),  # the flag wins over the config
+])
+def test_serve_logs_at_the_configured_level(monkeypatch, paths, configured, flag, sennet, libraries):
+    monkeypatch.setattr(service, "health", lambda port, timeout=1.0: {"app": "sennet", "version": "0.1.0"})
+    monkeypatch.setattr(logging, "basicConfig", lambda level, **_: logging.getLogger().setLevel(level))
+    root, own = logging.getLogger(), logging.getLogger("sennet")
+    before = root.level, own.level
+    settings = Settings()
+    settings.server.log_level = configured
+    try:
+        with pytest.raises(SystemExit):  # stops at "already running", after logging is set up
+            cli.serve_command(settings, paths, type("Args", (), {"host": None, "port": None, "log_level": flag})())
+        assert (own.level, root.level) == (sennet, libraries)
+    finally:
+        root.setLevel(before[0])
+        own.setLevel(before[1])
+
+
+def test_the_log_level_must_be_known(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[server]\nlog_level = "loud"\n')
+    with pytest.raises(ValueError, match="server.log_level"):
+        Settings.load(config)
 
 
 def test_health_answers_without_pairing(settings, paths):

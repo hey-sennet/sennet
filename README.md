@@ -57,6 +57,9 @@ access = "workspace"       # read-only | workspace (edit the project) | full
 
 [tasks]
 max_concurrent = 3         # one running task per project regardless
+
+[server]
+log_level = "info"         # debug | info | warning | error, for `sennet service logs`
 ```
 
 Codex enforces access with its own sandbox. Claude Code's sandbox doesn't run everywhere,

@@ -12,7 +12,7 @@ import time
 
 from . import __version__, access, projects, service
 from .agents import registry
-from .config import Paths, Settings
+from .config import LOG_LEVELS, Paths, Settings
 from .db import Database
 
 
@@ -28,6 +28,7 @@ def main(argv: list[str] | None = None):
     serve = commands.add_parser("serve", help="run the server")
     serve.add_argument("--host", help="bind address (default from config: 127.0.0.1)")
     serve.add_argument("--port", type=int, help="port (default from config: 7710)")
+    serve.add_argument("--log-level", choices=LOG_LEVELS, help="how much to log (default from config: info)")
 
     service = commands.add_parser("service", help="run Sennet in the background, from login")
     service_commands = service.add_subparsers(dest="action", required=True)
@@ -99,7 +100,15 @@ def serve_command(settings: Settings, paths: Paths, args):
 
     from .server import WEB_DIR, create_app
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # What each level holds, so the log stays readable at the default:
+    #   error, warning: something failed or needs you (an agent crashed, speech couldn't play)
+    #   info: one line per thing you'd follow: a turn and its outcome, a reply heard (with its
+    #         timings), an approval asked, the device's audio paused, speech engines ready
+    #   debug: the steps in between: each segment sent and played, a reply waiting for a turn
+    # Debug is Sennet's own: libraries stay at info, or they drown it out.
+    level = getattr(logging, (args.log_level or settings.server.log_level).upper())
+    logging.basicConfig(level=max(level, logging.INFO), format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("sennet").setLevel(level)
     host = settings.server.host = args.host or settings.server.host
     port = settings.server.port = args.port or settings.server.port  # agents call back on it
     if host not in ("127.0.0.1", "::1", "localhost"):

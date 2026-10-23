@@ -48,6 +48,7 @@ class Paths:
 
 # Sections written by earlier versions and since removed: skipped, then dropped on the next save.
 RETIRED = {"assistant", "summaries"}
+LOG_LEVELS = ("debug", "info", "warning", "error")
 
 
 @dataclass
@@ -57,6 +58,9 @@ class ServerSettings:
     # The address phones reach Sennet at, such as https://desktop.tailnet.ts.net, for pairing
     # links. Setup fills it from Tailscale. Empty: the address the request came in on.
     public_url: str = ""
+    # How much the service logs (`sennet service logs`): debug, info, warning or error. See
+    # LOG_LEVELS in cli.py for what each level holds.
+    log_level: str = "info"
 
     @property
     def local_url(self) -> str:
@@ -143,6 +147,8 @@ class Settings:
         self.server.public_url = self.server.public_url.strip().rstrip("/")
         if self.server.public_url and not re.fullmatch(r"https?://[^/\s]+(/\S*)?", self.server.public_url):
             raise ValueError("server.public_url must be an http(s) address, such as https://desktop.tailnet.ts.net")
+        if self.server.log_level not in LOG_LEVELS:
+            raise ValueError(f"server.log_level must be one of {LOG_LEVELS}")
         if self.speech.device not in DEVICES:
             raise ValueError(f"speech.device must be one of {DEVICES}")
         if self.speech.threads < 1:
