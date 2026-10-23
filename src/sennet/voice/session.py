@@ -101,6 +101,9 @@ class VoiceSession:
         self.uplink: OpusUplink | None = None      # set once the client asks for Opus (`codecs`)
         self.downlink: OpusDownlink | None = None
         self.opus_down = False
+        # (generation, segment) → when each went out, oldest first, for `played`. Replies in one
+        # generation reuse segment numbers, and a later one can be sent before an earlier one plays.
+        self.sent: dict[tuple[int, int], deque[float]] = {}
 
     # Socket loop
 
@@ -177,11 +180,26 @@ class VoiceSession:
             await self.close_conversation("closed")
         elif kind == "codecs":
             await self._codecs(message)
+        elif kind == "played":
+            self._played(message)
+        elif kind == "audio":
+            log.info("voice %s: the device's audio is %s%s", self.id[:4], message.get("state"),
+                     " (page hidden)" if message.get("hidden") else "")
         elif kind == "target":
             if self.conversation is not None and (target := await self._target(message)) is not None:
                 self.conversation.retarget(target)
         else:
             await self.error("bad_message", f"unknown message type {kind!r}")
+
+    def _played(self, message: dict):
+        """The client started playing a segment: the last step of a reply's trace."""
+        key = (message.get("generation"), message.get("segment"))
+        times = self.sent.get(key)
+        sent = times.popleft() if times else None
+        if times is not None and not times:
+            del self.sent[key]
+        delay = f", {time.monotonic() - sent:.1f} s after it was sent" if sent is not None else ""
+        log.info("voice %s: device playing generation %s segment %s%s", self.id[:4], *key, delay)
 
     async def _codecs(self, message: dict):
         """The client picks PCM or Opus for each direction; it applies to the frames after this."""
@@ -405,6 +423,8 @@ class VoiceSession:
         client chimes first."""
         segments = [s for s in segments if s.strip()]
         if segments:
+            log.info("voice %s: reply for task %s queued, %d segment%s: %.60r", self.id[:4], task_id,
+                     len(segments), "" if len(segments) == 1 else "s", " ".join(segments))
             self.replies.put_nowait(Reply(segments, self.generation, task_id, approval_id, cue=cue))
 
     async def interrupt(self, barge_in: bool = False):
@@ -433,6 +453,8 @@ class VoiceSession:
     def ask(self, segments: list[str]):
         """Say something as part of the current approval's question."""
         asking = self.asking
+        log.info("voice %s: approval %s for task %s queued%s", self.id[:4], asking.approval["id"],
+                 asking.approval["task_id"], f": {' '.join(segments)!r:.60}" if segments else " (the chime)")
         reply = Reply(segments, self.generation, asking.approval["task_id"], asking.approval["id"])
         if asking.reply:
             asking.reply.cancelled = True
@@ -448,6 +470,8 @@ class VoiceSession:
     async def _speaker(self):
         while True:
             reply = await self.replies.get()
+            if not self.floor.is_set():
+                log.info("voice %s: reply for task %s waits for the open turn", self.id[:4], reply.task_id)
             await self.floor.wait()
             if reply.cancelled:
                 continue
@@ -494,6 +518,11 @@ class VoiceSession:
                 await self.send(type="speech", generation=generation, segment=index, text=text,
                                 task_id=reply.task_id, approval_id=reply.approval_id, **cue)
                 now = time.monotonic()
+                log.info("voice %s: sending task %s, generation %d segment %d", self.id[:4], reply.task_id,
+                         generation, index)
+                if len(self.sent) > 64:
+                    self.sent.clear()  # a client that never reports `played`
+                self.sent.setdefault((generation, index), deque()).append(now)
                 self.playing_task = reply.task_id
                 self.playing_until = max(self.playing_until - PLAYBACK_TAIL_S, now) + len(audio) / tts.rate \
                     + PLAYBACK_TAIL_S

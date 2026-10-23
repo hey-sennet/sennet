@@ -72,6 +72,7 @@ export class Voice {
     speaking: false, state: 'idle', words: null,
   }
   private wakeLock: WakeLockSentinel | null = null
+  private muted = false // told the user to tap, since speech arrived while audio was suspended
   private readonly subscribers = new Set<() => void>()
   private readonly errorSubscribers = new Set<(message: string) => void>()
 
@@ -88,13 +89,20 @@ export class Voice {
     this.socket.on((message) => this.receive(message))
     this.socket.onAudio((data) => this.hear(data))
     this.playback.onPlayingChange = (speaking) => this.update({ speaking })
-    // Any first gesture unlocks audio, so the approval chime plays before the first push-to-talk.
+    // The server logs these, so a reply can be followed from queued to heard in one place.
+    this.playback.onAudioState = (state) => {
+      if (state === 'running') this.muted = false
+      this.socket.send({ type: 'audio', state, hidden: document.hidden })
+    }
+    // Any gesture unlocks audio, so the approval chime plays before the first push-to-talk, and
+    // resumes it if the phone suspended it since.
     for (const type of ['pointerdown', 'keydown']) {
-      document.addEventListener(type, () => this.playback.unlock(), { once: true, capture: true })
+      document.addEventListener(type, () => this.playback.unlock(), { capture: true })
     }
     // Phones suspend a hidden page's microphone anyway: end the conversation cleanly instead.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.snapshot.conversation) this.closeConversation()
+      if (!document.hidden) this.playback.resume()
     })
   }
 
@@ -384,6 +392,12 @@ export class Voice {
     if (message.type === 'speech' && message.generation >= this.floor) {
       // A reply nobody asked for (the agent's report on work it left running) chimes first.
       if (message.cue) this.playback.cue(chime, { before: CHIME_S })
+      if (!this.playback.audible && !this.muted) {
+        // Queued speech would wait silently for the next tap; say so instead.
+        this.muted = true
+        this.playback.resume()
+        this.fail('Your phone paused Sennet\'s audio. Tap the screen to hear the reply.')
+      }
       if (message.segment === 0) this.replyText.set(++this.replies, [])
       this.replyText.get(this.replies)?.push(message.text)
       this.heard = { reply: this.replies, segment: message.segment }
@@ -403,7 +417,11 @@ export class Voice {
     const heard = this.heard
     const first = heard && heard.segment === frame.segment ? heard : null
     if (first) this.heard = null
-    const onStart = first ? () => this.spoken(first.reply, first.segment) : undefined
+    const generation = frame.generation
+    const onStart = first ? () => {
+      this.socket.send({ type: 'played', generation, segment: first.segment })
+      this.spoken(first.reply, first.segment)
+    } : undefined
     if ('packets' in frame) {
       this.downlink?.decode(frame.packets, (firstPacket) => ({ generation: frame.generation,
         onStart: firstPacket ? onStart : undefined }))

@@ -50,15 +50,34 @@ export class Playback {
   /** Runs that ran dry mid-reply: each one is a gap in the speech. */
   underruns = 0
   onPlayingChange: (playing: boolean) => void = () => {}
+  /** The context's state changed: a phone can suspend it (screen off, another app's audio). */
+  onAudioState: (state: string) => void = () => {}
 
   get playing() {
     return this.speaking
+  }
+
+  /** Whether speech can be heard now: unlocked, and not suspended by the browser or the phone. */
+  get audible() {
+    return this.context?.state === 'running'
+  }
+
+  /** Try to resume a context the browser or phone suspended. Outside a gesture this works only
+   * once the page has had one, so it can fail; `onAudioState` says whether it did. */
+  resume() {
+    if (this.context && this.context.state !== 'running' && this.context.state !== 'closed') {
+      this.context.resume().catch(() => {})
+    }
   }
 
   /** Creates or resumes the context. Call inside a user gesture, or the browser keeps it silent. */
   unlock() {
     if (!this.context) {
       const context = this.context = new AudioContext()
+      context.onstatechange = () => {
+        this.onAudioState(context.state)
+        this.resume() // suspended mid-reply: come back on our own if the browser lets us
+      }
       this.analyser = context.createAnalyser()
       this.analyser.fftSize = FFT_SIZE
       this.analyser.smoothingTimeConstant = SMOOTHING
@@ -78,7 +97,7 @@ export class Playback {
           outputLatency: context.outputLatency })
       }, (error) => console.warn('Could not load the playback worklet; speech will be silent', error))
     }
-    if (this.context.state === 'suspended') void this.context.resume()
+    this.resume()
   }
 
   /** Queues `samples` straight after whatever is already queued; `onStart` runs as they begin. */

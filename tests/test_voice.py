@@ -1,6 +1,7 @@
 """The /api/voice protocol (docs/voice-protocol.md), on fake speech engines."""
 import asyncio
 import json
+import logging
 import threading
 
 import numpy as np
@@ -381,6 +382,22 @@ def test_a_reply_is_spoken_with_tagged_frames(client, voice, speech):
     assert {(kind, generation) for kind, _, generation, _ in decoded} == {(frames.AUDIO, 0)}
     assert [segment for _, segment, _, _ in decoded] == [0, 0, 0, 1, 1, 1]
     assert sum(len(samples) for _, _, _, samples in decoded) == int(24000 * 0.6)
+
+
+def test_a_reply_is_traced_from_queued_to_played(client, voice, speech, caplog):
+    caplog.set_level(logging.INFO, logger="sennet.voice.session")
+    speech.tts.gate.set()
+    speak(client, "All tests pass.", task_id=7)
+    voice.next("speech_end")
+    voice.send(type="played", generation=0, segment=0)
+    voice.send(type="audio", state="suspended", hidden=True)
+    voice.send(type="stop")
+    voice.next("stopped")  # the messages before it have been handled
+    trace = [r.getMessage() for r in caplog.records if r.name == "sennet.voice.session"]
+    assert any("reply for task 7 queued, 1 segment" in line for line in trace)
+    assert any("sending task 7, generation 0 segment 0" in line for line in trace)
+    assert any("device playing generation 0 segment 0, " in line for line in trace)
+    assert any("audio is suspended (page hidden)" in line for line in trace)
 
 
 def test_stop_ends_speech_and_raises_the_generation(client, voice, speech):

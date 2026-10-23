@@ -120,6 +120,8 @@ JSON text frames.
 | `{"type": "cancel", "turn": "t7"}` | Discard the turn (slid off the button, or held too briefly). No final pass. |
 | `{"type": "stop"}` | Stop speaking. Audio only; agent work carries on (HLD §6.4). |
 | `{"type": "codecs", "uplink": "opus", "downlink": "opus"}` | Each `pcm_s16le` (the default) or `opus`, from those `ready` offered; for the frames after it (§3). A codec that wasn't offered gets `bad_message`. |
+| `{"type": "played", "generation": 4, "segment": 0}` | A segment's first audio began playing on this device. The server logs it, with the time since it sent the segment, so each reply can be followed from queued to heard in the service log. |
+| `{"type": "audio", "state": "suspended", "hidden": true}` | Playback's `AudioContext` changed state (`running`, `suspended`, `interrupted`, `closed`), for the same log. A phone suspends it with the screen off or when another app takes the audio; the client resumes it when it can and, if speech arrives while it can't, asks the user to tap. |
 
 The client picks the `turn` id (any short string, unique per session), so it can tag its
 own UI before the server answers. A message whose `turn` doesn't match the open turn is

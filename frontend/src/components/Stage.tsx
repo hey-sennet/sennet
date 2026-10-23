@@ -43,7 +43,10 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   // Once your request is sent, the task's progress takes over from your words.
   const sent = said?.speaker === 'user' && running && !snapshot.listening
     && (snapshot.state === 'idle' || snapshot.state === 'open')
-  const words = said && !sent && !(approval && said.speaker === 'agent') ? said : null
+  // An update said mid-task gives way to the progress as soon as it has been said; only the
+  // last reply lingers to be read.
+  const update = said?.speaker === 'agent' && running && !snapshot.speaking
+  const words = said && !sent && !update && !(approval && said.speaker === 'agent') ? said : null
   // The chime is the approval's question (voice-protocol §8): once as its card shows, even over
   // the agent's speech, and again for each approval after it.
   const chiming = !words && !strataPreview ? approval?.id : undefined
