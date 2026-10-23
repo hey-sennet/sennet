@@ -1,6 +1,6 @@
 # M5: access
 
-Status: done (steps 1 to 5); not yet tried on a real phone. Date: 2026-10-23.
+Status: done (steps 1 to 5); a real phone paired and worked in M6's clean install. Date: 2026-10-23.
 
 M5 decides who may use a running Agent Talk, and how it is reached from a phone.
 Packaging (`setup`, `service install`, release CI) follows in M6.

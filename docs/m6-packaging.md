@@ -1,7 +1,7 @@
 # M6: packaging
 
-Status: steps 1 to 5 done; step 6 (the first release) is being tried on a clean
-machine. Date: 2026-10-23.
+Status: done; tried from a clean install on a laptop, with a phone paired. Not released
+yet: that waits on the open questions below. Date: 2026-10-23.
 
 M6 takes Agent Talk from a source checkout to the one-line install in HLD §1:
 `uv tool install agent-talk && agent-talk setup`. It adds the user service, upgrade
@@ -140,6 +140,9 @@ setup print one themselves when nothing is paired.
   attribution in the app as well as in NOTICES; this is where it goes.
 - NOTICES listed Instrument Serif, which the client no longer uses; it now lists
   Newsreader.
+- shadcn/ui's stylesheet is copied into `frontend/src/shadcn.css` rather than installed
+  (the `shadcn` package is its CLI, which had 7 audit warnings), so `licenses.txt` can't
+  find it from a package; NOTICES carries its MIT notice instead.
 
 ### Release CI
 
@@ -194,7 +197,8 @@ defaults to no; a refusal suggests `tailscale set --operator`. An installed serv
 updated and restarted, so it picks up the new settings. A running service is stopped while
 setup runs and started again however it ends (across its re-exec after a runtime
 reinstall too): it holds the speech models, so free GPU memory read low (setup
-recommended CPU) and the speech check ran out of memory.
+recommended CPU) and the speech check ran out of memory. Later (aa92361), `doctor`'s
+findings are coloured by severity and setup calls each tier's reply time its "voice delay".
 
 ### 3. Version, upgrade and data removal
 
@@ -209,7 +213,8 @@ longer vanishes from its messages (Rich took `[cuda]` for markup).
 
 Done (2d461cf). License files in the wheel's metadata, `licenses.txt` and `notices.txt`
 from the client build, Settings → About, the sdist limited to what it needs (it was
-picking up 6 GB of spike models), and `scripts/smoke-test.sh`.
+picking up 6 GB of spike models), and `scripts/smoke-test.sh`. Later (49ab7bd), shadcn's
+stylesheet was copied in, with its notice in NOTICES.
 
 ### 5. CI
 
@@ -218,15 +223,11 @@ and `release.yml` (build, smoke test on both, publish, GitHub release), checked 
 actionlint. Not run yet: the repository has no remote. The Playwright screenshots were
 made on this machine and may need regenerating on the runner.
 
-### 6. First release
+### Tried
 
-A clean Linux machine and a Mac, from `uv tool install` to a task spoken from a real
-phone: setup, service, pairing over Tailscale, Codex and Claude Code. M5 hasn't been
-tried on a real phone yet, and this is where it is. Until Agent Talk is on PyPI, the
-install is from a locally built wheel. Then 0.1.0 is tagged.
-
-Found on the way: `uv tool install` picks the newest Python it can (3.14 here, against
-`>=3.12`), and the speech stack worked on it.
+A clean install on a laptop from a locally built wheel (`uv tool install` of the file,
+then `setup`), with a phone paired; everything worked. `uv tool install` picked the
+newest Python it could (3.14, against `>=3.12`), and the speech stack worked on it.
 
 ## Open questions
 

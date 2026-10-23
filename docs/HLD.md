@@ -458,10 +458,11 @@ automatically.
    (`agent-talk pair`, a pairing screen, devices in Settings), every request checked for a
    paired device, the phone address filled from Tailscale, and a hosting guide for
    Tailscale, Caddy and nginx ([hosting.md](hosting.md)).
-7. **M6 — Packaging.** Breakdown in [m6-packaging.md](m6-packaging.md). The user
+7. **M6 — Packaging. Done.** Breakdown in [m6-packaging.md](m6-packaging.md). The user
    service, setup's last steps (`tailscale serve`, the service, a pairing link),
    `upgrade` and `remove-data`, notices in the wheel and in Settings → About, and release
-   CI to PyPI. Built; the first release waits on a clean-machine test and a PyPI name.
+   CI to PyPI. Tried from a clean install with a phone paired; not released yet (it
+   waits on a repository, a PyPI name, and a Mac).
 8. **M7 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 
 ## 12. Open questions
