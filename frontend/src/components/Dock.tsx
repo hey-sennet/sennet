@@ -1,5 +1,5 @@
 import { type ComponentProps, useEffect, useRef, useState } from 'react'
-import { ArrowUp, AudioLines, Keyboard, ListTodo, Square } from 'lucide-react'
+import { ArrowUp, AudioLines, Keyboard, ListTodo, Plus, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -10,10 +10,11 @@ import { ModelMenu } from './ModelMenu'
 const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-[color,border-color,transform] duration-300 ease-strata hover:text-foreground active:scale-94 [&_svg]:size-5'
 
 /**
- * Under the stage: a keyboard glyph that grows into a type bar, beside it the model glyph and the
- * conversation glyph, stop while a reply plays, and on phones the tasks glyph that opens the sheet.
+ * Under the stage: the new-task glyph, the conversation glyph, a keyboard glyph that grows into a
+ * type bar, and the model glyph; then stop while a reply plays, and on phones the tasks glyph
+ * that opens the sheet.
  */
-export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, model, target, activeTasks, needsYou, onOpenTasks, className }: {
+export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, model, target, onNewTask, activeTasks, needsYou, onOpenTasks, className }: {
   typing: boolean
   onTypingChange: (typing: boolean) => void
   placeholder: string
@@ -21,6 +22,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
   disabled?: boolean
   model?: Omit<ComponentProps<typeof ModelMenu>, 'className'>
   target: Target // where a conversation's turns go
+  onNewTask?: () => void // set while following up a task: what's said next starts a new one instead
   activeTasks: number
   needsYou: boolean
   onOpenTasks?: () => void
@@ -60,6 +62,21 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
     <div className={cn('relative flex items-center gap-3 px-5 pt-2 pb-[max(18px,env(safe-area-inset-bottom))] lg:justify-center lg:pb-7',
       typing ? 'justify-center' : 'justify-between', className)}>
       <div className={cn('flex min-w-0 items-center gap-3', typing && 'flex-1 justify-center')}>
+        {!typing && (
+          <button type="button" className={cn(glyph, !onNewTask && 'pointer-events-none opacity-40')}
+            aria-label="New task" title="New task" disabled={!onNewTask} onClick={onNewTask}>
+            <Plus />
+          </button>
+        )}
+        {stt === 'ready' && turnReady && !typing && (
+          <button type="button" aria-pressed={conversation}
+            className={cn(glyph, conversation && 'border-foreground bg-foreground text-background hover:text-background')}
+            aria-label={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
+            title={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
+            onClick={() => (conversation ? voice().closeConversation() : void voice().openConversation(target))}>
+            <AudioLines />
+          </button>
+        )}
         <form
           className={cn('flex h-11 items-center overflow-hidden rounded-[22px] border transition-[width,background-color,border-color] duration-600 ease-strata',
             typing ? 'w-[min(100%,560px)] min-w-0 border-border bg-card' : 'w-11 shrink-0 border-transparent')}
@@ -93,15 +110,6 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
           </button>
         </form>
         {model && <ModelMenu {...model} className={glyph} />}
-        {stt === 'ready' && turnReady && !typing && (
-          <button type="button" aria-pressed={conversation}
-            className={cn(glyph, conversation && 'border-foreground bg-foreground text-background hover:text-background')}
-            aria-label={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
-            title={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
-            onClick={() => (conversation ? voice().closeConversation() : void voice().openConversation(target))}>
-            <AudioLines />
-          </button>
-        )}
       </div>
 
       {speaking && !typing && (

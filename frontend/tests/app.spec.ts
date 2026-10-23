@@ -82,8 +82,11 @@ test('a running task stops from the main screen, and the task being followed up 
   await expect(stage.getByText('Following up')).toBeVisible()
   await expect(stage.getByText('hang', { exact: true }).first()).toBeVisible() // the task's title, in its chip
   await page.screenshot({ path: `test-results/${info.project.name}-following-up.png` })
-  await stage.getByRole('button', { name: 'New task instead' }).click()
+  await expect(stage.getByRole('button', { name: 'New task instead' })).toBeVisible()
+  // The bottom row's new-task glyph does the same, in one click on any screen.
+  await page.getByTitle('New task', { exact: true }).click()
   await expect(stage.getByText(`New task · ${name}`)).toBeVisible()
+  await expect(page.getByTitle('New task', { exact: true })).toBeDisabled()
 })
 
 test('an approval is asked on the device that started its task; another sees a quiet line', async ({ page, browser }, info) => {
