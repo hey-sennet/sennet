@@ -43,6 +43,20 @@ def uv_tool_requirement() -> dict | None:
     return None
 
 
+def uv_tool_spec(extra: str) -> str | None:
+    """What to give `uv tool install --reinstall` for this install with `extra`: the same package from
+    the index, or the same wheel file (as when trying a local build). None for checkouts, URLs and git."""
+    if (requirement := uv_tool_requirement()) is not None:
+        return f"agent-talk[{extra}]" + (requirement.get("specifier") or "")
+    receipt = uv_tool_receipt() or {}
+    requirement = next((r for r in receipt.get("tool", {}).get("requirements", []) if r.get("name") == "agent-talk"),
+                       {})
+    wheel = Path(requirement.get("path") or "")
+    if wheel.suffix == ".whl" and wheel.is_file() and not requirement.get("editable"):
+        return f"agent-talk[{extra}] @ {wheel.resolve().as_uri()}"
+    return None
+
+
 def source_checkout() -> Path | None:
     """The repository this package runs from, when it is an editable install."""
     for parent in Path(__file__).resolve().parents:

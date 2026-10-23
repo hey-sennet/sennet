@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -25,6 +26,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -188,10 +190,10 @@ def _runtime_ready(ui: Prompter, device: str) -> bool:
     have = f"{installed} is installed" if installed else "no ONNX runtime is installed"
     ui.warn(f"The {NAMES[device]} tier needs {wanted}; {have}.")
     if command is None:
-        ui.info(f"Install Agent Talk with the `{device}` extra (for example `pip install 'agent-talk[{device}]'`), "
+        ui.info(f"Install Agent Talk with the `{device}` extra (for example `pip install {escape(f'agent-talk[{device}]')}`), "
                 "then run `agent-talk setup` again.")
         return False
-    ui.info(f"[bold]{' '.join(command)}[/]")
+    ui.info(f"[bold]{escape(shlex.join(command))}[/]")
     if not ui.confirm("Run this now?"):
         ui.info("Run it yourself, then `agent-talk setup` again.")
         return False
@@ -207,10 +209,9 @@ def _runtime_ready(ui: Prompter, device: str) -> bool:
 def _install_command(extra: str) -> tuple[list[str] | None, list[str] | None]:
     """The command that reinstalls Agent Talk with `extra`, and what to run afterwards."""
     if install.uv_tool_receipt() is not None:
-        requirement = install.uv_tool_requirement()
-        if requirement is None:
+        spec = install.uv_tool_spec(extra)
+        if spec is None:
             return None, None
-        spec = f"agent-talk[{extra}]" + (requirement.get("specifier") or "")
         return ["uv", "tool", "install", "--reinstall", spec], [shutil.which("agent-talk") or "agent-talk"]
     rerun = [sys.executable, "-m", "agent_talk"]
     project = install.source_checkout()
@@ -245,7 +246,7 @@ def _fetch(ui: Prompter, paths: Paths, speech_models: list[Model], downloads: li
                 for model in present:
                     models.fetch(paths.models, model)
     except (OSError, models.ChecksumError) as error:
-        ui.fail(str(error))
+        ui.fail(escape(str(error)))
         return False
     ui.ok("Downloads are in place and match their checksums.")
     return True
@@ -371,7 +372,7 @@ def _choose_service(ui: Prompter, settings: Settings) -> bool:
     try:
         manager = service.manager()
     except service.ServiceError as error:
-        ui.info(str(error))
+        ui.info(escape(str(error)))
         return False
     status = manager.status()
     if status.installed:
@@ -393,7 +394,7 @@ def _choose_service(ui: Prompter, settings: Settings) -> bool:
         else:
             failure = None
     if failure is not None:
-        ui.fail(str(failure))
+        ui.fail(escape(str(failure)))
         return False
     ui.ok(f"Agent Talk {found['version']} is running as a {manager.name}, and starts at login.")
     if manager.lingering() is False:
@@ -411,7 +412,7 @@ def _choose_linger(ui: Prompter, manager):
     try:
         manager.linger()
     except service.ServiceError as error:
-        ui.fail(str(error))
+        ui.fail(escape(str(error)))
         ui.info("Run `sudo loginctl enable-linger $USER` to turn it on.")
         return
     ui.ok("Agent Talk keeps running after you log out.")

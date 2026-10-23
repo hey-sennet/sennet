@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from agent_talk import __version__, install, service
+from agent_talk import __version__, install, service, setup
 from agent_talk.config import Paths
 from agent_talk.db import Database
 
@@ -186,3 +186,43 @@ def test_nothing_to_remove(monkeypatch, paths, capsys):
     monkeypatch.setattr(service, "port_taken", lambda port: False)
     assert install.remove_data(paths, 7710, True) == 0
     assert "no Agent Talk data" in capsys.readouterr().out
+
+
+# Reinstalling with the extra setup picks
+
+def test_setup_reinstalls_an_index_install_with_the_extra(tmp_path, monkeypatch):
+    receipt(tmp_path, monkeypatch, '{ name = "agent-talk", specifier = ">=0.1" }')
+    assert install.uv_tool_spec("cuda") == "agent-talk[cuda]>=0.1"
+
+
+def test_setup_reinstalls_a_wheel_file_with_the_extra(tmp_path, monkeypatch):
+    wheel = tmp_path / "agent_talk-0.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", path = "{wheel}" }}')
+    assert install.uv_tool_spec("cuda") == f"agent-talk[cuda] @ {wheel.as_uri()}"
+    command, _ = setup._install_command("cuda")
+    assert command == ["uv", "tool", "install", "--reinstall", f"agent-talk[cuda] @ {wheel.as_uri()}"]
+
+
+def test_a_directory_install_cant_be_reinstalled_with_an_extra(tmp_path, monkeypatch):
+    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", directory = "{tmp_path}" }}')
+    assert install.uv_tool_spec("cuda") is None
+    wheel = tmp_path / "gone.whl"  # a wheel since deleted
+    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", path = "{wheel}" }}')
+    assert install.uv_tool_spec("cuda") is None
+
+
+def test_setup_shows_the_reinstall_command_with_its_extra(tmp_path, monkeypatch):
+    from test_setup import Scripted
+
+    wheel = tmp_path / "agent_talk-0.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", path = "{wheel}" }}')
+    monkeypatch.setattr(setup, "runtime_distribution", lambda: None)
+    ui = Scripted(False)
+    assert setup._runtime_ready(ui, "cuda") is False
+    assert f"'agent-talk[cuda]@{wheel.as_uri()}'" in "".join(ui.output().split())  # however it wraps
+    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", directory = "{tmp_path}" }}')
+    ui = Scripted()
+    setup._runtime_ready(ui, "cuda")
+    assert "pip install agent-talk[cuda]" in " ".join(ui.output().split())
