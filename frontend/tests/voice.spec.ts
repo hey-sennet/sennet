@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
+import { chooseProject } from './projects'
 
 // The e2e server's fake speech hears this whenever there is sound (playwright.config.ts),
 // and Chromium's fake microphone plays a swelling tone.
@@ -22,7 +23,7 @@ test('hold to talk starts a task from what was said', async ({ page }, info) => 
   const name = `voice-${info.project.name}`
   await addProject(page, name)
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   const talk = page.getByRole('button', { name: 'Hold to talk' })
   await expect(talk).toBeEnabled()
 
@@ -44,7 +45,7 @@ test('tap to start and tap again to send a follow-up', async ({ page }, info) =>
   const name = `voice-tap-${info.project.name}`
   await addProject(page, name)
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
   await composer.fill('first')
@@ -64,7 +65,7 @@ test('a conversation hears you without the button, and pressing sends it', async
   const name = `voice-conversation-${info.project.name}-${info.repeatEachIndex}`
   await addProject(page, name)
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   const toggle = page.getByRole('button', { name: /Start a conversation/ })
   await toggle.click()
   await expect(page.getByRole('button', { name: 'End the conversation' })).toHaveAttribute('aria-pressed', 'true')
@@ -106,7 +107,7 @@ test('the reply is spoken, and stop silences it', async ({ page }, info) => {
   const name = `voice-speak-${info.project.name}`
   await addProject(page, name)
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   const talk = page.getByRole('button', { name: 'Hold to talk' })
   await expect(talk).toBeEnabled()
   await talk.hover()
@@ -134,7 +135,7 @@ function audioFrames(page: Page) {
 async function talkAndHearTheReply(page: Page, name: string) {
   await addProject(page, name)
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   const talk = page.getByRole('button', { name: 'Hold to talk' })
   await expect(talk).toBeEnabled()
   await talk.hover()

@@ -1,6 +1,7 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
+import { chooseProject } from './projects'
 
 // Created by tests/e2e_server.py; each browser project gets its own directory.
 const home = path.resolve(import.meta.dirname, '../../.e2e-home/repo')
@@ -28,7 +29,7 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
 
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
   await composer.fill('run:npm test')
@@ -89,7 +90,7 @@ test('a running task stops from the main screen, and the task being followed up 
   mkdirSync(directory, { recursive: true })
   expect((await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })).ok()).toBe(true)
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
   await composer.fill('hang')
@@ -125,7 +126,7 @@ test('an approval is asked on the device that started its task; another sees a q
   await expect(phone.getByTitle('Connected')).toBeVisible()
 
   await page.goto('/')
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
   await composer.fill('run:npm test')
@@ -164,7 +165,7 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
 
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   // The next task's model, chosen from the dock before it starts.
   await page.getByRole('button', { name: /^Model: Default/ }).click()
   let menu = page.getByRole('dialog', { name: `Model for a new task in ${name}` })
@@ -212,7 +213,7 @@ test('an open task catches up on what it missed while the phone was offline', as
 
   await page.goto('/')
   await expect(page.getByTitle('Connected')).toBeVisible()
-  await page.getByLabel('Project').selectOption({ label: name })
+  await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
   await page.getByPlaceholder(`Ask codex to do something in ${name}`).fill('hello')
   await page.keyboard.press('Enter')

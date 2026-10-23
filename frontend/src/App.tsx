@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, Settings } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { Dock } from '@/components/Dock'
+import { ProjectMenu } from '@/components/ProjectMenu'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Stage } from '@/components/Stage'
 import { TaskDetail } from '@/components/TaskDetail'
@@ -170,21 +171,10 @@ export default function App() {
         </button>
         <div className="flex min-w-0 items-center gap-2">
           {live.projects.length > 0 && homeProject && (
-            <label className="relative flex h-8 min-w-0 items-center gap-2 rounded-full border px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-              <span className="size-1.5 shrink-0 rounded-full bg-foreground/70" />
-              <select
-                aria-label="Project"
-                className="min-w-0 appearance-none truncate bg-transparent pr-4 outline-none"
-                value={homeProject.id}
-                onChange={(event) => {
-                  setHomeProjectId(Number(event.target.value))
-                  setSelected(null)
-                }}
-              >
-                {live.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 size-3" />
-            </label>
+            <ProjectMenu projects={live.projects} current={homeProject} agents={agents} onChange={(id) => {
+              setHomeProjectId(id)
+              setSelected(null)
+            }} />
           )}
           <ConnectionDot connection={live.connection} />
           <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
