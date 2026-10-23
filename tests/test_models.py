@@ -56,6 +56,19 @@ def test_a_tasks_own_model_takes_its_default_effort_not_the_projects(client, pro
     assert turns == [("gpt-fast", "medium"), ("gpt-deep", "high")]
 
 
+def test_a_new_task_can_start_on_its_own_model(client, project, codex_log):
+    client.patch(f"/api/projects/{project['id']}", json={"model": "gpt-deep"})
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi", "model": "gpt-fast"}).json()
+    assert (task["model"], task["effort"]) == ("gpt-fast", None)
+    wait_for(client, task["id"], done(2))
+    turn = codex_log("turn/start")[0]["params"]
+    assert (turn["model"], turn["effort"]) == ("gpt-fast", "low")
+    effort_only = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi", "effort": "max"})
+    assert effort_only.status_code == 201  # gpt-deep's, from the project
+    refused = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi", "model": "gpt-nope"})
+    assert refused.status_code == 400 and "no model 'gpt-nope'" in refused.json()["detail"]
+
+
 def test_unknown_models_and_efforts_are_refused(client, project):
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi"}).json()
     response = client.patch(f"/api/tasks/{task['id']}", json={"model": "gpt-nope"})

@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from . import projects
 from .agents import registry
-from .agents.base import Agent, ModelOption
+from .agents.base import Agent
 from .agents.callbacks import CallbackServer
 from .approvals import Approvals
 from .config import Paths, ServerSettings, Settings
@@ -61,6 +61,8 @@ class ProjectPatch(BaseModel):
 class TaskIn(BaseModel):
     project_id: int
     text: str
+    model: str | None = None
+    effort: str | None = None
 
 
 class ModelIn(BaseModel):
@@ -136,21 +138,10 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                 for (name, agent), result, models in zip(agents.items(), results, listed)}
 
     async def check_model(agent: Agent | None, model: str | None, effort: str | None, inherited: str | None = None):
-        """Refuse a model or effort the agent doesn't list. An effort alone is for `inherited`, the
-        model otherwise in use, or the agent's default."""
-        if agent is None or (model is None and effort is None):
-            return
-        model_given, model = model is not None, model or inherited
         try:
-            options: list[ModelOption] = await agent.models()
-        except Exception as error:
-            raise HTTPException(400, f"couldn't list {agent.title}'s models: {error}")
-        chosen = next((o for o in options if o.id == model), None) if model else \
-            next((o for o in options if o.default), None)
-        if model and chosen is None and model_given:
-            raise HTTPException(400, f"{agent.title} has no model {model!r}")
-        if effort and chosen and effort not in chosen.efforts:
-            raise HTTPException(400, f"{chosen.title} doesn't take {effort!r} effort")
+            await registry.check_model(agent, model, effort, inherited)
+        except registry.ModelError as error:
+            raise HTTPException(400, str(error))
 
     @app.post("/api/projects", status_code=201)
     async def add_project(body: ProjectIn, request: Request):
@@ -197,7 +188,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.post("/api/tasks", status_code=201)
     async def create_task(body: TaskIn, request: Request):
         try:
-            return await request.app.state.tasks.create(body.project_id, body.text)
+            return await request.app.state.tasks.create(body.project_id, body.text, body.model, body.effort)
         except TaskError as error:
             raise HTTPException(400, str(error))
 

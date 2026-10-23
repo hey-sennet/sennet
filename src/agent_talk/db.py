@@ -190,11 +190,12 @@ class Database:
 
     # Tasks
 
-    def add_task(self, project_id: int, agent: str, title: str) -> int:
+    def add_task(self, project_id: int, agent: str, title: str, model: str | None = None,
+                 effort: str | None = None) -> int:
         now = time.time()
         return self.execute(
-            "INSERT INTO tasks (project_id, agent, title, status, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?)",
-            project_id, agent, title, now, now)
+            "INSERT INTO tasks (project_id, agent, title, model, effort, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)", project_id, agent, title, model, effort, now, now)
 
     def task(self, task_id: int) -> dict | None:
         return self.one("SELECT * FROM tasks WHERE id = ?", task_id)

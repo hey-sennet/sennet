@@ -180,16 +180,18 @@ class VoiceHub:
         return {"outcome": "approval", "approval_id": approval["id"], "decision": decision}
 
     async def _dispatch(self, turn: Turn, text: str, named_project: int | None) -> dict | None:
-        """A named project wins over the selection, unless the selected task is in it."""
+        """A named project wins over the selection, unless the selected task is in it. The turn's
+        model is for a task started in its own project."""
         selected = self.tasks.db.task(turn.task_id) if turn.task_id is not None else None
         if named_project is not None:
             if selected and selected["project_id"] == named_project:
                 return await self.tasks.follow_up(selected["id"], text)
-            return await self.tasks.create(named_project, text)
-        if turn.task_id is not None:
+            if named_project != turn.project_id or turn.task_id is not None:
+                return await self.tasks.create(named_project, text)
+        elif turn.task_id is not None:
             return await self.tasks.follow_up(turn.task_id, text)
         if turn.project_id is not None:
-            return await self.tasks.create(turn.project_id, text)
+            return await self.tasks.create(turn.project_id, text, turn.model, turn.effort)
         return None
 
     async def close(self):

@@ -35,6 +35,8 @@ class Turn:
     id: str
     task_id: int | None
     project_id: int | None
+    model: str | None = None        # for a task started in `project_id`
+    effort: str | None = None
     frames: asyncio.Queue = field(default_factory=asyncio.Queue)  # float32 chunks, then None
     queued: int = 0                 # samples waiting in `frames`
     total: int = 0
@@ -154,6 +156,10 @@ class VoiceSession:
         if any(v is not None and (not isinstance(v, int) or isinstance(v, bool)) for v in (task_id, project_id)):
             await self.error("bad_message", "task_id and project_id are integers or null", turn_id)
             return
+        model, effort = message.get("model"), message.get("effort")
+        if any(v is not None and not isinstance(v, str) for v in (model, effort)):
+            await self.error("bad_message", "model and effort are strings or null", turn_id)
+            return
         if self.turn is not None:
             await self.error("busy", "this device already has a turn open", turn_id)
             return
@@ -161,7 +167,7 @@ class VoiceSession:
             await self.error("stt_unavailable", self.speech.detail["stt"] or "speech recognition is loading", turn_id)
             return
         await self.interrupt()  # talking stops any speech (voice-protocol §7)
-        self.turn = Turn(turn_id, task_id, project_id)
+        self.turn = Turn(turn_id, task_id, project_id, model, effort)
         self.floor.clear()
         self.turn.job = asyncio.ensure_future(self._listen(self.turn))
         await self._set_state("listening", turn_id)

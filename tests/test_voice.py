@@ -474,3 +474,21 @@ def test_a_closed_socket_drops_its_turn(client, project):
         voice.ws.send_bytes(SPEECH_FRAME)
     assert client.get("/api/state").json()["tasks"] == []
     assert client.app.state.voice.sessions == set()
+
+
+def test_a_task_started_by_voice_takes_the_turns_model(client, voice, speech, project, other_project):
+    speech.stt.transcript = "Run the tests."
+    voice.talk(project_id=project["id"], model="gpt-deep", effort="max")
+    task = client.get(f"/api/tasks/{voice.next('final')['task_id']}").json()
+    assert (task["model"], task["effort"]) == ("gpt-deep", "max")
+    speech.stt.transcript = "In web client, fix the header."  # another project: its own default
+    voice.talk(turn="t2", project_id=project["id"], model="gpt-deep")
+    task = client.get(f"/api/tasks/{voice.next('final')['task_id']}").json()
+    assert (task["project_id"], task["model"]) == (other_project["id"], None)
+
+
+def test_a_model_the_agent_doesnt_list_fails_the_turn(client, voice, speech, project):
+    speech.stt.transcript = "Run the tests."
+    voice.talk(project_id=project["id"], model="gpt-nope")
+    assert voice.next("voice_error")["code"] == "dispatch_failed"
+    assert client.get("/api/state").json()["tasks"] == []

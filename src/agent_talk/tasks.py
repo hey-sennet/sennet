@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decision, TurnPolicy, check_event
+from .agents.registry import ModelError, check_model
 from .approvals import Approvals
 from .config import Settings
 from .db import Database
@@ -75,12 +76,17 @@ class TaskManager:
 
     # Public operations
 
-    async def create(self, project_id: int, text: str) -> dict:
+    async def create(self, project_id: int, text: str, model: str | None = None, effort: str | None = None) -> dict:
+        """A new task, on its own model and effort if given (else the project's)."""
         project = self.db.project(project_id)
         if project is None:
             raise TaskError("no such project")
+        try:
+            await check_model(self.agents.get(project["agent"]), model, effort, project["model"])
+        except ModelError as error:
+            raise TaskError(str(error)) from None
         text = _clean(text)
-        task_id = self.db.add_task(project_id, project["agent"], _title(text))
+        task_id = self.db.add_task(project_id, project["agent"], _title(text), model, effort)
         self.db.add_message(task_id, "user", text, "queued")
         await self._publish_task(task_id)
         self._schedule()
