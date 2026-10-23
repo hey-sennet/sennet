@@ -1,14 +1,15 @@
-"""Command line: `agent-talk setup`, `serve`, `pair`, `devices`, `project …` and `doctor`."""
+"""Command line: `agent-talk setup`, `serve`, `service …`, `pair`, `devices`, `project …` and `doctor`."""
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
 import shutil
+import subprocess
 import sys
 import time
 
-from . import __version__, access, projects
+from . import __version__, access, projects, service
 from .agents import registry
 from .config import Paths, Settings
 from .db import Database
@@ -26,6 +27,17 @@ def main(argv: list[str] | None = None):
     serve = commands.add_parser("serve", help="run the server")
     serve.add_argument("--host", help="bind address (default from config: 127.0.0.1)")
     serve.add_argument("--port", type=int, help="port (default from config: 7710)")
+
+    service = commands.add_parser("service", help="run Agent Talk in the background, from login")
+    service_commands = service.add_subparsers(dest="action", required=True)
+    service_commands.add_parser("install", help="install the service and start it (again, to update it)")
+    service_commands.add_parser("uninstall", help="stop the service and remove it")
+    service_commands.add_parser("start", help="start the service")
+    service_commands.add_parser("stop", help="stop the service")
+    service_commands.add_parser("restart", help="restart the service")
+    service_commands.add_parser("status", help="whether the service is installed and running")
+    logs = service_commands.add_parser("logs", help="show the service's log")
+    logs.add_argument("-f", "--follow", action="store_true", help="keep showing new lines")
 
     project = commands.add_parser("project", help="manage projects")
     project_commands = project.add_subparsers(dest="action", required=True)
@@ -59,6 +71,8 @@ def main(argv: list[str] | None = None):
         sys.exit(guided.run(settings, paths, args.device, args.yes))
     elif args.command == "serve":
         serve_command(settings, paths, args)
+    elif args.command == "service":
+        sys.exit(service_command(settings, paths, args))
     elif args.command == "pair":
         pair_command(settings, paths)
     elif args.command == "devices":
@@ -83,6 +97,11 @@ def serve_command(settings: Settings, paths: Paths, args):
                         "address instead.", host)
     if not WEB_DIR.is_dir():
         logging.warning("web client not built; only the API is available (see frontend/README.md)")
+    if (running := service.health(port)) is not None:
+        sys.exit(f"Agent Talk {running['version']} is already running on port {port}. If it's the service, "
+                 "`agent-talk service stop` stops it, and `agent-talk service logs` shows its output.")
+    if service.port_taken(port):
+        sys.exit(f"another program is using port {port}; stop it, or pass --port or set server.port in the config")
     print(f"Agent Talk on http://{host}:{port}", flush=True)
     db = Database(paths.database)
     try:
@@ -93,6 +112,79 @@ def serve_command(settings: Settings, paths: Paths, args):
     finally:
         db.close()
     uvicorn.run(create_app(settings, paths), host=host, port=port, log_level="warning")
+
+
+def service_command(settings: Settings, paths: Paths, args) -> int:
+    port = settings.server.port
+    try:
+        if args.action == "install":
+            manager, found = service.install(port)
+            print(f"Agent Talk {found['version']} is running as a {manager.name}, and starts at login.")
+            print(f"  {manager.file}")
+            if manager.lingering() is False:
+                print("It stops when you log out. To keep it running then, run `loginctl enable-linger`.")
+            if not _paired(paths):
+                print()
+                pair_command(settings, paths)
+            return 0
+        manager = service.manager()
+        status = manager.status()
+        if args.action == "status":
+            return _show_service(manager, status, port)
+        if not status.installed:
+            if args.action == "uninstall":
+                print("the service isn't installed")
+                return 0
+            print("the service isn't installed; `agent-talk service install` installs and starts it", file=sys.stderr)
+            return 1
+        if args.action == "uninstall":
+            manager.uninstall()
+            print(f"stopped the service and removed {manager.file}. Your data and models are still there; "
+                  "`agent-talk remove-data` deletes them.")
+        elif args.action == "logs":
+            try:
+                return subprocess.run(manager.logs_command(args.follow)).returncode
+            except KeyboardInterrupt:
+                return 0
+        elif args.action == "stop":
+            manager.stop()
+            print("stopped; `agent-talk service start` starts it again, and it starts at the next login")
+        else:  # start, restart
+            getattr(manager, args.action)()
+            found = service.wait_until_up(port)
+            if found is None:
+                print(f"the service didn't answer on port {port}; `agent-talk service logs` shows why",
+                      file=sys.stderr)
+                return 1
+            print(f"Agent Talk {found['version']} is running")
+    except service.ServiceError as error:
+        print(error, file=sys.stderr)
+        return 1
+    return 0
+
+
+def _show_service(manager, status: service.Status, port: int) -> int:
+    if not status.installed:
+        print("not installed; `agent-talk service install` installs and starts it")
+        return 3  # as systemctl status does for a unit that isn't running
+    found = service.health(port) if status.running else None
+    print(f"{manager.name}: {status.detail}{f', pid {status.pid}' if status.pid else ''}")
+    print(f"  file:    {manager.file}")
+    if status.command:
+        print(f"  runs:    {' '.join(status.command)} serve")
+    if found:
+        print(f"  answers: Agent Talk {found['version']} on port {port}")
+    elif status.running:
+        print(f"  answers: nothing on port {port} yet")
+    return 0 if status.running else 3
+
+
+def _paired(paths: Paths) -> bool:
+    db = Database(paths.database)
+    try:
+        return bool(db.devices())
+    finally:
+        db.close()
 
 
 def pair_command(settings: Settings, paths: Paths):
@@ -164,16 +256,67 @@ def project_command(paths: Paths, args):
 
 def doctor(settings: Settings, paths: Paths) -> int:
     problems = 0
+    from .server import WEB_DIR
+
+    print(f"version:  {__version__} ({' '.join(service.program())})")
     print(f"config:   {paths.config_file}{'' if paths.config_file.exists() else ' (defaults)'}")
     print(f"data:     {paths.database}")
-    for name, agent in registry.build(settings.agents.commands).items():
+    if not (WEB_DIR / "index.html").is_file():
+        print("client:   problem: the web client isn't built, so browsers get only the API "
+              "(see frontend/README.md)")
+        problems += 1
+    agents = registry.build(settings.agents.commands)
+    for name, agent in agents.items():
         status = asyncio.run(agent.status())
         ok = status.installed and status.logged_in
         problems += not ok
         print(f"{name + ':':<9} {'ok' if ok else 'problem'}: {status.detail}")
     problems += not speech_ok(settings, paths)
     problems += not access_ok(settings, paths)
+    problems += not service_ok(settings, agents)
     return 1 if problems else 0
+
+
+def service_ok(settings: Settings, agents: dict) -> bool:
+    """Whether the service runs this install, answers, and finds the agents on its PATH."""
+    try:
+        manager = service.manager()
+    except service.ServiceError as error:
+        print(f"service:  {error}")
+        return True
+    status = manager.status()
+    port = settings.server.port
+    if not status.installed:
+        print("service:  not installed; `agent-talk service install` runs Agent Talk in the background, from login")
+        return True
+    ok = True
+    if status.command != service.program():
+        print(f"service:  problem: it runs {' '.join(status.command or ['?'])}, not this install; "
+              "run `agent-talk service install` to update it")
+        ok = False
+    found = service.health(port) if status.running else None
+    if not status.running:
+        print(f"service:  problem: installed but {status.detail}; `agent-talk service logs` shows why, "
+              "and `agent-talk service start` starts it")
+        ok = False
+    elif found is None:
+        print(f"service:  problem: running, but nothing answers on port {port}; see `agent-talk service logs`")
+        ok = False
+    elif found["version"] != __version__:
+        print(f"service:  problem: running {found['version']}, but {__version__} is installed; "
+              "run `agent-talk service restart`")
+        ok = False
+    else:
+        lingering = manager.lingering()
+        later = " (stops when you log out; `loginctl enable-linger` keeps it running)" if lingering is False else ""
+        print(f"service:  ok: running{f' (pid {status.pid})' if status.pid else ''}, starts at login{later}")
+    for name, agent in agents.items():
+        program = agent.command[0]
+        if shutil.which(program) and not shutil.which(program, path=status.path or ""):
+            print(f"service:  problem: the service can't find {program} ({agent.title}) on its PATH; run "
+                  "`agent-talk service install` from a shell that finds it")
+            ok = False
+    return ok
 
 
 def access_ok(settings: Settings, paths: Paths) -> bool:

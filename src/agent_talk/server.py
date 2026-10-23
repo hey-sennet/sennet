@@ -5,8 +5,9 @@ requests must carry the `X-Agent-Talk` header: browsers cannot add custom header
 to cross-site requests without CORS permission, which this server never grants.
 
 Everything under `/api/` needs a paired device's cookie (access.py), loopback
-included: behind a proxy on this machine every request comes from 127.0.0.1. Only
-`POST /api/pair`, which redeems a pairing code, is open, and it is throttled. A
+included: behind a proxy on this machine every request comes from 127.0.0.1. Two are
+open: `POST /api/pair`, which redeems a pairing code and is throttled, and
+`GET /api/health`, which says only that this is Agent Talk and its version. A
 WebSocket from an unpaired device, or one revoked while it is open, is closed with
 code 4401. The app shell is served to anyone, so an unpaired browser can pair.
 
@@ -29,7 +30,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import access, projects
+from . import __version__, access, projects
 from .agents import registry
 from .agents.base import Agent
 from .agents.callbacks import CallbackServer
@@ -48,6 +49,7 @@ CSRF_HEADER = "x-agent-talk"
 UNPAIRED = 4401                 # WebSocket close code: pair this device, don't just reconnect
 SWEEP_S = 30                    # how often open sockets are checked for devices revoked elsewhere
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
+OPEN = ("/api/pair", "/api/health")    # the API paths an unpaired device may use
 
 
 class ProjectIn(BaseModel):
@@ -150,7 +152,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         if request.url.path.startswith("/api/"):
             if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(CSRF_HEADER) != "1":
                 return _secured(JSONResponse({"detail": f"missing {CSRF_HEADER} header"}, status_code=403), request)
-            if request.url.path != "/api/pair":
+            if request.url.path not in OPEN:
                 device = access.device_for(request.app.state.db, request.cookies.get(access.COOKIE))
                 if device is None:
                     return _secured(JSONResponse({"detail": "this device isn't paired"}, status_code=401), request)
@@ -178,6 +180,11 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     def db(request: Request) -> Database:
         return request.app.state.db
+
+    @app.get("/api/health")
+    async def health():
+        """For the service and `doctor`: is this Agent Talk, and which version."""
+        return {"app": "agent-talk", "version": __version__}
 
     @app.post("/api/pair")
     async def pair(body: PairIn, request: Request):
