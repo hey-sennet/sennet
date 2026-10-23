@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turn Recordings</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Turn recordings</h1>
+  <p class="muted">Each card describes something to say to Sennet. Say it in your own words, the way you
+    really would: pauses, “um”s and changes of mind are what this is measuring, so don't tidy them up.
+    Press Start, speak, then press Done once you've <i>finished</i>. Space works too.
+    <a href="/">Back</a></p>
+
+  <div class="row">
+    <input type="text" id="device" placeholder="Microphone, e.g. laptop mic, Pixel 7, AirPods">
+  </div>
+
+  <div class="card">
+    <p class="muted" id="kind"></p>
+    <div class="say" id="say"></div>
+    <p class="muted" id="example"></p>
+  </div>
+
+  <div class="row">
+    <button id="go">Start</button>
+    <button id="skip" class="secondary">Skip</button>
+    <button id="discard" class="secondary" disabled>Discard</button>
+  </div>
+  <div class="status" id="status"></div>
+  <p class="muted" id="counts"></p>
+</main>
+<script type="module">
+import { Recorder, upload, sleep, stored, store } from '/recorder.js'
+
+const $ = (id) => document.getElementById(id)
+const TAIL_MS = 700  // kept after Done: room noise to extend the silence with
+
+const data = await (await fetch('/api/prompts')).json()
+const showCounts = (counts) => { $('counts').textContent = `${counts.turn} recordings saved. Thirty or more is a useful set; sixty is better.` }
+showCounts(data.counts)
+$('device').value = stored('record.device', '')
+$('device').onchange = () => store('record.device', $('device').value)
+
+let mic = null
+let recording = false
+let discarded = false
+let position = Number(stored('record.position', '0'))
+let doneAt = 0
+
+function show() {
+  const scenario = data.scenarios[position % data.scenarios.length]
+  $('kind').textContent = `${scenario.kind} · ${position % data.scenarios.length + 1} of ${data.scenarios.length}` +
+    (position >= data.scenarios.length ? ` · round ${Math.floor(position / data.scenarios.length) + 1}` : '')
+  $('say').textContent = scenario.say
+  $('example').textContent = scenario.example ? `For example: “${scenario.example}”` : ''
+}
+
+function advance() {
+  position += 1
+  store('record.position', String(position))
+  show()
+}
+
+async function start() {
+  try {
+    mic ??= await Recorder.open()
+  } catch (error) {
+    $('status').textContent = `Couldn't open the microphone: ${error}`
+    return
+  }
+  mic.start()
+  recording = true
+  discarded = false
+  $('go').textContent = 'Done'
+  $('go').classList.add('recording')
+  $('discard').disabled = false
+  $('skip').disabled = true
+  $('status').textContent = 'Listening…'
+}
+
+async function done() {
+  recording = false
+  doneAt = mic.now
+  $('go').disabled = true
+  $('discard').disabled = true
+  await sleep(TAIL_MS)
+  const audio = mic.stop()
+  $('go').textContent = 'Start'
+  $('go').classList.remove('recording')
+  $('go').disabled = false
+  $('skip').disabled = false
+  if (discarded) {
+    $('status').textContent = 'Discarded. Try it again.'
+    return
+  }
+  const index = position % data.scenarios.length
+  const scenario = data.scenarios[index]
+  $('status').textContent = 'Saving…'
+  try {
+    const result = await upload({
+      kind: 'turn', scenario: index, category: scenario.kind, say: scenario.say, device: $('device').value,
+      applied: mic.settings, user_agent: navigator.userAgent, rate: mic.rate, done_sample: doneAt,
+    }, audio)
+    showCounts(result.counts)
+    $('status').textContent = 'Saved.'
+    advance()
+  } catch (error) {
+    $('status').textContent = `Failed: ${error}`
+  }
+}
+
+$('go').onclick = () => (recording ? done() : start())
+$('skip').onclick = advance
+$('discard').onclick = () => { discarded = true; void done() }
+document.addEventListener('keydown', (event) => {
+  if (event.code === 'Space' && !event.repeat && document.activeElement?.tagName !== 'INPUT') {
+    event.preventDefault()
+    if (!$('go').disabled) $('go').click()
+  }
+})
+show()
+</script>
+</body>
+</html>

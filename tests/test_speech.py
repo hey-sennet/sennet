@@ -13,7 +13,7 @@ from sennet import setup
 from sennet.config import Settings
 from sennet.speech import Speech, hardware, models
 from sennet.speech.base import AudioBuffer
-from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
+from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeTurn, FakeVAD
 from sennet.speech.stt import StreamingTranscriber
 from sennet.speech.tts import VOCAB, split, tokens, trim
 from sennet.speech.worker import CAPTION, FINAL, Worker
@@ -83,9 +83,17 @@ def test_fetch_keeps_files_that_already_match(tmp_path):
     assert models.present(root, model)
 
 
-def test_every_tier_has_all_three_roles():
+def test_every_tier_has_every_role():
     for chosen in models.MODELS.values():
-        assert {role: m.role for role, m in chosen.items()} == {"vad": "vad", "stt": "stt", "tts": "tts"}
+        assert {role: m.role for role, m in chosen.items()} == {"vad": "vad", "stt": "stt", "tts": "tts", "turn": "turn"}
+
+
+def test_smart_turn_features_have_the_models_shape():
+    from sennet.speech.turn import features
+
+    for seconds in (0.5, 8, 12):
+        x = features(np.random.default_rng(0).normal(0, 0.1, int(16000 * seconds)))
+        assert x.shape == (1, 80, 800) and x.dtype == np.float32 and np.isfinite(x).all()
 
 
 # Hardware recommendation
@@ -171,7 +179,10 @@ def test_fake_vad_hears_sound_not_silence():
 
 async def test_speech_with_fakes_is_ready():
     speech = Speech.with_engines(FakeVAD(), FakeRecognizer(), FakeSynthesizer())
-    assert speech.snapshot() == {"stt": "ready", "tts": "ready"}
+    assert speech.snapshot() == {"stt": "ready", "tts": "ready", "turn": "unavailable"}
+    speech.close()
+    speech = Speech.with_engines(FakeVAD(), FakeRecognizer(), FakeSynthesizer(), turn=FakeTurn())
+    assert speech.snapshot() == {"stt": "ready", "tts": "ready", "turn": "ready"}
     audio = await speech.run("tts", speech.tts.synthesize, "hello there")
     assert len(audio) == int(24000 * 0.2)
     speech.close()
@@ -180,7 +191,7 @@ async def test_speech_with_fakes_is_ready():
 async def test_speech_without_models_is_unavailable_and_says_why(tmp_path):
     speech = Speech()
     await speech.load(tmp_path / "models", "cpu", 4, "af_heart")
-    assert speech.snapshot() == {"stt": "unavailable", "tts": "unavailable"}
+    assert speech.snapshot() == {"stt": "unavailable", "tts": "unavailable", "turn": "unavailable"}
     assert "sennet setup" in speech.detail["stt"]
     speech.close()
 
@@ -198,7 +209,7 @@ def test_the_daemon_starts_without_models(settings, paths):
         deadline = time.monotonic() + 10
         while speech.status["stt"] == "loading" and time.monotonic() < deadline:
             time.sleep(0.02)
-        assert speech.snapshot() == {"stt": "unavailable", "tts": "unavailable"}
+        assert speech.snapshot() == {"stt": "unavailable", "tts": "unavailable", "turn": "unavailable"}
 
 
 def test_config_rejects_an_unknown_device(tmp_path):

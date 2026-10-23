@@ -72,6 +72,12 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
         notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0,
                item={**item, "status": "completed" if accepted else "declined"})
         reply = "Edited." if accepted else "Left it alone."
+    elif text.startswith("two:"):
+        # Two messages in one turn, a second apart, as an agent says what it's about to do and then does it.
+        first, reply = text[4:].split("|")
+        notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0,
+               item={"type": "agentMessage", "id": "msg0", "text": first, "phase": None})
+        await asyncio.sleep(1.0)
     elif text == "hang":
         await interrupted.wait()
         interrupted.clear()

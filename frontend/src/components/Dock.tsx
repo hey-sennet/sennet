@@ -1,30 +1,31 @@
 import { type ComponentProps, useEffect, useRef, useState } from 'react'
-import { ArrowUp, Keyboard, ListTodo, Square } from 'lucide-react'
+import { ArrowUp, AudioLines, Keyboard, ListTodo, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useVoice } from '@/voice/usePushToTalk'
-import { voice } from '@/voice/voice'
+import { voice, type Target } from '@/voice/voice'
 import { ModelMenu } from './ModelMenu'
 
 const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-[color,border-color,transform] duration-300 ease-strata hover:text-foreground active:scale-94 [&_svg]:size-5'
 
 /**
- * Under the stage: a keyboard glyph that grows into a type bar, beside it the model glyph, stop
- * while a reply plays, and on phones the tasks glyph that opens the sheet.
+ * Under the stage: a keyboard glyph that grows into a type bar, beside it the model glyph and the
+ * conversation glyph, stop while a reply plays, and on phones the tasks glyph that opens the sheet.
  */
-export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, model, activeTasks, needsYou, onOpenTasks, className }: {
+export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, model, target, activeTasks, needsYou, onOpenTasks, className }: {
   typing: boolean
   onTypingChange: (typing: boolean) => void
   placeholder: string
   onSend: (text: string) => Promise<unknown>
   disabled?: boolean
   model?: Omit<ComponentProps<typeof ModelMenu>, 'className'>
+  target: Target // where a conversation's turns go
   activeTasks: number
   needsYou: boolean
   onOpenTasks?: () => void
   className?: string
 }) {
-  const { speaking } = useVoice()
+  const { speaking, conversation, stt, turnReady } = useVoice()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
@@ -84,6 +85,15 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
           </button>
         </form>
         {model && <ModelMenu {...model} className={glyph} />}
+        {stt === 'ready' && turnReady && !typing && (
+          <button type="button" aria-pressed={conversation}
+            className={cn(glyph, conversation && 'border-foreground bg-foreground text-background hover:text-background')}
+            aria-label={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
+            title={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
+            onClick={() => (conversation ? voice().closeConversation() : void voice().openConversation(target))}>
+            <AudioLines />
+          </button>
+        )}
       </div>
 
       {speaking && !typing && (

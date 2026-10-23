@@ -4,12 +4,12 @@
 import { markUnpaired, UNPAIRED } from '@/lib/pairing'
 
 export type SpeechStatus = 'ready' | 'loading' | 'unavailable'
-export type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking'
+export type VoiceState = 'idle' | 'open' | 'listening' | 'transcribing' | 'speaking'
+export type SpeechStatuses = { stt: SpeechStatus; tts: SpeechStatus; turn?: SpeechStatus }
 
 export type VoiceMessage =
-  | { type: 'ready'; session: string; generation: number; output: { rate: number }
-      speech: { stt: SpeechStatus; tts: SpeechStatus } }
-  | { type: 'speech_status'; speech: { stt: SpeechStatus; tts: SpeechStatus } }
+  | { type: 'ready'; session: string; generation: number; output: { rate: number }; speech: SpeechStatuses }
+  | { type: 'speech_status'; speech: SpeechStatuses }
   | { type: 'voice_state'; state: VoiceState; turn: string | null }
   | { type: 'caption'; turn: string; committed: string; provisional: string }
   | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; approval_id?: number;
@@ -19,12 +19,19 @@ export type VoiceMessage =
   | { type: 'asking'; approval_id: number }
   | { type: 'speech_end'; generation: number }
   | { type: 'stopped'; generation: number }
+  | { type: 'barge_in'; generation: number }
+  | { type: 'mic'; open: boolean; reason?: 'closed' | 'idle' | 'error' }
+  | { type: 'turn'; turn: string; manual?: boolean }
   | { type: 'voice_error'; turn: string | null; code: string; message: string }
 
+type TargetFields = { task_id?: number | null; project_id?: number | null; model?: string | null; effort?: string | null }
+
 export type Control =
-  | { type: 'start'; turn: string; task_id?: number | null; project_id?: number | null; model?: string | null; effort?: string | null }
+  | ({ type: 'start'; turn: string } & TargetFields)
   | { type: 'end' | 'cancel'; turn: string }
   | { type: 'stop' }
+  | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation (docs/voice-protocol.md §12)
+  | { type: 'close_mic' }
 
 type Listener = (message: VoiceMessage) => void
 

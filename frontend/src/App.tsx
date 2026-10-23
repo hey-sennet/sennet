@@ -239,6 +239,7 @@ export default function App() {
           }
         }}
         model={modelMenu}
+        target={target}
         activeTasks={activeTasks}
         needsYou={live.approvals.length > 0}
         onOpenTasks={desktop ? undefined : () => setSheet(selected !== null ? 'task' : 'list')}

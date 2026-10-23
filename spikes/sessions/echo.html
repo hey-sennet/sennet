@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo Test</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Echo test</h1>
+  <p class="muted">Plays a Sennet reply with the microphone open and keeps what the microphone heard, to
+    measure how much of Sennet's own voice gets through. Use the volume you'd really use.
+    <a href="/">Back</a></p>
+
+  <div class="card">
+    <div class="row">
+      <input type="text" id="device" placeholder="Device and output, e.g. Pixel 7 speaker">
+    </div>
+    <div class="row">
+      <label>Output <select id="output">
+        <option value="speaker">Built-in speaker</option>
+        <option value="headphones">Wired headphones</option>
+        <option value="bluetooth">Bluetooth headset</option>
+        <option value="external">External speakers</option>
+      </select></label>
+      <label>Playback <select id="path">
+        <option value="separate">Web Audio, own context (as now)</option>
+        <option value="shared">Web Audio, mic's context</option>
+        <option value="element">Audio element</option>
+      </select></label>
+      <label><input type="checkbox" id="aec" checked> Echo cancellation</label>
+    </div>
+    <p class="status now" id="aecWarning" hidden>Echo cancellation is off. Only “Stay quiet” is meant to run like this.</p>
+    <p class="muted" id="applied">Microphone not open yet.</p>
+  </div>
+
+  <div class="row">
+    <button id="echo">Stay quiet</button>
+    <button id="talk">Talk over it</button>
+    <button id="interrupt">Interrupt it</button>
+    <button id="chime" class="secondary">Chime</button>
+    <button id="baseline" class="secondary">Speak, no reply</button>
+  </div>
+
+  <div class="card">
+    <div class="status" id="status">Pick a test.</div>
+    <div class="say" id="say"></div>
+    <p class="muted" id="playing"></p>
+  </div>
+
+  <p class="muted" id="counts"></p>
+  <p class="muted">A round: <b>Stay quiet</b> three times, <b>Talk over it</b> three times, <b>Interrupt it</b> three
+    times (the reply stops when you start), <b>Chime</b> once and
+    <b>Speak, no reply</b> twice. Then switch echo cancellation off and do <b>Stay quiet</b> twice, so the
+    two can be compared. Do a round per device and output.</p>
+</main>
+<script type="module">
+import { Recorder, upload, sleep, stored, store } from '/recorder.js'
+
+const $ = (id) => document.getElementById(id)
+const FLOOR_MS = 1000  // room noise before the reply
+const TAIL_MS = 1500   // after it, for echo tails
+const SPEAK_AT_MS = 800 // into the reply, when talking over it
+// "Interrupt it" stops the reply once the mic is this far above the room for this long, as a
+// client-side barge-in would. Echo alone stayed within 8 dB of the room (Firefox, step 0).
+const INTERRUPT_DB = 15
+const INTERRUPT_MS = 150
+
+const data = await (await fetch('/api/prompts')).json()
+const showCounts = (counts) => { $('counts').textContent = `${counts.echo} echo recordings saved.` }
+showCounts(data.counts)
+
+for (const id of ['device', 'output', 'path']) {
+  $(id).value = stored(`echo.${id}`, $(id).value)
+  $(id).onchange = () => store(`echo.${id}`, $(id).value)
+}
+// Echo cancellation always starts on: a remembered "off" from the end of one round once
+// carried into the next one's interrupt tests unnoticed.
+const showAec = () => { $('aecWarning').hidden = $('aec').checked }
+$('aec').onchange = showAec
+
+let mic = null
+let playContext = null
+let busy = false
+const decoded = new Map()
+
+async function setup() {
+  const aec = $('aec').checked, path = $('path').value
+  const shared = path === 'shared'
+  if (mic && (mic.aec !== aec || (mic.context === playContext) !== shared)) {
+    await mic.close()
+    mic = null
+  }
+  if (!playContext) playContext = new AudioContext()
+  await playContext.resume()
+  if (!mic) mic = await Recorder.open({ aec, context: shared ? playContext : null })
+  const s = mic.settings
+  $('applied').textContent = `Applied: echo cancellation ${s.echoCancellation}, noise suppression ${s.noiseSuppression}, ` +
+    `gain control ${s.autoGainControl}, ${mic.rate} Hz. ${s.label}`
+}
+
+async function buffer(url) {
+  if (!decoded.has(url)) decoded.set(url, fetch(url).then((r) => r.arrayBuffer()).then((b) => playContext.decodeAudioData(b)))
+  return decoded.get(url)
+}
+
+/** Plays `audio` the chosen way; returns the recording sample at which it should start. */
+function play(audio) {
+  const path = $('path').value
+  const source = playContext.createBufferSource()
+  source.buffer = audio
+  let element = null
+  if (path === 'element') {
+    const destination = playContext.createMediaStreamDestination()
+    source.connect(destination)
+    element = new Audio()
+    element.srcObject = destination.stream
+    void element.play()
+  } else {
+    source.connect(playContext.destination)
+  }
+  const lead = 0.1
+  source.start(playContext.currentTime + lead)
+  source.onended = () => { source.disconnect(); element?.pause() }
+  const latency = (playContext.outputLatency || playContext.baseLatency || 0)
+  return { play_sample: Math.round(mic.now + (lead + latency) * mic.rate), latency, stop: () => source.stop() }
+}
+
+function next(key, list) {
+  const i = Number(stored(key, '0')) % list.length
+  store(key, String(i + 1))
+  return list[i]
+}
+
+async function trial(kind) {
+  if (busy) return
+  busy = true
+  for (const b of document.querySelectorAll('button')) b.disabled = true
+  $('say').textContent = ''
+  $('playing').textContent = ''
+  try {
+    await setup()
+    const over = kind === 'talk' || kind === 'interrupt'
+    const replies = over ? data.replies.filter((r) => r.text.length > 60) : data.replies
+    const reply = kind === 'echo' || over ? next(`echo.reply.${kind}`, replies) : null
+    const sentence = over || kind === 'baseline' ? next(`echo.say.${kind}`, data.say_over) : null
+    const audio = reply ? await buffer(reply.url) : kind === 'chime' ? await buffer('/api/chime.mp3') : null
+    if (sentence) {
+      $('say').textContent = sentence
+      $('status').textContent = over ? 'Get ready to say this over the reply…' : 'Get ready to say this…'
+    } else {
+      $('status').textContent = 'Stay quiet…'
+    }
+    // The room's level, then (for "Interrupt it") a watch for speech over the reply.
+    let floor = 0, floorChunks = 0, loud = 0, stopSample = null, watching = false
+    mic.onChunk = (samples) => {
+      let sum = 0
+      for (const v of samples) sum += v * v
+      const rms = Math.sqrt(sum / samples.length)
+      if (!watching) { floor += rms; floorChunks += 1; return }
+      const threshold = (floor / Math.max(floorChunks, 1)) * 10 ** (INTERRUPT_DB / 20)
+      loud = rms > threshold ? loud + samples.length : 0
+      if (stopSample === null && loud >= INTERRUPT_MS / 1000 * mic.rate) {
+        stopSample = mic.now
+        timing.stop?.()
+        $('playing').textContent = 'Stopped the reply.'
+      }
+    }
+    mic.start()
+    await sleep(FLOOR_MS)
+    let timing = { play_sample: null, latency: null }
+    if (audio) {
+      timing = play(audio)
+      watching = kind === 'interrupt'
+      $('playing').textContent = reply ? `Playing: “${reply.text}”` : 'Playing the chime.'
+    }
+    if (sentence) {
+      await sleep(over ? SPEAK_AT_MS : 0)
+      $('status').innerHTML = '<span class="now">Speak now</span>'
+    }
+    const duration = audio ? audio.duration * 1000 : 0
+    const speaking = sentence ? 3500 : 0
+    await sleep(Math.max(duration + TAIL_MS, (over ? SPEAK_AT_MS : 0) + speaking))
+    mic.onChunk = null
+    const recorded = mic.stop()
+    $('status').textContent = 'Saving…'
+    const meta = {
+      kind: 'echo', trial: kind, device: $('device').value, output: $('output').value, path: $('path').value,
+      aec: $('aec').checked, applied: mic.settings, user_agent: navigator.userAgent, rate: mic.rate,
+      trials_since_open: mic.trials - 1, reply_id: reply?.id ?? null, reply_text: reply?.text ?? null,
+      chime: kind === 'chime', sentence, play_sample: timing.play_sample,
+      play_duration_s: audio ? audio.duration : null, output_latency_s: timing.latency,
+      speak_sample: sentence ? Math.round(((over ? SPEAK_AT_MS : 0) + FLOOR_MS) / 1000 * mic.rate) : null,
+      stop_sample: stopSample,
+    }
+    const result = await upload(meta, recorded)
+    showCounts(result.counts)
+    $('status').textContent = 'Saved. Pick the next test.'
+  } catch (error) {
+    $('status').textContent = `Failed: ${error}`
+  } finally {
+    busy = false
+    for (const b of document.querySelectorAll('button')) b.disabled = false
+  }
+}
+
+for (const kind of ['echo', 'talk', 'interrupt', 'chime', 'baseline']) $(kind).onclick = () => trial(kind)
+</script>
+</body>
+</html>

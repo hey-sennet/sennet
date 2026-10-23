@@ -54,3 +54,15 @@ class FakeSynthesizer:
         self.spoken.append(text)
         t = np.arange(int(self.rate * 0.1 * max(len(text.split()), 1))) / self.rate
         return (0.1 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+
+class FakeTurn:
+    """Judges every pause the same: finished with probability `probability`."""
+
+    def __init__(self, probability: float = 0.9):
+        self.probability = probability
+        self.calls = 0
+
+    def __call__(self, audio: np.ndarray) -> float:
+        self.calls += 1
+        return self.probability

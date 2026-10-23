@@ -1,4 +1,5 @@
 // What the disc shows, from the voice session and the task it is about (docs/voice-protocol.md §10).
+// An open conversation with nobody talking (`open`) rests like `idle`; the eyebrow says it's open.
 import type { StrataState } from '@/strata/field'
 import type { VoiceSnapshot } from './voice'
 

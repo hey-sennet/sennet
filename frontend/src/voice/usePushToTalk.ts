@@ -59,6 +59,7 @@ export function usePushToTalk(target: Target) {
     : state.stt !== 'ready' ? 'Speech recognition is not ready; run sennet setup'
     : state.listening && state.opening ? 'Starting the microphone'
     : state.listening ? (tapped ? 'Listening: tap to send' : 'Listening: release to send')
+    : state.conversation ? 'Just talk, or hold to talk'
     : 'Hold to talk'
 
   const props = {

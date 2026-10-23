@@ -29,9 +29,9 @@ results, in a version the agent writes to be heard.
 - **Configurable to the hardware.** Works CPU-only, and makes stronger models easy to
   choose when a GPU or Apple Silicon is available.
 
-Scope for v1: Linux and macOS, English only, push-to-talk, phone and desktop browsers
-over HTTPS (Tailscale recommended, any reverse proxy works). Deferred: wake word, open-mic conversation sessions (designed for, see
-§6.5), Windows, native mobile apps, other languages.
+Scope for v1: Linux and macOS, English only, push-to-talk and open-mic conversations
+(§6.5), phone and desktop browsers over HTTPS (Tailscale recommended, any reverse proxy
+works). Deferred: wake word, Windows, native mobile apps, other languages.
 
 ## 2. Architecture
 
@@ -206,7 +206,7 @@ Speech defaults (validated by the M0 spike, see
 | Role | CPU tier | GPU tier | License |
 | --- | --- | --- | --- |
 | VAD | Silero VAD v6.2 | same (runs on CPU) | MIT |
-| Turn detection | smart-turn v3.2 (CPU build) | smart-turn v3.2 (GPU build) | BSD-2-Clause |
+| Turn detection | smart-turn v3.2, fp32 build, on CPU | same | BSD-2-Clause |
 | STT | Parakeet TDT 0.6B v2 (English), int8 | Parakeet TDT 0.6B v2, fp32 | CC-BY-4.0 |
 | TTS | Kokoro-82M v1.0, int8 (Piper for very low-end) | Kokoro-82M v1.0, fp32 | Apache-2.0 (Kokoro); GPL-3 espeak-ng phonemizer |
 
@@ -283,11 +283,15 @@ returns:
   pipeline waits for speech to resume or a silence fallback (1.5–2 s). It is never
   re-run on the same pause: more trailing silence alone pushes its score toward
   "complete" and cut speakers off in testing.
-- **Push-to-talk (v1)** ends the turn on release; automatic end-of-turn is used by
-  conversation sessions (§6.5). M0 measured 26% (GPU) / 42% (CPU) premature cuts
-  at 1 s mid-sentence pauses on read speech. That is not good enough for open mic.
-  It needs evaluation on real spoken commands and likely a second signal, such as
-  transcript completeness, before conversation sessions ship.
+- **Push-to-talk** ends the turn on release; conversations (§6.5) end it automatically.
+  M0 measured 26% / 42% premature cuts on read speech; on 82 real spoken commands in M7,
+  smart-turn alone cut off 11% of turns, all at finished sentences followed by a second
+  thought. Reopening a turn when speech comes back within 0.3 s of the decision brought
+  that to 1%. A check on whether the transcript looked finished was tried and dropped: it
+  helped by one point and slowed every turn by 130 ms ([m7-sessions.md](m7-sessions.md)).
+- smart-turn's int8 build is unstable (input noise of 1e-5 moved its score by up to 0.14),
+  and the fp32 build costs about 25 ms on four CPU threads, so fp32 runs on CPU on every
+  tier. Its features are computed in NumPy, without `transformers`.
 - **Streaming captions:** every 250 ms, Parakeet decodes a sliding window of the
   most recent audio (up to 8 s) rather than the whole utterance. Words that agree
   across two consecutive passes become committed (solid); the rest are provisional.
@@ -341,12 +345,13 @@ Replies:
 
 ### 6.5 Interaction modes
 
-- **v1: push-to-talk.** Hold or tap to talk; the reply is spoken; half duplex.
-- **Later: conversation session.** The mic stays live while a session is open;
-  VAD + smart-turn decide turns; speech may be interrupted (barge-in). This
-  requires reliable echo cancellation; headset use is assumed initially. The
-  pipeline above is designed so this needs no architectural change: turn detection is
-  already server-side and playback is already generation-tagged and interruptible.
+- **Push-to-talk.** Hold or tap to talk; the reply is spoken; half duplex.
+- **Conversation (M7).** The mic stays live while one is open; VAD and smart-turn decide
+  turns, and pressing talk still works. Talking over a reply stops it (barge-in), and what
+  was said over it is sent like any other turn. The browser's echo cancellation removes
+  the reply completely (Firefox and Chrome, on speakers) but can damage the first words
+  said over it; that risk is accepted for a live feel. Specified in voice-protocol.md §12; measurements in
+  [m7-sessions.md](m7-sessions.md). Safari is untested.
 
 ## 7. Client
 
@@ -463,7 +468,9 @@ automatically.
    `upgrade` and `remove-data`, notices in the wheel and in Settings → About, and release
    CI to PyPI. Tried from a clean install with a phone paired; not released yet (it
    waits on a repository, a PyPI name, and a Mac).
-8. **M7 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
+8. **M7 — Conversation sessions.** Breakdown in [m7-sessions.md](m7-sessions.md). Echo and
+   turn-detection measurements on real recordings, smart-turn in the product, open-mic
+   conversations with continuation and barge-in, and a conversation toggle in the dock.
 
 ## 12. Open questions
 
@@ -472,8 +479,8 @@ automatically.
   Anthropic's terms before each release ([m4-agents.md](m4-agents.md#terms)).
 - What a rebuilt local LLM should do between turns (status, announcements), and on
   which hardware it is worth enabling (§5.2).
-- Turn detection good enough for open-mic sessions: real-speech evaluation and a
-  possible transcript-completeness signal (blocks M7, not v1).
+- Conversations on Safari (iOS and macOS): echo cancellation, and whether an open mic
+  moves playback to the earpiece. Untested; no device to test on.
 - Speech numbers for Apple Silicon (CoreML) and a low-end 4-core CPU, to set the
   minimum supported tier.
 - Whether ACP can replace per-provider adapters.

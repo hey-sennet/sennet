@@ -60,6 +60,30 @@ test('tap to start and tap again to send a follow-up', async ({ page }, info) =>
   await expect(stage.getByText(`You said: ${HEARD}`)).toBeVisible() // a follow-up on this task
 })
 
+test('a conversation hears you without the button, and pressing sends it', async ({ page }, info) => {
+  const name = `voice-conversation-${info.project.name}-${info.repeatEachIndex}`
+  await addProject(page, name)
+  await page.goto('/')
+  await page.getByLabel('Project').selectOption({ label: name })
+  const toggle = page.getByRole('button', { name: /Start a conversation/ })
+  await toggle.click()
+  await expect(page.getByRole('button', { name: 'End the conversation' })).toHaveAttribute('aria-pressed', 'true')
+
+  // The fake microphone never falls quiet, so the server's turn stays open, captioned.
+  await expect(page.locator('[data-speaker="user"]', { hasText: HEARD })).toBeVisible()
+  await expect(page.locator('canvas[data-state="listening"]')).toBeVisible()
+  // Holding the disc takes over that turn; letting go sends it.
+  const talk = page.getByRole('button', { name: /Listening/ })
+  await talk.hover()
+  await page.mouse.down()
+  await page.waitForTimeout(400)
+  await page.mouse.up()
+  await expect(page.getByRole('main').getByText(`You said: ${HEARD}`)).toBeVisible()
+
+  await page.getByRole('button', { name: 'End the conversation' }).click()
+  await expect(page.getByRole('button', { name: /Start a conversation/ })).toHaveAttribute('aria-pressed', 'false')
+})
+
 test('sliding off the button cancels', async ({ page }, info) => {
   const name = `voice-cancel-${info.project.name}`
   await addProject(page, name)

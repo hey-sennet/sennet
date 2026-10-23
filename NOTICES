@@ -61,6 +61,11 @@ Speech
     src/sennet/speech/kokoro_vocab.json is Kokoro-82M's phoneme vocabulary.
   Silero VAD v6.2
     Copyright Silero Team (https://github.com/snakers4/silero-vad). License: MIT.
+  smart-turn v3.2
+    Copyright (c) 2024–2025, Daily (https://github.com/pipecat-ai/smart-turn).
+    License: BSD-2-Clause. Model from https://huggingface.co/pipecat-ai/smart-turn-v3.
+    src/sennet/speech/turn.py computes its Whisper-style log-mel input in NumPy, following
+    the feature extractor in Hugging Face Transformers (Apache-2.0).
   onnx-asr (MIT), ONNX Runtime (MIT), NumPy (BSD-3-Clause).
   The `cuda` extra installs NVIDIA's CUDA and cuDNN wheels under the NVIDIA software
   license agreements that come with them.

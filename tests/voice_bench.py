@@ -53,7 +53,7 @@ class Run:
 def load_speech(models: Path, device: str, threads: int = 4) -> Speech:
     speech = Speech()
     asyncio.run(speech.load(models, device, threads, "af_heart"))
-    if speech.status != {"stt": "ready", "tts": "ready"}:
+    if speech.status["stt"] != "ready" or speech.status["tts"] != "ready":
         raise SystemExit(f"speech not ready: {speech.detail}")
     return speech
 

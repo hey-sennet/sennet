@@ -1,15 +1,19 @@
-"""One voice session per /api/voice socket: push-to-talk turns in, speech out.
+"""One voice session per /api/voice socket: turns in, speech out.
 
 The rules are in docs/voice-protocol.md. Three tasks share the socket: the
 receive loop (controls and uplink frames), the open turn's listener, and the
-speaker. Sends are serialized with a lock.
+speaker. Sends are serialized with a lock. While a conversation is open
+(conversation.py), it listens instead, and opens and ends turns itself.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import re
 import secrets
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -17,6 +21,7 @@ from starlette.websockets import WebSocket, WebSocketState
 
 from ..speech import RATE, Speech
 from ..speech.stt import Caption
+from .conversation import ECHO_WINDOW_S, Conversation
 from .frames import INPUT_RATE, BadFrame, decode_uplink, encode_downlink
 from .recognition import Recognition
 
@@ -28,9 +33,10 @@ log = logging.getLogger(__name__)
 TURN_ID_MAX = 64
 UPLINK_LIMIT_S = 2.0    # audio received but not yet taken by recognition
 TURN_LIMIT_S = 300.0
+PLAYBACK_TAIL_S = 0.4   # the client starts each run of audio a little late (playback.ts LEAD_S)
 
 
-@dataclass
+@dataclass(eq=False)  # each turn is itself: kept in a set while open
 class Turn:
     id: str
     task_id: int | None
@@ -42,6 +48,9 @@ class Turn:
     total: int = 0
     ended: bool = False             # `end` received; no more frames
     job: asyncio.Task | None = None
+    start: int = 0                  # in a conversation: the absolute sample the turn starts at
+    over_reply: bool = False        # in a conversation: it began while a reply was playing
+    manual: bool = False            # in a conversation: the talk control holds it
 
 
 @dataclass
@@ -63,6 +72,7 @@ class Asking:
     started: bool = False           # the question began playing: the next turn answers it
     confirming: bool = False        # a destructive request got its yes; waiting for "confirm"
     reply: Reply | None = None
+    asked_at: float = 0.0           # when the chime was asked for
 
 
 class VoiceSession:
@@ -74,9 +84,14 @@ class VoiceSession:
         self.generation = 0
         self.state = "idle"
         self.turn: Turn | None = None
+        self.open_turns: set[Turn] = set()  # being heard or delivered; speech waits for them
         self.replies: asyncio.Queue[Reply] = asyncio.Queue()
         self.floor = asyncio.Event()  # set while no turn is open; speech waits for it
         self.floor.set()
+        self.conversation: Conversation | None = None
+        self.playing_until = 0.0      # when the client should finish playing what was sent
+        self.playing_task: int | None = None  # whose reply that is
+        self.spoken: deque[tuple[float, str]] = deque(maxlen=32)  # recent segments, for the echo check
         self.send_lock = asyncio.Lock()
         self.ignored_frames = 0
         self.approvals: dict[int, tuple[dict, str]] = {}  # waiting to be asked: id → (approval, project)
@@ -102,6 +117,9 @@ class VoiceSession:
                     await self._control(message["text"])
         finally:
             speaker.cancel()
+            if self.conversation is not None:
+                await self.conversation.stop()
+                self.conversation = None
             jobs = [speaker]
             if self.turn and self.turn.job:
                 jobs.append(self.turn.job)
@@ -135,30 +153,51 @@ class VoiceSession:
             return
         if kind == "start":
             await self._start(message)
+        elif kind == "end" and self.conversation is not None:
+            await self.conversation.release(message.get("turn"))
         elif kind == "end":
             if self.turn and message.get("turn") == self.turn.id and not self.turn.ended:
                 self.turn.ended = True
                 self.turn.frames.put_nowait(None)
+        elif kind == "cancel" and self.conversation is not None:
+            await self.conversation.discard(message.get("turn"))
         elif kind == "cancel":
             if self.turn and message.get("turn") == self.turn.id:
                 await self._discard_turn()
         elif kind == "stop":
             await self.interrupt()
+        elif kind == "open_mic":
+            await self._open_conversation(message)
+        elif kind == "close_mic":
+            await self.close_conversation("closed")
+        elif kind == "target":
+            if self.conversation is not None and (target := await self._target(message)) is not None:
+                self.conversation.retarget(target)
         else:
             await self.error("bad_message", f"unknown message type {kind!r}")
+
+    async def _target(self, message: dict, turn_id: str | None = None) -> dict | None:
+        """The task, project, model and effort a message names, or None (and an error) if malformed."""
+        task_id, project_id = message.get("task_id"), message.get("project_id")
+        if any(v is not None and (not isinstance(v, int) or isinstance(v, bool)) for v in (task_id, project_id)):
+            await self.error("bad_message", "task_id and project_id are integers or null", turn_id)
+            return None
+        model, effort = message.get("model"), message.get("effort")
+        if any(v is not None and not isinstance(v, str) for v in (model, effort)):
+            await self.error("bad_message", "model and effort are strings or null", turn_id)
+            return None
+        return {"task_id": task_id, "project_id": project_id, "model": model, "effort": effort}
 
     async def _start(self, message: dict):
         turn_id = message.get("turn")
         if not isinstance(turn_id, str) or not 0 < len(turn_id) <= TURN_ID_MAX:
             await self.error("bad_message", f"start needs a turn id of 1 to {TURN_ID_MAX} characters")
             return
-        task_id, project_id = message.get("task_id"), message.get("project_id")
-        if any(v is not None and (not isinstance(v, int) or isinstance(v, bool)) for v in (task_id, project_id)):
-            await self.error("bad_message", "task_id and project_id are integers or null", turn_id)
+        if (target := await self._target(message, turn_id)) is None:
             return
-        model, effort = message.get("model"), message.get("effort")
-        if any(v is not None and not isinstance(v, str) for v in (model, effort)):
-            await self.error("bad_message", "model and effort are strings or null", turn_id)
+        if self.conversation is not None:
+            await self.interrupt()  # talking stops any speech (voice-protocol §7)
+            await self.conversation.hold(turn_id, target)
             return
         if self.turn is not None:
             await self.error("busy", "this device already has a turn open", turn_id)
@@ -167,12 +206,83 @@ class VoiceSession:
             await self.error("stt_unavailable", self.speech.detail["stt"] or "speech recognition is loading", turn_id)
             return
         await self.interrupt()  # talking stops any speech (voice-protocol §7)
-        self.turn = Turn(turn_id, task_id, project_id, model, effort)
+        turn = Turn(turn_id, **target)
+        turn.job = asyncio.ensure_future(self._listen(turn))
+        await self.begin(turn)
+
+    # Conversations
+
+    async def _open_conversation(self, message: dict):
+        if (target := await self._target(message)) is None:
+            return
+        if self.conversation is not None:
+            self.conversation.retarget(target)
+            await self.send(type="mic", open=True)
+            return
+        if self.turn is not None:
+            await self.error("busy", "this device already has a turn open")
+            return
+        for role, code in (("stt", "stt_unavailable"), ("turn", "turn_unavailable")):
+            if self.speech.status[role] != "ready":
+                await self.error(code, self.speech.detail[role] or "speech recognition is loading")
+                return
+        self.conversation = Conversation(self, target)
+        await self.send(type="mic", open=True)
+        if not self.open_turns and self.state == "idle":
+            await self._set_state("open")
+
+    async def close_conversation(self, reason: str):
+        conversation, self.conversation = self.conversation, None
+        if conversation is None:
+            return
+        await conversation.close()
+        await self.send(type="mic", open=False, reason=reason)
+        if self.state == "open":
+            await self._set_state("idle")
+
+    async def begin(self, turn: Turn, announce: bool = False):
+        """A turn opens: speech waits for it. `announce` tells the client about a turn it didn't start."""
+        self.turn = turn
+        self.open_turns.add(turn)
         self.floor.clear()
-        self.turn.job = asyncio.ensure_future(self._listen(self.turn))
-        await self._set_state("listening", turn_id)
+        if announce:
+            await self.send(type="turn", turn=turn.id)
+        await self._set_state("listening", turn.id)
+
+    async def set_state(self, state: str, turn: str | None = None):
+        await self._set_state(state, turn)
+
+    @property
+    def playing(self) -> bool:
+        """Whether the client is probably still playing a reply."""
+        return time.monotonic() < self.playing_until
+
+    def echoes(self, words: list[str]) -> bool:
+        """Whether a transcript is mostly words Sennet said in the last few seconds."""
+        recent = {w for at, text in self.spoken if time.monotonic() - at < ECHO_WINDOW_S
+                  for w in re.findall(r"[\w']+", text.lower())}
+        return bool(recent) and sum(w in recent for w in words) >= 0.6 * len(words)
+
+    def reask(self):
+        """Ask the current approval again: chime, and a fresh window to answer it."""
+        if self.asking:
+            self.asking.started = False
+            self.ask([])
 
     async def _frame(self, data: bytes):
+        if self.conversation is not None:
+            try:
+                audio = decode_uplink(data)
+            except BadFrame as error:
+                await self.error("bad_frame", str(error), self.turn.id if self.turn else None)
+                return
+            if not self.conversation.add(audio):
+                turn = self.conversation.turn
+                await self.error("uplink_behind", "recognition fell behind; what you were saying was dropped so no "
+                                                  "words are lost silently. Try again.", turn.id if turn else None)
+                if turn is not None:
+                    await self.conversation.discard(turn.id)
+            return
         turn = self.turn
         if turn is None or turn.ended:
             self.ignored_frames += 1
@@ -232,11 +342,22 @@ class VoiceSession:
         await self._close_turn(turn)
 
     async def _close_turn(self, turn: Turn | None):
-        if turn is None or self.turn is not turn:
+        if turn is None or turn not in self.open_turns:
             return
-        self.turn = None
+        self.open_turns.discard(turn)
+        if self.turn is turn:
+            self.turn = None
+        if self.open_turns:
+            return
         self.floor.set()
-        await self._set_state("speaking" if not self.replies.empty() else "idle")
+        await self._set_state("speaking" if not self.replies.empty() else self._resting)
+
+    async def close_turn(self, turn: Turn | None):
+        await self._close_turn(turn)
+
+    @property
+    def _resting(self) -> str:
+        return "open" if self.conversation is not None else "idle"
 
     async def _set_state(self, state: str, turn: str | None = None):
         if state == self.state:
@@ -254,9 +375,11 @@ class VoiceSession:
         if segments:
             self.replies.put_nowait(Reply(segments, self.generation, task_id, approval_id, cue=cue))
 
-    async def interrupt(self):
+    async def interrupt(self, barge_in: bool = False):
+        """Stop speaking: a new generation. `barge_in` when it was the user talking over a reply."""
         self.generation += 1
-        await self.send(type="stopped", generation=self.generation)
+        self.playing_until = 0.0
+        await self.send(type="barge_in" if barge_in else "stopped", generation=self.generation)
 
     # Approvals
 
@@ -302,6 +425,7 @@ class VoiceSession:
                 continue  # queued before a stop or a new turn
             if not reply.segments:
                 self.asking.started = True  # nothing to say: from here the next turn answers it
+                self.asking.asked_at = time.monotonic()
                 await self.send(type="asking", approval_id=reply.approval_id)
                 continue
             if self.speech.status["tts"] != "ready":
@@ -315,8 +439,8 @@ class VoiceSession:
                 await self.error("tts_unavailable", "speech output failed")
             if self.asking and reply is self.asking.reply and not self.asking.started and not reply.cancelled:
                 self.replies.put_nowait(reply)  # interrupted before a word went out: ask again afterwards
-            if self.turn is None and self.replies.empty():
-                await self._set_state("idle")
+            if not self.open_turns and self.replies.empty():
+                await self._set_state(self._resting)
 
     async def _play(self, reply: Reply):
         generation, tts = reply.generation, self.speech.tts
@@ -337,6 +461,11 @@ class VoiceSession:
                 cue = {"cue": True} if reply.cue and index == 0 else {}
                 await self.send(type="speech", generation=generation, segment=index, text=text,
                                 task_id=reply.task_id, approval_id=reply.approval_id, **cue)
+                now = time.monotonic()
+                self.playing_task = reply.task_id
+                self.playing_until = max(self.playing_until - PLAYBACK_TAIL_S, now) + len(audio) / tts.rate \
+                    + PLAYBACK_TAIL_S
+                self.spoken.append((now, text))
                 for frame in encode_downlink(audio, tts.rate, generation, index):
                     if self.generation != generation or reply.cancelled:
                         return

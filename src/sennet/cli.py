@@ -399,9 +399,13 @@ def speech_ok(settings: Settings, paths: Paths) -> bool:
         _line("speech", "problem: no ONNX runtime installed; run `sennet setup`")
         return False
     device = resolve_device(settings.speech.device)
-    missing = [m.id for m in models.MODELS[device].values() if not models.present(paths.models, m)]
+    chosen = models.MODELS[device]
+    missing = [m.id for role, m in chosen.items() if role not in models.OPTIONAL and not models.present(paths.models, m)]
     if missing:
         _line("speech", f"problem: {device} models missing ({', '.join(missing)}); run `sennet setup`")
         return False
     _line("speech", f"ok: {device} via {runtime}, models in {paths.models}")
+    optional = [m.id for role, m in chosen.items() if role in models.OPTIONAL and not models.present(paths.models, m)]
+    if optional:
+        _line("conversation", f"off: {', '.join(optional)} not downloaded; run `sennet setup` for open-mic sessions")
     return True

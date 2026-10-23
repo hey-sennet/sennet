@@ -1,6 +1,6 @@
-# Voice protocol (M2)
+# Voice protocol (M2, M7)
 
-Status: agreed. Date: 2026-10-22.
+Status: agreed; conversations (§12) added in M7. Date: 2026-10-23.
 
 How a client streams push-to-talk audio to the daemon and plays back the agent's speech.
 It covers the socket, the binary frames, the control and voice messages, and how
@@ -37,10 +37,11 @@ One session per voice socket. The server sends `ready` first:
 {"type": "ready", "session": "b3f1…", "generation": 0,
  "input": {"rate": 16000, "format": "pcm_s16le", "channels": 1},
  "output": {"rate": 24000, "format": "pcm_s16le", "channels": 1},
- "speech": {"stt": "ready", "tts": "ready"}}
+ "speech": {"stt": "ready", "tts": "ready", "turn": "ready"}}
 ```
 
-`speech.stt` and `speech.tts` are `ready`, `loading` or `unavailable`. Until STT is
+`speech.stt`, `speech.tts` and `speech.turn` are `ready`, `loading` or `unavailable`;
+`turn` is end-of-turn detection, which only conversations need (§12). Until STT is
 `ready`, the client shows type-instead only. When a model's status changes later, the
 server sends `speech_status` with the same `speech` object.
 
@@ -93,14 +94,14 @@ ignored.
 
 | Message | Meaning |
 | --- | --- |
-| `{"type": "voice_state", "state": "listening", "turn": "t7"}` | `idle`, `listening` (turn open), `transcribing` (final pass running), `speaking`. Sent on every change. |
+| `{"type": "voice_state", "state": "listening", "turn": "t7"}` | `idle`, `open` (a conversation is listening and nobody is talking, §12), `listening` (turn open), `transcribing` (final pass running), `speaking`. Sent on every change. |
 | `{"type": "caption", "turn": "t7", "committed": "run the", "provisional": "tests in back"}` | Every ~250 ms while listening; the interval adapts on slow CPUs (HLD §6.2). Preview only, never dispatched. Each caption replaces the last. |
 | `{"type": "final", "turn": "t7", "text": "Run the tests in backend.", "outcome": "dispatched", "task_id": 12}` | The full-pass transcript and what happened to it (below). |
 | `{"type": "speech", "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `task_id` and `approval_id` say what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
 | `{"type": "asking", "approval_id": 9}` | This session is now asking about the approval: its next turn answers it (§8). Nothing is spoken; the client plays the approval chime when the approval's card shows. |
 | `{"type": "speech_end", "generation": 4}` | The last segment of this generation has been sent. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
-| `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
+| `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `turn_unavailable` (§12), `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
 
 `final.outcome` is one of:
 
@@ -115,6 +116,8 @@ ignored.
 - `details`: the whole transcript was "read me the details" (§9). `task_id`'s last reply
   is read in full.
 - `empty`: no speech found. Nothing is sent.
+- `interrupted`: in a conversation, a lone word or a "wait" said over a reply: it stopped
+  the reply and isn't sent (§12).
 - `failed`: the transcript couldn't be delivered (`no_target` or `dispatch_failed`, sent
   just before). The text is included so the client can offer to type it instead.
 
@@ -226,3 +229,41 @@ For Q8, and not part of the wire format.
 - A reply is spoken only on the session that dispatched it (§9).
 - No model chooses the target. A local model that routed requests was tried in M3 and
   removed: it sent ambiguous requests to the wrong project (docs/m3-summaries.md).
+- Words said over a reply are not sent unless they are a fixed command (§12): from
+  step 0 of M7, about half of them come through with their first words wrong.
+
+## 12. Conversations
+
+Added in M7 ([m7-sessions.md](m7-sessions.md)). While a conversation is open the
+microphone stays live and the server decides where turns start and end. Push-to-talk
+works as before when no conversation is open.
+
+| Message | Direction | Meaning |
+| --- | --- | --- |
+| `{"type": "open_mic", "task_id": 12, "project_id": 3, "model": null, "effort": null}` | client → server | Open a conversation for this target. Fails with `turn_unavailable` without end-of-turn detection, or `busy` during a push-to-talk turn. Opening it again changes the target. |
+| `{"type": "target", …}` | client → server | The selection changed: the same fields as `open_mic`, for the next turn. |
+| `{"type": "close_mic"}` | client → server | Close it. A turn still being heard is dropped; one being transcribed finishes. |
+| `{"type": "mic", "open": true}` | server → client | Opened, or `"open": false` with `reason` `closed`, `idle` (five minutes with nobody talking, Sennet included) or `error` (listening failed; the client says so). |
+| `{"type": "turn", "turn": "s3"}` | server → client | The server opened a turn. Captions, `voice_state` and `final` follow as for any turn. `"manual": true` when it is the user's press holding it (below). |
+| `{"type": "barge_in", "generation": 6}` | server → client | Speech over a reply stopped it: a new generation, as `stopped` (§7). |
+
+- **Uplink:** frames flow the whole time the conversation is open, not only within
+  turns. The same 2 s backlog limit applies; past it, an open turn fails with
+  `uplink_behind`.
+- **Turns:** about 200 ms of speech opens one, with 300 ms of audio from before it.
+  smart-turn decides at each pause (once, after 224 ms of silence); 1.5 s of silence ends
+  it regardless. If speech comes back within 0.3 s of that decision, the turn carries on
+  and is heard from its start again. Turn ids are the server's (`s1`, `s2`, …).
+- **Pressing talk:** `start` during a conversation holds the open turn (or opens one with
+  the client's id) until `end`, ignoring pauses; `cancel` drops it. The server answers
+  with `turn`, `manual: true`, and the client uses that id from then on.
+- **Barge-in:** speech over a reply (160 ms of it) stops the reply, and the rest of that
+  agent turn (an agent often sends several messages in one; a failure is still said), and
+  opens a turn, which ends as any other does. What is said is acted on as usual: a fixed
+  command, an approval answer (§8, §9) or a request, which is sent. A lone word, or a
+  "wait" or "hang on", only stopped the reply: the outcome is `interrupted`. A transcript
+  that is mostly what Sennet was saying is its own echo: `empty`.
+- **Filler:** a transcript of only "um", "uh", "hmm" and the like is `empty`.
+- **Approvals:** a voice answer counts within 30 s of the chime. A later one asks the
+  question again (a fresh `asking`, and the chime) instead, and gets `reprompt`. Pressing
+  talk to answer has no window.

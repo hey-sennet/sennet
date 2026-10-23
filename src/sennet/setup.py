@@ -302,7 +302,7 @@ def _speech_check(ui: Prompter, paths: Paths, device: str, settings: Settings):
     started = time.perf_counter()
     with ui.working(f"Loading speech on {NAMES[device]}…"):
         asyncio.run(speech.load(paths.models, device, config.threads, config.voice))
-    if speech.status != {"stt": "ready", "tts": "ready"}:
+    if set(speech.status.values()) != {"ready"}:
         for role, status in speech.status.items():
             ui.fail(f"{role}: {status} {speech.detail[role]}")
         speech.close()

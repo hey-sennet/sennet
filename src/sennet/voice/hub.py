@@ -46,6 +46,7 @@ class Pending:
     message_id: int | None          # None for a turn the agent started
     result: dict | None = None
     cue: bool = False               # chime before the first thing said
+    hushed: bool = False            # talked over: the rest of this turn isn't spoken
 
 
 class VoiceHub:
@@ -86,6 +87,13 @@ class VoiceHub:
 
     def owner(self, task_id: int) -> VoiceSession | None:
         return self.owners.get(task_id)
+
+    def hush(self, session: VoiceSession, task_id: int | None):
+        """The user talked over this task's reply: say nothing more from its current turn. Its
+        messages are still in the timeline, and "read me the details" reads the last one."""
+        pending = self.turns.get(task_id)
+        if pending is not None and pending.session is session:
+            pending.hushed = True
 
     async def deliver(self, session: VoiceSession, turn: Turn, text: str) -> dict:
         """Act on a final transcript. Returns the `final` message's outcome fields."""
@@ -290,9 +298,9 @@ class VoiceHub:
         error = for_speech(result["error"]) if result.get("error") else ""
         text = f"That task failed{': ' + error if error else '.'}"
         if task_id in self.voicing:
-            self._after(task_id, lambda: self._say(task_id, pending, text))
+            self._after(task_id, lambda: self._say(task_id, pending, text, failure=True))
         else:
-            self._say(task_id, pending, text)
+            self._say(task_id, pending, text, failure=True)
 
     def _stream(self, task_id: int, pending: Pending, item_id: str, delta: str):
         """Speak the message's spoken version as soon as it is complete, if the message starts with one."""
@@ -351,7 +359,9 @@ class VoiceHub:
                 log.error("could not speak a reply for task %s", task_id, exc_info=finished.exception())
         job.add_done_callback(done)
 
-    def _say(self, task_id: int, pending: Pending, text: str):
+    def _say(self, task_id: int, pending: Pending, text: str, failure: bool = False):
+        if pending.hushed and not failure:
+            return
         if pending.session in self.sessions:
             self.heard[pending.session] = task_id
             pending.session.speak(clauses(text), task_id=task_id, cue=pending.cue)

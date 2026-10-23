@@ -15,6 +15,7 @@ from typing import Callable
 PARAKEET_REVISION = "0bbb45a3365852604aef28b538a8f066f4ccaa85"
 PARAKEET_URL = f"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/{PARAKEET_REVISION}/"
 KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+SMART_TURN_REVISION = "f766f81d3cfdf7737ac64aad813d91bbfd56bf93"
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,7 @@ class ModelFile:
 @dataclass(frozen=True)
 class Model:
     id: str
-    role: str  # vad | stt | tts
+    role: str  # vad | stt | tts | turn
     licence: str
     files: tuple[ModelFile, ...]
 
@@ -76,11 +77,21 @@ KOKORO_FP32 = Model("kokoro-v1.0-fp32", "tts", "Apache-2.0", (
     _VOICES,
 ))
 
+# Turn detection for conversation sessions (M7). The fp32 build on every tier: the int8 one
+# is unstable, and fp32 is cheap enough on CPU (speech/turn.py).
+SMART_TURN = Model("smart-turn-v3.2", "turn", "BSD-2-Clause", (
+    ModelFile("smart-turn.onnx", f"https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/{SMART_TURN_REVISION}/"
+              "smart-turn-v3.2-gpu.onnx", "ab8dc64b88713f90b571c15b714bd1330e6c883cad8763dacf65c9376dc539be", 32411198),
+))
+
 # int8 on CPU (no accuracy cost in M0), fp32 on GPU (int8 is slow under CUDA).
 MODELS = {
-    "cpu": {"vad": SILERO, "stt": PARAKEET_INT8, "tts": KOKORO_INT8},
-    "cuda": {"vad": SILERO, "stt": PARAKEET_FP32, "tts": KOKORO_FP32},
+    "cpu": {"vad": SILERO, "stt": PARAKEET_INT8, "tts": KOKORO_INT8, "turn": SMART_TURN},
+    "cuda": {"vad": SILERO, "stt": PARAKEET_FP32, "tts": KOKORO_FP32, "turn": SMART_TURN},
 }
+# Push-to-talk works without these; only conversation sessions need them, so an install from
+# before M7 keeps working until setup fetches them.
+OPTIONAL = {"turn"}
 
 
 def path(root: Path, model: Model) -> Path:

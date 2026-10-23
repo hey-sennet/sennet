@@ -10,7 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from sennet.server import create_app
 from sennet.speech import Speech
-from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
+from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeTurn, FakeVAD
 from sennet.voice import frames
 from sennet.voice.session import VoiceSession
 from conftest import HEADERS, wait_for, paired
@@ -79,7 +79,8 @@ class GatedSynthesizer(FakeSynthesizer):
 
 @pytest.fixture
 def speech():
-    return Speech.with_engines(FakeVAD(), FakeRecognizer("run the tests in backend"), GatedSynthesizer())
+    return Speech.with_engines(FakeVAD(), FakeRecognizer("run the tests in backend"), GatedSynthesizer(),
+                               turn=FakeTurn())
 
 
 @pytest.fixture
@@ -113,7 +114,7 @@ def test_ready_describes_the_session(voice):
     assert ready["generation"] == 0
     assert ready["input"] == {"rate": 16000, "format": "pcm_s16le", "channels": 1}
     assert ready["output"]["rate"] == 24000
-    assert ready["speech"] == {"stt": "ready", "tts": "ready"}
+    assert ready["speech"] == {"stt": "ready", "tts": "ready", "turn": "ready"}
 
 
 def test_other_sites_cannot_connect(client):

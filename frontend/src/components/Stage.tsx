@@ -41,7 +41,8 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   // A waiting approval replaces the agent's words (which are usually its question), not yours.
   const said = snapshot.words && (snapshot.words.committed || snapshot.words.provisional) ? snapshot.words : null
   // Once your request is sent, the task's progress takes over from your words.
-  const sent = said?.speaker === 'user' && running && !snapshot.listening && snapshot.state === 'idle'
+  const sent = said?.speaker === 'user' && running && !snapshot.listening
+    && (snapshot.state === 'idle' || snapshot.state === 'open')
   const words = said && !sent && !(approval && said.speaker === 'agent') ? said : null
   // The chime is the approval's question (voice-protocol §8): once as its card shows, even over
   // the agent's speech, and again for each approval after it.
@@ -49,6 +50,11 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
   useEffect(() => {
     if (chiming !== undefined) voice().playback.cue(chime)
   }, [chiming])
+  // An open conversation's next turn goes wherever the selection is now.
+  const targetKey = JSON.stringify(target)
+  useEffect(() => {
+    voice().retarget(JSON.parse(targetKey) as Target)
+  }, [targetKey])
   const projectOf = (taskId: number) => projects.find((p) => p.id === tasks.find((t) => t.id === taskId)?.project_id)
 
   const label = state === 'listening' ? 'Listening'
@@ -106,7 +112,7 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
         <p className={cn('eyebrow mb-3 flex min-h-5 items-center gap-1.5 text-muted-foreground transition-colors duration-400',
           state === 'listening' && 'text-foreground', (state === 'speaking' || state === 'thinking') && 'text-agent',
           state === 'approval' && !words && 'text-warn')}>
-          <span className="truncate">{label}</span>
+          <span className="truncate">{snapshot.conversation && state !== 'listening' && state !== 'speaking' ? `Conversation · ${label}` : label}</span>
           {label === 'Following up' && (
             <button className="-my-1 rounded-full p-1 hover:text-foreground" aria-label="New task instead" title="New task instead" onClick={onClearTask}>
               <X className="size-3" />
@@ -168,9 +174,9 @@ function Ellipsis() {
   )
 }
 
-/** What the agent is doing, from its latest event. */
+/** What the agent is doing, from its latest event in this turn. */
 function activity(detail: TaskDetail | null): string {
-  const last = detail?.events.findLast((e) => e.kind !== 'turn_completed' && e.kind !== 'error')
+  const last = detail?.events.findLast((e) => e.kind !== 'error')
   return last?.kind === 'command_started' ? 'Running a command'
     : last?.kind === 'file_change' ? 'Editing files'
     : last?.kind === 'message_delta' ? 'Writing'

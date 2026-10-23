@@ -15,7 +15,7 @@ from sennet.config import Paths, Settings
 from sennet.db import Database
 from sennet.server import create_app
 from sennet.speech import Speech
-from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
+from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeTurn, FakeVAD
 
 port, home = int(sys.argv[1]), Path(sys.argv[2])
 shutil.rmtree(home, ignore_errors=True)
@@ -29,5 +29,5 @@ db.add_device("Playwright", hashlib.sha256(os.environ["SENNET_E2E_TOKEN"].encode
 db.close()
 speech = None
 if heard := os.environ.get("SENNET_FAKE_SPEECH"):
-    speech = Speech.with_engines(FakeVAD(), FakeRecognizer(heard), FakeSynthesizer())
+    speech = Speech.with_engines(FakeVAD(), FakeRecognizer(heard), FakeSynthesizer(), turn=FakeTurn())
 uvicorn.run(create_app(settings, Paths(home, home), speech=speech), host="127.0.0.1", port=port, log_level="warning")

@@ -74,6 +74,11 @@ class VoiceActivity(Protocol):
         """Speech probability for one chunk."""
 
 
+class TurnModel(Protocol):
+    def __call__(self, audio: np.ndarray) -> float:
+        """Probability that the speaker has finished, from the turn's audio so far."""
+
+
 class VoiceActivityModel(Protocol):
     def stream(self) -> VoiceActivity:
         """A detector with fresh state, sharing the loaded model."""
