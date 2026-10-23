@@ -367,7 +367,7 @@ Replies:
 
 ## 8. Access and security
 
-Planned for M5; breakdown in [m5-access.md](m5-access.md).
+Built in M5; breakdown in [m5-access.md](m5-access.md), hosting in [hosting.md](hosting.md).
 
 - The daemon binds `127.0.0.1` only. Remote/phone access goes through something that
   provides HTTPS (required for microphone access): `tailscale serve` is recommended and
@@ -443,8 +443,10 @@ automatically.
    adapter, with approvals through the daemon's MCP endpoint and turns the agent starts
    itself to report background work; agent picker in Settings; model and effort per
    project and per task, from Settings or the dock's model button. Gemini CLI next.
-6. **M5 — Access.** Breakdown in [m5-access.md](m5-access.md). Device pairing, and
-   hosting guides for Tailscale and reverse proxies.
+6. **M5 — Access. Done.** Breakdown in [m5-access.md](m5-access.md). Device pairing
+   (`agent-talk pair`, a pairing screen, devices in Settings), every request checked for a
+   paired device, the phone address filled from Tailscale, and a hosting guide for
+   Tailscale, Caddy and nginx ([hosting.md](hosting.md)).
 7. **M6 — Packaging.** `setup`, `doctor`, service install, NOTICES, release CI.
 8. **M7 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 

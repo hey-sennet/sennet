@@ -22,10 +22,15 @@ with `claude auth login` on your Claude subscription.
 ```sh
 (cd frontend && npm ci && npm run build)
 uv run agent-talk setup                         # recommends a speech tier, installs it, downloads models
-uv run agent-talk doctor                        # checks the agents, speech and Tailscale
+uv run agent-talk doctor                        # checks the agents, speech, devices and Tailscale
 uv run agent-talk project add ~/code/my-app --name app --alias frontend --agent claude
 uv run agent-talk serve                         # http://127.0.0.1:7710
+uv run agent-talk pair                          # a one-time link to pair this browser, or a phone
 ```
+
+Every browser pairs once before it can use Agent Talk, this computer's included: open the
+link `agent-talk pair` prints, or type its code. A paired device can show a code for
+another in Settings, and Settings or `agent-talk devices` unpairs them.
 
 Agents run on this computer as you, in the project directory. Pick each project's agent
 in Settings or with `--agent`, and its default model and effort in Settings; a task can
@@ -70,7 +75,9 @@ GPL-3. Agent Talk's own code is Apache-2.0, but anything that bundles it with it
 dependencies is GPL-3; see [NOTICES](NOTICES).
 
 `agent-talk doctor` prints where the config and data live. The server binds to
-127.0.0.1 only; for phone access use `tailscale serve`, which provides HTTPS.
+127.0.0.1 only. A phone needs an HTTPS address in front of it: Tailscale (`agent-talk setup`
+finds its address, then `tailscale serve --bg 7710`) or a reverse proxy; see
+[docs/hosting.md](docs/hosting.md).
 
 ## Develop
 

@@ -1,6 +1,6 @@
 # M5: access
 
-Status: planned. Date: 2026-10-23.
+Status: done (steps 1 to 5); not yet tried on a real phone. Date: 2026-10-23.
 
 M5 decides who may use a running Agent Talk, and how it is reached from a phone.
 Packaging (`setup`, `service install`, release CI) follows in M6.
@@ -59,7 +59,8 @@ keeps the typed code safe even on a public address.
 ### Devices
 
 Each device has a 256-bit random token. The cookie (`agent_talk_device`) is HttpOnly,
-SameSite=Strict and Secure, except over plain HTTP on loopback, and lasts a year. The
+SameSite=Strict, Secure when the browser is on HTTPS (the request's scheme, or its Origin
+behind a proxy that doesn't say), and lasts a year. The
 database stores only a SHA-256 hash of the token, so a copy of the database can't be
 used to sign in.
 
@@ -76,9 +77,10 @@ terminal.
 - The app shell and its assets load without a cookie, so an unpaired browser can show
   the pairing screen.
 - The `X-Agent-Talk` header (CSRF) and the WebSocket Origin check stay as they are.
-- Responses get a Content-Security-Policy (`default-src 'self'`, no inline scripts) and
-  `X-Content-Type-Options`, `Referrer-Policy` and `frame-ancestors 'none'`: agent
-  output is rendered as markdown, and a stolen cookie is a remote shell.
+- Responses get a Content-Security-Policy (`default-src 'self'`, no inline scripts, no
+  framing; inline styles are allowed, since UI libraries inject them), `nosniff` and
+  `no-referrer`: agent output is rendered as markdown, and a stolen cookie is a remote
+  shell. Images in agent output load only from Agent Talk itself.
 
 ### Hosting
 
@@ -94,29 +96,41 @@ terminal.
 
 ### 1. Storage and CLI
 
-Schema version 6: `devices` (name, token hash, how it paired, paired and last-seen
+Done (421bc56, with step 2). Schema version 6: `devices` (name, token hash, how it paired, paired and last-seen
 times) and `pairing_codes` (code hash, form, expiry, who made it). `agent-talk pair`
 prints a link and a terminal QR code; `agent-talk devices` lists and revokes. QR codes
-come from `segno` (BSD), used for the terminal and for Settings' SVG.
+come from `segno` (BSD), used for the terminal and for Settings' SVG. `agent-talk serve`
+also prints a pairing link while no device is paired, as Jupyter prints its token.
 
 ### 2. The check
 
-Middleware on `/api/...` and both WebSockets, `POST /api/pair` to redeem a code (exempt
+Done (421bc56). Middleware on `/api/...` and both WebSockets, `POST /api/pair` to redeem a code (exempt
 from the check, rate-limited), and the security headers. Tests get a paired-client
 fixture; new tests cover unpaired requests, revocation closing sockets, expiry, reuse
-and rate limits, and that loopback isn't trusted.
+and rate limits, and that loopback isn't trusted. Revoking a device from the terminal
+reaches the daemon only through the database, so open sockets are checked every 30 s and
+closed when their device is gone.
 
 ### 3. Client
 
-The pairing screen (link or typed code), handling 401 and 4401, and Settings: the
+Done (8b538f5). The pairing screen (link or typed code), handling 401 and 4401, and Settings: the
 devices list (rename, revoke) and "Pair a device", with the QR code and the typed code.
+The app asks `GET /api/devices` before it renders, so an unpaired browser goes straight to
+the pairing screen. A `devices` event on `/api/events` keeps Settings current, and closes
+the code once another device has paired with it. Without a public address, a code shown on
+a loopback page has no QR code (its link would only work on this computer), just the code
+to type. Browser tests start paired, from a device the e2e server adds, and a suite of
+their own pairs a fresh browser by code and by link.
 
 ### 4. Public URL
 
-`server.public_url`, filled by `setup` from Tailscale and checked by `doctor`; `doctor`
-also reports Funnel.
+Done (9d377c0). `server.public_url`, filled by `setup` from Tailscale and checked by `doctor`; `doctor`
+also reports Funnel, as a problem. Setup asks before using the tailnet address, keeps an
+address set by hand, and says to run `tailscale serve --bg 7710` when nothing serves it
+yet. Tailscale isn't installed on the development machine, so `tailscale.py` is tested
+only against hand-written JSON in the shape of its `status` and `serve status` output.
 
 ### 5. Docs
 
-HLD §2, §7, §8, §9, §10 and §12, voice-protocol §1, the README, and guides for
-Tailscale, Caddy and nginx.
+Done. HLD §2, §7, §8, §9, §10 and §12, voice-protocol §1, the README, and
+[hosting.md](hosting.md) for Tailscale, Caddy and nginx.

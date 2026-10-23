@@ -21,7 +21,8 @@ Voice uses its own WebSocket, `/api/voice`, rather than adding binary frames to
   task events.
 
 The voice socket gets the same Origin check as `/api/events`, and the same device check
-once M5's pairing lands (HLD §8): an unpaired socket closes with code 4401. A client
+(HLD §8): a socket from an unpaired device, or one unpaired while it is open, closes with
+code 4401, which the client takes as "pair this device" rather than "reconnect". A client
 opens it when the voice UI mounts and keeps it open, because replies are spoken over it
 even when the user isn't talking.
 
