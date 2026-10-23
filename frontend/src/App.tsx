@@ -55,6 +55,15 @@ export default function App() {
   const target: Target = selected !== null ? { task_id: selected }
     : homeProject ? { project_id: homeProject.id, ...nextChoice } : {}
 
+  // After an upgrade the server comes back newer than this page; offer the new client.
+  useEffect(() => {
+    if (!live.updated) return
+    toast('Agent Talk was updated', {
+      id: 'updated', duration: Infinity, description: 'Reload to use the new version.',
+      action: { label: 'Reload', onClick: () => location.reload() },
+    })
+  }, [live.updated])
+
   // A spoken request starts a task, which becomes the one to follow up on, as a typed one does.
   const selectedRef = useRef(selected)
   useEffect(() => {
@@ -299,7 +308,7 @@ export default function App() {
         </>
       )}
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings} version={live.version}
         subscribe={live.subscribe} />
       <Toaster position="top-center" />
     </div>

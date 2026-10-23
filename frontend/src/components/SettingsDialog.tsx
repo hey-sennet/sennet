@@ -32,12 +32,13 @@ async function attempt(action: () => Promise<unknown>, failure: string) {
   }
 }
 
-export function SettingsDialog({ open, onOpenChange, projects, rules, settings, subscribe }: {
+export function SettingsDialog({ open, onOpenChange, projects, rules, settings, version, subscribe }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   projects: Project[]
   rules: Rule[]
   settings: State['settings'] | null
+  version: string | null
   subscribe: (listener: (event: ServerEvent) => void) => () => void
 }) {
   const agents = useAgents()
@@ -95,8 +96,21 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
         <Section title="Devices" hint="Browsers paired with Agent Talk. Unpair any you no longer use.">
           <Devices subscribe={subscribe} />
         </Section>
+
+        <About version={version} />
       </DialogContent>
     </Dialog>
+  )
+}
+
+function About({ version }: { version: string | null }) {
+  return (
+    <Section title="About">
+      <p className="text-sm">
+        Agent Talk {version ?? ''}
+        <span className="text-muted-foreground"> · free and open source under the Apache License 2.0</span>
+      </p>
+    </Section>
   )
 }
 

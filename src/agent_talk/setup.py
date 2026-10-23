@@ -22,15 +22,13 @@ import socket
 import subprocess
 import sys
 import time
-import tomllib
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 from rich.panel import Panel
 from rich.table import Table
 
-from . import service, tailscale
+from . import install, service, tailscale
 from .config import Paths, Settings
 from .prompts import Abort, Option, Prompter, gigabytes, size, tagged
 from .speech import hardware, models, voices
@@ -208,37 +206,17 @@ def _runtime_ready(ui: Prompter, device: str) -> bool:
 
 def _install_command(extra: str) -> tuple[list[str] | None, list[str] | None]:
     """The command that reinstalls Agent Talk with `extra`, and what to run afterwards."""
-    receipt = _uv_tool_receipt()
-    if receipt is not None:
-        requirement = next((r for r in receipt.get("tool", {}).get("requirements", [])
-                            if r.get("name") == "agent-talk"), None)
-        if requirement and not any(k in requirement for k in ("git", "url", "directory", "path", "editable")):
-            spec = f"agent-talk[{extra}]" + (requirement.get("specifier") or "")
-            return ["uv", "tool", "install", "--reinstall", spec], [shutil.which("agent-talk") or "agent-talk"]
-        return None, None
+    if install.uv_tool_receipt() is not None:
+        requirement = install.uv_tool_requirement()
+        if requirement is None:
+            return None, None
+        spec = f"agent-talk[{extra}]" + (requirement.get("specifier") or "")
+        return ["uv", "tool", "install", "--reinstall", spec], [shutil.which("agent-talk") or "agent-talk"]
     rerun = [sys.executable, "-m", "agent_talk"]
-    project = _source_checkout()
+    project = install.source_checkout()
     if project is not None and shutil.which("uv"):
         return ["uv", "sync", "--project", str(project), "--extra", extra], rerun
     return [sys.executable, "-m", "pip", "install", f"agent-talk[{extra}]"], rerun
-
-
-def _uv_tool_receipt() -> dict | None:
-    receipt = Path(sys.prefix) / "uv-receipt.toml"
-    if not receipt.is_file():
-        return None
-    try:
-        return tomllib.loads(receipt.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-
-
-def _source_checkout() -> Path | None:
-    """The repository this package runs from, when it is an editable install."""
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "src" / "agent_talk").is_dir():
-            return parent
-    return None
 
 
 # Downloads

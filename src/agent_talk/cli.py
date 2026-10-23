@@ -1,4 +1,5 @@
-"""Command line: `agent-talk setup`, `serve`, `service …`, `pair`, `devices`, `project …` and `doctor`."""
+"""Command line: `agent-talk setup`, `serve`, `service …`, `pair`, `devices`, `project …`, `doctor`,
+`upgrade` and `remove-data`."""
 from __future__ import annotations
 
 import argparse
@@ -58,6 +59,10 @@ def main(argv: list[str] | None = None):
     revoke.add_argument("id", type=int, help="the device's number, from `agent-talk devices`")
 
     commands.add_parser("doctor", help="check agents and configuration")
+    upgrade = commands.add_parser("upgrade", help="upgrade Agent Talk and restart the service")
+    upgrade.add_argument("--yes", action="store_true", help="don't ask, even with tasks still going")
+    remove = commands.add_parser("remove-data", help="delete the config, tasks, paired devices and models")
+    remove.add_argument("--yes", action="store_true", help="don't ask")
 
     args = parser.parse_args(argv)
     paths = Paths.default()
@@ -81,6 +86,12 @@ def main(argv: list[str] | None = None):
         project_command(paths, args)
     elif args.command == "doctor":
         sys.exit(doctor(settings, paths))
+    elif args.command == "upgrade":
+        from . import install
+        sys.exit(install.upgrade(paths, settings.server.port, args.yes))
+    elif args.command == "remove-data":
+        from . import install
+        sys.exit(install.remove_data(paths, settings.server.port, args.yes))
 
 
 def serve_command(settings: Settings, paths: Paths, args):

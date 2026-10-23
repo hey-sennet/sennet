@@ -98,6 +98,7 @@ export interface Rule {
 }
 
 export interface State {
+  version: string // the server's; the client offers a reload when it changes under it
   projects: Project[]
   tasks: Task[]
   approvals: Approval[]

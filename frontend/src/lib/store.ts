@@ -5,6 +5,7 @@ import { markUnpaired, UNPAIRED } from './pairing'
 export type Connection = 'connecting' | 'live' | 'reconnecting'
 
 interface Live {
+  version: string | null
   projects: Project[]
   tasks: Task[]
   approvals: Approval[]
@@ -12,7 +13,7 @@ interface Live {
   settings: State['settings'] | null
 }
 
-const empty: Live = { projects: [], tasks: [], approvals: [], rules: [], settings: null }
+const empty: Live = { version: null, projects: [], tasks: [], approvals: [], rules: [], settings: null }
 
 function upsert<T extends { id: number }>(items: T[], item: T, first = false): T[] {
   const index = items.findIndex((existing) => existing.id === item.id)
@@ -22,14 +23,19 @@ function upsert<T extends { id: number }>(items: T[], item: T, first = false): T
   return next
 }
 
-/** Server state plus live events. Reloads everything on reconnect, so missed events never matter. */
+/** Server state plus live events. Reloads everything on reconnect, so missed events never matter.
+ * `updated` turns true when the server comes back with another version than this page loaded with. */
 export function useLiveState() {
   const [live, setLive] = useState<Live>(empty)
   const [connection, setConnection] = useState<Connection>('connecting')
+  const [updated, setUpdated] = useState(false)
   const listeners = useRef(new Set<(event: ServerEvent) => void>())
+  const firstVersion = useRef<string | null>(null)
 
   const reload = useCallback(async () => {
     const state = await api.state()
+    firstVersion.current ??= state.version
+    if (state.version !== firstVersion.current) setUpdated(true)
     setLive({ ...state })
   }, [])
 
@@ -76,7 +82,7 @@ export function useLiveState() {
     return () => void listeners.current.delete(listener)
   }, [])
 
-  return { ...live, connection, reload, subscribe }
+  return { ...live, connection, updated, reload, subscribe }
 }
 
 function apply(state: Live, event: ServerEvent): Live {
