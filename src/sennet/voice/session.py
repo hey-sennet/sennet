@@ -17,6 +17,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import numpy as np
 from starlette.websockets import WebSocket, WebSocketState
 
 from ..speech import RATE, Speech
@@ -25,6 +26,7 @@ from .conversation import ECHO_WINDOW_S, Conversation
 from . import opus
 from .frames import INPUT_RATE, BadFrame, OpusDownlink, OpusUplink, decode_uplink, encode_downlink
 from .recognition import Recognition
+from .speakable import pause_after
 
 if TYPE_CHECKING:
     from .hub import VoiceHub
@@ -592,6 +594,8 @@ class VoiceSession:
                 upcoming = synthesize(reply.segments[index + 1]) if index + 1 < len(reply.segments) else None
                 if self.generation != generation or reply.cancelled:
                     return
+                if upcoming is not None and (pause := pause_after(text)):
+                    audio = np.concatenate([audio, np.zeros(int(pause * tts.rate), audio.dtype)])
                 if self.asking and reply is self.asking.reply:
                     self.asking.started = True  # once the user may have heard it, the next turn answers it
                 cue = {"cue": True} if reply.cue and index == 0 else {}

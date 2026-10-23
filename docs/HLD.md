@@ -336,11 +336,15 @@ Replies:
 
 ### 6.4 Speech output
 
-- Text is split into sentences/clauses as it streams and synthesized one segment
-  ahead of playback, so "stop" is responsive.
-- The first chunk of each reply is kept short (a clause, not a sentence). Kokoro
-  produces no audio until a whole chunk is synthesized (real-time factor ~0.28 on CPU),
-  and a long first sentence delayed the reply by 3.4 s in M0.
+- Text is split into sentences and synthesized one segment ahead of playback, so
+  "stop" is responsive.
+- Sentences are kept whole. Kokoro synthesizes each segment as a complete utterance, so
+  a cut inside a sentence ends the first half with a full stop's fall in pitch and the
+  voice jumps there. Only a sentence too long for one pass (about 300 characters) is cut,
+  at a clause mark, with a 150 ms pause. This replaced a short first chunk (a clause, not
+  a sentence) that started the voice sooner: Kokoro produces no audio until a whole
+  segment is synthesized, and on CPU (real-time factor ~0.28) a long first sentence
+  delayed the reply by 3.4 s in M0. On a GPU that wait is a fraction of a second.
 - Code blocks, logs, URLs and markdown are never narrated. "Read details" is explicit.
 - "Stop speaking" stops audio only. "Cancel" stops agent work. These are separate actions.
 

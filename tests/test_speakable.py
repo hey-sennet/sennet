@@ -1,7 +1,8 @@
 """Agent text made fit to speak, and its clauses."""
 import pytest
 
-from sennet.voice.speakable import CODE_NOTE, TABLE_NOTE, clauses, for_speech, spoken_part, without_spoken
+from sennet.voice.speakable import (CODE_NOTE, MAX_CHUNK, TABLE_NOTE, clauses, for_speech, pause_after, spoken_part,
+                                    without_spoken)
 
 CODEX_REPLY = """I fixed the failing test in `tests/test_tasks.py`.
 
@@ -57,24 +58,25 @@ def test_clauses_keep_abbreviations_and_decimals():
     assert clauses("Use version 3.5, e.g. the latest one.") == ["Use version 3.5, e.g. the latest one."]
 
 
-def test_the_first_chunk_is_a_short_clause():
+def test_sentences_are_not_cut_to_start_sooner():
     first, *rest = clauses("I looked at the failing tests in the backend project, and the cause was a race "
                            "in the task manager. It is fixed now.")
-    assert first == "I looked at the failing tests in the backend project,"
-    assert rest == ["and the cause was a race in the task manager.", "It is fixed now."]
-
-
-def test_a_first_sentence_without_clause_marks_is_not_cut_mid_clause():
-    sentence = "I looked at every failing test in the backend project and fixed them all."
-    assert clauses(sentence) == [sentence]
+    assert first == "I looked at the failing tests in the backend project, and the cause was a race in the task manager."
+    assert rest == ["It is fixed now."]
 
 
 def test_long_sentences_are_cut_to_the_limit():
     sentence = "This goes on, " * 30 + "and ends."
     pieces = clauses("Short start. " + sentence)
     assert pieces[0] == "Short start."
-    assert all(len(p) <= 160 for p in pieces)
+    assert all(len(p) <= MAX_CHUNK for p in pieces)
     assert " ".join(pieces).replace("  ", " ") == ("Short start. " + sentence).strip()
+
+
+def test_a_pause_is_left_only_where_a_sentence_was_cut():
+    pieces = clauses("This goes on, " * 30 + "and ends. Done.")
+    assert [pause_after(p) > 0 for p in pieces] == [True] * (len(pieces) - 2) + [False, False]
+    assert pause_after('He said "done."') == 0
 
 
 def test_the_spoken_version_is_found_and_left_out_of_the_reply():

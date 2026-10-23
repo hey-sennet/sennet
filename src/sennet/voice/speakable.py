@@ -14,8 +14,12 @@ import re
 CODE_NOTE = "There's a code block in the timeline."
 TABLE_NOTE = "There's a table in the timeline."
 
-FIRST_CHUNK = 60    # characters; Kokoro plays nothing until a whole chunk is synthesized
-MAX_CHUNK = 160
+# Characters. Each piece is synthesized as a whole utterance, so a cut inside a sentence ends
+# the first half with a full stop's fall in pitch. Only sentences too long to synthesize in one
+# go (tts.MAX_PHONEMES, near 480 characters of prose, fewer with numbers) are cut, and a short
+# pause is left where they are.
+MAX_CHUNK = 300
+CUT_PAUSE_S = 0.15
 
 FENCE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)", re.S | re.M)
 TABLE = re.compile(r"(?:^[ \t]*\|.*\|[ \t]*$\n?){2,}", re.M)
@@ -102,14 +106,16 @@ def without_spoken(markdown: str) -> str:
 
 
 def clauses(text: str) -> list[str]:
-    """Sentences, long ones split at clause marks, with a short first chunk."""
+    """Sentences, with only the very long ones split at clause marks."""
     pieces: list[str] = []
     for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(])", text.strip()):
         pieces += _split(sentence, MAX_CHUNK)
-    pieces = [p for p in pieces if p]
-    if pieces and len(pieces[0]) > FIRST_CHUNK:
-        pieces[:1] = _split(pieces[0], FIRST_CHUNK, first_only=True)
-    return pieces
+    return [p for p in pieces if p]
+
+
+def pause_after(piece: str) -> float:
+    """Silence to leave after a piece: a breath where a sentence was cut, none at its end."""
+    return 0.0 if piece.rstrip("\"')").endswith((".", "!", "?", "…")) else CUT_PAUSE_S
 
 
 # Inline pieces
@@ -216,23 +222,16 @@ def _end(sentence: str) -> str:
     return sentence if not sentence or sentence[-1] in ".!?:;…" else sentence + "."
 
 
-def _split(sentence: str, limit: int, first_only: bool = False) -> list[str]:
-    """Cut at clause marks (, ; : —) so pieces fit `limit`, else at the last space.
-    With `first_only`, cut once, near the start, and keep the rest whole."""
+def _split(sentence: str, limit: int) -> list[str]:
+    """Cut at clause marks (, ; : —) so pieces fit `limit`, else at the last space."""
     pieces = []
     rest = sentence.strip()
     while len(rest) > limit:
         marks = [m.end() for m in re.finditer(r"[,;:—–]\s", rest[:limit + 1])]
         marks = [m for m in marks if m >= 15]
-        if first_only and not marks and len(rest) <= 2 * limit:
-            break  # cutting mid-clause costs more in prosody than it saves in latency
-        cut = marks[0 if first_only else -1] if marks else rest.rfind(" ", 15, limit + 1)
+        cut = marks[-1] if marks else rest.rfind(" ", 15, limit + 1)
         if cut <= 0:
-            if first_only:
-                break  # one long word: nothing sensible to cut
             cut = limit
         pieces.append(rest[:cut].strip())
         rest = rest[cut:].strip()
-        if first_only:
-            break
     return pieces + [rest] if rest else pieces
