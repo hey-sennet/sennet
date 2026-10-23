@@ -99,6 +99,8 @@ test('a running task stops from the main screen, and the task being followed up 
   const stage = page.getByRole('main')
   // Words now go to this task, and it says which.
   await expect(stage.getByText('Following up')).toHaveCount(0) // working, not yet following up
+  // On a laptop the closed task tab counts it, as the phone's tasks glyph does.
+  if (info.project.name === 'desktop') await expect(page.getByRole('button', { name: /^Show tasks, \d+ active/ })).toBeVisible()
   await stage.getByRole('button', { name: 'Stop task' }).click()
   await expect(stage.getByRole('button', { name: 'Stop task' })).toHaveCount(0)
   await expect(stage.getByText('Following up')).toBeVisible()

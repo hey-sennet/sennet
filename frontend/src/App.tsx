@@ -211,11 +211,17 @@ export default function App() {
       {desktop && (
         <aside aria-label="Tasks" className="relative col-start-1 row-span-2 row-start-2 mb-6 min-h-0">
           <button
-            className="absolute top-1/2 -right-10 z-10 -mt-8 grid h-16 w-7 place-items-center rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
-            aria-label={railOpen ? 'Hide tasks' : 'Show tasks'} title={railOpen ? 'Hide tasks' : 'Show tasks'} aria-expanded={railOpen}
+            className="absolute top-1/2 -right-10 z-10 -mt-8 flex h-16 w-7 flex-col items-center justify-center gap-1 rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={railOpen ? 'Hide tasks' : `Show tasks${activeTasks ? `, ${activeTasks} active` : ''}${live.approvals.length ? `, ${live.approvals.length} need${live.approvals.length === 1 ? 's' : ''} you` : ''}`}
+            title={railOpen ? 'Hide tasks' : 'Show tasks'} aria-expanded={railOpen}
             onClick={() => setRailOpen(!railOpen)}
           >
+            {/* Closed, it says what the phone's tasks glyph does: how many are working, and whether one needs you. */}
+            {!railOpen && activeTasks > 0 && <span className="text-[11px] leading-none font-medium tabular-nums">{activeTasks}</span>}
             <ChevronRight className={cn('size-3.5 transition-transform duration-600 ease-strata', railOpen && 'rotate-180')} />
+            {!railOpen && live.approvals.length > 0 && (
+              <span className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-background bg-warn" />
+            )}
           </button>
           <div className={cn('absolute inset-y-0 right-0 flex w-[280px] flex-col pr-4 pl-6 transition-opacity duration-400 ease-strata',
             railOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} inert={!railOpen}>
