@@ -86,7 +86,7 @@ async def list_models(connection: Connection) -> list[ModelOption]:
 
 async def _initialize(connection: Connection):
     await connection.request("initialize", {
-        "clientInfo": {"name": "agent-talk", "title": "Agent Talk", "version": __version__},
+        "clientInfo": {"name": "sennet", "title": "Sennet", "version": __version__},
         "capabilities": {"experimentalApi": False, "requestAttestation": False}})
     await connection.notify("initialized")
 
@@ -159,7 +159,7 @@ class Connection:
         try:
             result = await self.on_request(message["method"], message.get("params") or {})
             if result is None:
-                await self.respond(message["id"], error={"code": -32601, "message": "not supported by Agent Talk"})
+                await self.respond(message["id"], error={"code": -32601, "message": "not supported by Sennet"})
             else:
                 await self.respond(message["id"], result)
         except CodexError:

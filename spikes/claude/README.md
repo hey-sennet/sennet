@@ -85,7 +85,7 @@ Claude Code 2.1.308 on Linux, `--model haiku`, 2026-10-22.
   bracket each task.
 - A user message sent while the work ran got its own turn and answer straight away
   (`background` scenario); the report came in a separate turn when the command ended.
-- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` turns all of this off. Agent Talk keeps it
+- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` turns all of this off. Sennet keeps it
   on and treats the agent's own turns as part of the contract (M4 step 2).
 
 ### Access

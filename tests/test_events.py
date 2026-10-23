@@ -1,6 +1,6 @@
 import asyncio
 
-from agent_talk.events import EventBus
+from sennet.events import EventBus
 
 
 async def test_next_delivers_events_in_order():

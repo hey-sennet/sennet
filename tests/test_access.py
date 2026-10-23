@@ -6,9 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from agent_talk import access, cli, server
-from agent_talk.db import Database
-from agent_talk.server import create_app
+from sennet import access, cli, server
+from sennet.db import Database
+from sennet.server import create_app
 from conftest import HEADERS, pair, paired
 
 FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
@@ -81,7 +81,7 @@ def test_wrong_codes_are_throttled_for_everyone(unpaired):
 
 def test_pairing_still_needs_the_csrf_header(unpaired):
     code = access.new_pairing(unpaired.app.state.db, access.TERMINAL, 60).link_code
-    assert unpaired.post("/api/pair", json={"code": code}, headers={"X-Agent-Talk": ""}).status_code == 403
+    assert unpaired.post("/api/pair", json={"code": code}, headers={"X-Sennet": ""}).status_code == 403
 
 
 def test_the_cookie_is_kept_from_scripts_and_other_sites(unpaired):
@@ -159,7 +159,7 @@ def test_revoking_a_device_closes_its_sockets(client):
 def test_revoking_this_device_forgets_its_cookie(client):
     me = client.get("/api/devices").json()[0]
     response = client.delete(f"/api/devices/{me['id']}")
-    assert 'agent_talk_device=""' in response.headers["set-cookie"] or "max-age=0" in response.headers["set-cookie"].lower()
+    assert 'sennet_device=""' in response.headers["set-cookie"] or "max-age=0" in response.headers["set-cookie"].lower()
     assert client.get("/api/state").status_code == 401
 
 
@@ -185,12 +185,12 @@ def test_device_names_from_user_agents():
 
 
 def test_the_terminal_pairs_and_revokes(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("AGENT_TALK_HOME", str(tmp_path))
+    monkeypatch.setenv("SENNET_HOME", str(tmp_path))
     cli.main(["pair"])
     printed = capsys.readouterr().out
     assert "http://127.0.0.1:7710/pair#" in printed
     link_code = printed.split("/pair#")[1].split()[0]
-    db = Database(tmp_path / "agent-talk.db")
+    db = Database(tmp_path / "sennet.db")
     device, _ = access.redeem(db, link_code, FIREFOX)
     db.close()
     cli.main(["devices"])
@@ -202,7 +202,7 @@ def test_the_terminal_pairs_and_revokes(tmp_path, monkeypatch, capsys):
 
 
 def test_the_terminal_shows_a_qr_code_for_the_public_address(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("AGENT_TALK_HOME", str(tmp_path))
+    monkeypatch.setenv("SENNET_HOME", str(tmp_path))
     (tmp_path / "config.toml").write_text('[server]\npublic_url = "https://desktop.tailnet.ts.net/"\n')
     cli.main(["pair"])
     printed = capsys.readouterr().out

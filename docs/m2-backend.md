@@ -11,11 +11,11 @@ separately.
 
 New code lives in two packages:
 
-- `agent_talk/speech/` holds the models and nothing about sockets: VAD, the streaming
+- `sennet/speech/` holds the models and nothing about sockets: VAD, the streaming
   transcriber, TTS, the text-for-speech cleaner, and the inference executor. It is
   ported from `spikes/speech/speech.py`, keeping the M0 decisions (int8 on CPU, fp32 on
   GPU, 4 threads, `HEURISTIC` conv search, full-pass finals).
-- `agent_talk/voice/` holds the protocol: the `/api/voice` route, one `VoiceSession`
+- `sennet/voice/` holds the protocol: the `/api/voice` route, one `VoiceSession`
   per socket, frame encoding, generations, direct-mode dispatch and the approval flow.
 
 The voice layer subscribes to the existing `EventBus` to learn when a task's turn
@@ -33,13 +33,13 @@ also drops its `transformers` dependency.
 
 ### 1. Speech engines and model fetch
 
-- Port `SileroVAD`, `Parakeet`, `StreamingTranscriber` and `TTS` into `agent_talk/speech/`
+- Port `SileroVAD`, `Parakeet`, `StreamingTranscriber` and `TTS` into `sennet/speech/`
   behind small protocols (`Recognizer`, `Synthesizer`), with the fakes beside them.
 - An inference executor: one worker thread per model, so inference never runs on the
   event loop. STT work is ordered final passes first, then captions (HLD §4.3).
 - A `[speech]` config section: `device` (`auto`, `cpu`, `cuda`), `threads`, `voice`, and
   `enabled`.
-- The speech part of a guided `agent-talk setup` (HLD §5.1, §9). It detects the CPU,
+- The speech part of a guided `sennet setup` (HLD §5.1, §9). It detects the CPU,
   RAM, GPU and free VRAM, recommends a tier and explains why ("RTX 4060, 7.1 GB free:
   GPU tier"), and lets the user accept or change it. If GPU is chosen, it reinstalls
   itself with the `cuda` extra through uv. It then downloads the pinned models into the
@@ -216,7 +216,7 @@ flowchart LR
 Kokoro turns text into phonemes before synthesis. kokoro-onnx does that with
 phonemizer, which drives espeak-ng, and both are GPL. They load into the daemon's own
 process, which under the FSF's reading makes the running program a combined work under
-GPL-3. Agent Talk's own code stays Apache-2.0, and nothing is owed while each user
+GPL-3. Sennet's own code stays Apache-2.0, and nothing is owed while each user
 installs the parts on their own machine. The GPL applies when someone conveys the
 combination: a Docker image, a distro or Homebrew package with dependencies, or a
 frozen binary would have to be offered under GPL-3. It also misses the goal in HLD §12

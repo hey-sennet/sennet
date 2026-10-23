@@ -2,14 +2,14 @@
 # Install a built wheel the way users do, in a throwaway uv tool directory, and check that it
 # serves: the version, the app shell, the license files, the health check, and that the API wants a
 # paired device. Release CI runs it on each built wheel (docs/m6-packaging.md).
-#   scripts/smoke-test.sh dist/agent_talk-*.whl [extra]
+#   scripts/smoke-test.sh dist/sennet-*.whl [extra]
 set -euo pipefail
 
 wheel=$(realpath "$1")
 extra=${2:-cpu}
 port=7797
-work=$(mktemp -d "${SMOKE_DIR:-${TMPDIR:-/tmp}}/agent-talk-smoke.XXXXXX")
-export UV_TOOL_DIR=$work/tools UV_TOOL_BIN_DIR=$work/bin AGENT_TALK_HOME=$work/home
+work=$(mktemp -d "${SMOKE_DIR:-${TMPDIR:-/tmp}}/sennet-smoke.XXXXXX")
+export UV_TOOL_DIR=$work/tools UV_TOOL_BIN_DIR=$work/bin SENNET_HOME=$work/home
 server=
 cleanup() {
   if [ -n "$server" ]; then kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true; fi
@@ -17,12 +17,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-uv tool install --quiet "agent-talk[$extra] @ $wheel"
-bin=$UV_TOOL_BIN_DIR/agent-talk
+uv tool install --quiet "sennet[$extra] @ $wheel"
+bin=$UV_TOOL_BIN_DIR/sennet
 echo "installed: $("$bin" --version)"
 
-mkdir -p "$AGENT_TALK_HOME"
-printf '[server]\nport = %d\n\n[speech]\nenabled = false\n' "$port" > "$AGENT_TALK_HOME/config.toml"
+mkdir -p "$SENNET_HOME"
+printf '[server]\nport = %d\n\n[speech]\nenabled = false\n' "$port" > "$SENNET_HOME/config.toml"
 "$bin" serve > "$work/serve.log" 2>&1 &
 server=$!
 for _ in $(seq 60); do

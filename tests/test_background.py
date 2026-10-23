@@ -4,9 +4,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk.agents.base import AgentEvent, check_event
-from agent_talk.db import Database
-from agent_talk.server import create_app
+from sennet.agents.base import AgentEvent, check_event
+from sennet.db import Database
+from sennet.server import create_app
 from conftest import HEADERS, wait_for, paired
 from scripted_agent import ScriptedAgent
 

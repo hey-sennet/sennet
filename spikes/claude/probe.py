@@ -81,7 +81,7 @@ def mcp_server(recorder: Recorder, policy):
                 return
             if method == "initialize":
                 result = {"protocolVersion": body["params"].get("protocolVersion", "2025-06-18"),
-                          "capabilities": {"tools": {}}, "serverInfo": {"name": "agent_talk", "version": "0"}}
+                          "capabilities": {"tools": {}}, "serverInfo": {"name": "sennet", "version": "0"}}
             elif method == "tools/list":
                 result = {"tools": [TOOL]}
             elif method == "tools/call":
@@ -109,11 +109,11 @@ class Claude:
         server = {"type": "http", "url": f"http://127.0.0.1:{port}/mcp/secret"}
         if timeout := os.environ.get("MCP_SERVER_TIMEOUT"):
             server["timeout"] = int(timeout)  # ms; HTTP servers otherwise time out each request at 60 s
-        mcp = {"mcpServers": {"agent_talk": server}}
+        mcp = {"mcpServers": {"sennet": server}}
         command = ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                    "--include-partial-messages", "--model", model, "--setting-sources", "user",
                    "--strict-mcp-config", "--mcp-config", json.dumps(mcp),
-                   "--permission-prompt-tool", "mcp__agent_talk__approve", "--permission-mode", mode,
+                   "--permission-prompt-tool", "mcp__sennet__approve", "--permission-mode", mode,
                    "--disallowedTools", "AskUserQuestion",
                    *(["--resume", session] if resume else ["--session-id", session]), *extra]
         recorder.write("argv", command)
@@ -268,7 +268,7 @@ def run(scenario: str, cwd: Path, model: str):
         time.sleep(5)
         c.close()
     elif scenario == "scoped_never":
-        outside = Path.home() / ".cache" / "agent-talk-probe"
+        outside = Path.home() / ".cache" / "sennet-probe"
         outside.mkdir(parents=True, exist_ok=True)
         c = claude(mode="dontAsk", extra=["--allowedTools", f"Edit(/{cwd}/**)", f"Write(/{cwd}/**)"])
         c.send("Do these one at a time and report each result in one line: "
@@ -281,7 +281,7 @@ def run(scenario: str, cwd: Path, model: str):
         recorder.write("outside_files", sorted(f.name for f in outside.iterdir()))
         recorder.write("inside_files", sorted(f.name for f in cwd.iterdir()))
     elif scenario in ("sandbox_auto", "sandbox_never"):
-        outside = Path.home() / ".cache" / "agent-talk-probe"
+        outside = Path.home() / ".cache" / "sennet-probe"
         outside.mkdir(parents=True, exist_ok=True)
         sandbox = {"sandbox": {"enabled": True, "failIfUnavailable": True}}
         mode, extra = ("acceptEdits", []) if scenario == "sandbox_auto" else \

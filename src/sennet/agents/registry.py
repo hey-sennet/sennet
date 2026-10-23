@@ -1,4 +1,4 @@
-"""The agents Agent Talk can drive. Every adapter is listed here and nowhere else.
+"""The agents Sennet can drive. Every adapter is listed here and nowhere else.
 
 The first one listed is the default for new projects.
 """

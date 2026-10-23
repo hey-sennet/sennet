@@ -1,4 +1,4 @@
-"""`agent-talk setup`: a guided install of speech and the voice.
+"""`sennet setup`: a guided install of speech and the voice.
 
 Every choice is a list of all the options, the recommended one first and marked,
 with why. Options that won't fit can still be chosen, with a warning; options that
@@ -43,10 +43,10 @@ NAMES = {"cpu": "CPU", "cuda": "GPU (CUDA)"}
 REPLY_TIME = {"cpu": "~1.4 s", "cuda": "~0.2 s"}
 DELAY_NOTE = ("Voice delay: from letting go of the talk button to hearing a short spoken answer, "
               "on top of the agent's own time.")
-SELF_TEST = "Agent Talk is ready to listen."
+SELF_TEST = "Sennet is ready to listen."
 
 MORE = "more"
-RESUME = "AGENT_TALK_SETUP_RESUME_SERVICE"   # set across setup's re-exec when it stopped the service
+RESUME = "SENNET_SETUP_RESUME_SERVICE"   # set across setup's re-exec when it stopped the service
 
 
 @dataclass
@@ -54,10 +54,10 @@ class Machine:
     """What setup found, and what the daemon already holds."""
 
     hardware: hardware.Hardware
-    speech_loaded: bool            # Agent Talk is running, so its speech is in the free figures
+    speech_loaded: bool            # Sennet is running, so its speech is in the free figures
     tailnet: str | None = None     # this machine's HTTPS address on the tailnet, when Tailscale is up
-    served: bool = False           # `tailscale serve` passes that address on to Agent Talk
-    serves_other: bool = False     # it serves something else, which serving Agent Talk would replace
+    served: bool = False           # `tailscale serve` passes that address on to Sennet
+    serves_other: bool = False     # it serves something else, which serving Sennet would replace
 
 
 def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) -> int:
@@ -74,7 +74,7 @@ def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) 
     try:
         return _run(ui, settings, paths, device, paused is not None)
     except Abort:
-        ui.console.print("\n[yellow]Setup stopped.[/] Run `agent-talk setup` again to pick up where you left off.")
+        ui.console.print("\n[yellow]Setup stopped.[/] Run `sennet setup` again to pick up where you left off.")
         return 130
     finally:
         if paused is not None and not paused.status().running:
@@ -107,7 +107,7 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None, pau
         _show_downloads(ui, paths, downloads)
         total = sum(m.size for _, m in downloads)
         if not ui.confirm(f"Download {size(total)} now?"):
-            ui.info("Run `agent-talk setup` again when you're ready.")
+            ui.info("Run `sennet setup` again when you're ready.")
             return 1
     else:
         ui.ok("Everything is downloaded already.")
@@ -121,8 +121,8 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None, pau
 
     ui.heading("Speech check")
     if machine.speech_loaded:
-        ui.warn("Agent Talk is running outside the service and holds its speech models, so this check may run "
-                "out of memory. Stop it (Ctrl+C where `agent-talk serve` runs) if it does.")
+        ui.warn("Sennet is running outside the service and holds its speech models, so this check may run "
+                "out of memory. Stop it (Ctrl+C where `sennet serve` runs) if it does.")
     speech = _speech_check(ui, paths, device, settings)
     if speech is None:
         return 1
@@ -161,8 +161,8 @@ def _show_machine(ui: Prompter, machine: Machine):
     for gpu in found.gpus:
         lines.append(f"{gpu.name} · {gigabytes(gpu.free_mb)} free of {gigabytes(gpu.total_mb)}")
     if machine.speech_loaded:
-        lines.append("[grey62]Agent Talk is running, so its speech models are already in the free figures.[/]")
-    ui.console.print(Panel("\n".join(lines), title="[bold]Agent Talk setup[/]", title_align="left",
+        lines.append("[grey62]Sennet is running, so its speech models are already in the free figures.[/]")
+    ui.console.print(Panel("\n".join(lines), title="[bold]Sennet setup[/]", title_align="left",
                            border_style="grey37", expand=False, padding=(0, 1)))
 
 
@@ -206,12 +206,12 @@ def _runtime_ready(ui: Prompter, device: str) -> bool:
     have = f"{installed} is installed" if installed else "no ONNX runtime is installed"
     ui.warn(f"The {NAMES[device]} tier needs {wanted}; {have}.")
     if command is None:
-        ui.info(f"Install Agent Talk with the `{device}` extra (for example `pip install {escape(f'agent-talk[{device}]')}`), "
-                "then run `agent-talk setup` again.")
+        ui.info(f"Install Sennet with the `{device}` extra (for example `pip install {escape(f'sennet[{device}]')}`), "
+                "then run `sennet setup` again.")
         return False
     ui.info(f"[bold]{escape(shlex.join(command))}[/]")
     if not ui.confirm("Run this now?"):
-        ui.info("Run it yourself, then `agent-talk setup` again.")
+        ui.info("Run it yourself, then `sennet setup` again.")
         return False
     if subprocess.run(command).returncode != 0:
         ui.fail("The install failed; see the output above.")
@@ -223,17 +223,17 @@ def _runtime_ready(ui: Prompter, device: str) -> bool:
 
 
 def _install_command(extra: str) -> tuple[list[str] | None, list[str] | None]:
-    """The command that reinstalls Agent Talk with `extra`, and what to run afterwards."""
+    """The command that reinstalls Sennet with `extra`, and what to run afterwards."""
     if install.uv_tool_receipt() is not None:
         spec = install.uv_tool_spec(extra)
         if spec is None:
             return None, None
-        return ["uv", "tool", "install", "--reinstall", spec], [shutil.which("agent-talk") or "agent-talk"]
-    rerun = [sys.executable, "-m", "agent_talk"]
+        return ["uv", "tool", "install", "--reinstall", spec], [shutil.which("sennet") or "sennet"]
+    rerun = [sys.executable, "-m", "sennet"]
     project = install.source_checkout()
     if project is not None and shutil.which("uv"):
         return ["uv", "sync", "--project", str(project), "--extra", extra], rerun
-    return [sys.executable, "-m", "pip", "install", f"agent-talk[{extra}]"], rerun
+    return [sys.executable, "-m", "pip", "install", f"sennet[{extra}]"], rerun
 
 
 # Downloads
@@ -348,14 +348,14 @@ def _choose_address(ui: Prompter, machine: Machine, settings: Settings):
     """The address pairing links use on a phone: Tailscale's, unless another is set already."""
     current = settings.server.public_url
     if current and current != machine.tailnet:
-        ui.ok(f"Phones reach Agent Talk at {current} (server.public_url).")
+        ui.ok(f"Phones reach Sennet at {current} (server.public_url).")
         return
     if machine.tailnet is None:
-        ui.info("A phone needs an HTTPS address to reach Agent Talk. Tailscale (tailscale.com) is the "
+        ui.info("A phone needs an HTTPS address to reach Sennet. Tailscale (tailscale.com) is the "
                 "simplest; a reverse proxy works too. Set server.public_url to the address to get "
                 "pairing links and QR codes for it.")
         return
-    if ui.confirm(f"Reach Agent Talk from your phone at {machine.tailnet}, through Tailscale?"):
+    if ui.confirm(f"Reach Sennet from your phone at {machine.tailnet}, through Tailscale?"):
         settings.server.public_url = machine.tailnet
         if not machine.served:
             _serve_on_tailnet(ui, machine, settings.server.port)
@@ -364,16 +364,16 @@ def _choose_address(ui: Prompter, machine: Machine, settings: Settings):
 
 
 def _serve_on_tailnet(ui: Prompter, machine: Machine, port: int):
-    """Offer to run `tailscale serve`, which passes the tailnet address on to Agent Talk."""
+    """Offer to run `tailscale serve`, which passes the tailnet address on to Sennet."""
     command = f"tailscale serve --bg {port}"
     if machine.serves_other:
         ui.warn(f"{machine.tailnet} serves something else now, which `{command}` would replace "
                 "(`tailscale serve status` shows what).")
-    if not ui.confirm(f"Run `{command}` now, so that address reaches Agent Talk?", default=not machine.serves_other):
+    if not ui.confirm(f"Run `{command}` now, so that address reaches Sennet?", default=not machine.serves_other):
         ui.note(f"Run `{command}` yourself when you're ready.")
         return
     if tailscale.serve(port):
-        ui.ok(f"{machine.tailnet} now passes requests on to Agent Talk.")
+        ui.ok(f"{machine.tailnet} now passes requests on to Sennet.")
         return
     ui.fail(f"`{command}` didn't work; see its output above.")
     if machine.hardware.system == "Linux":
@@ -413,7 +413,7 @@ def _resume_service(ui: Prompter, manager, port: int):
         ui.fail(escape(str(error)))
         return
     if service.wait_until_up(port) is None:
-        ui.fail("The service didn't come back; `agent-talk service logs` shows why.")
+        ui.fail("The service didn't come back; `sennet service logs` shows why.")
     else:
         ui.ok("Started the service again.")
 
@@ -430,13 +430,13 @@ def _choose_service(ui: Prompter, settings: Settings, paused: bool = False) -> b
     if status.installed:
         options = [Option("install", "Update and restart it", "so it uses these settings",
                           tags=("recommended", "current")),
-                   Option("skip", "Leave it as it is", "until `agent-talk service restart`")]
+                   Option("skip", "Leave it as it is", "until `sennet service restart`")]
     else:
         options = [Option("install", "Run it in the background", f"as a {manager.name}, from login",
                           note="Phones can reach it whenever this computer is on and you're logged in.",
                           tags=("recommended",)),
-                   Option("skip", "Not now", "start it with `agent-talk serve` when you want it")]
-    if ui.select("Agent Talk runs", options, "install") == "skip":
+                   Option("skip", "Not now", "start it with `sennet serve` when you want it")]
+    if ui.select("Sennet runs", options, "install") == "skip":
         return status.running or paused
     with ui.working("Starting the service…"):
         try:
@@ -448,7 +448,7 @@ def _choose_service(ui: Prompter, settings: Settings, paused: bool = False) -> b
     if failure is not None:
         ui.fail(escape(str(failure)))
         return False
-    ui.ok(f"Agent Talk {found['version']} is running as a {manager.name}, and starts at login.")
+    ui.ok(f"Sennet {found['version']} is running as a {manager.name}, and starts at login.")
     if manager.lingering() is False:
         _choose_linger(ui, manager)
     return True
@@ -467,7 +467,7 @@ def _choose_linger(ui: Prompter, manager):
         ui.fail(escape(str(error)))
         ui.info("Run `sudo loginctl enable-linger $USER` to turn it on.")
         return
-    ui.ok("Agent Talk keeps running after you log out.")
+    ui.ok("Sennet keeps running after you log out.")
 
 
 def _show_summary(ui: Prompter, settings: Settings, device: str, running: bool):
@@ -477,20 +477,20 @@ def _show_summary(ui: Prompter, settings: Settings, device: str, running: bool):
         lines.append(f"[green]✓[/] Phones reach it at {settings.server.public_url}")
     if running:
         lines.append(f"[green]✓[/] Running in the background on {settings.server.local_url}")
-    steps = ["[bold]agent-talk project add ~/code/app --name app[/]"]
+    steps = ["[bold]sennet project add ~/code/app --name app[/]"]
     if not running:
-        steps.append("[bold]agent-talk serve[/]")
-    steps.append("[bold]agent-talk pair[/] for each browser and phone")
+        steps.append("[bold]sennet serve[/]")
+    steps.append("[bold]sennet pair[/] for each browser and phone")
     lines += ["", "Next: " + steps[0], *("      " + step for step in steps[1:])]
     ui.console.print()
-    ui.console.print(Panel("\n".join(lines), title="[bold green]Agent Talk is ready[/]", title_align="left",
+    ui.console.print(Panel("\n".join(lines), title="[bold green]Sennet is ready[/]", title_align="left",
                            border_style="green", expand=False, padding=(0, 1)))
 
 
 # Helpers
 
 def _daemon_running(settings: Settings) -> bool:
-    """Whether Agent Talk is serving, and so already holds its speech models."""
+    """Whether Sennet is serving, and so already holds its speech models."""
     try:
         with socket.create_connection(("127.0.0.1", settings.server.port), timeout=0.3):
             return True

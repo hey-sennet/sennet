@@ -95,7 +95,7 @@ export class Voice {
     if (this.turn) return
     this.playback.unlock() // still inside the press's gesture, so replies can play later
     if (this.snapshot.stt !== 'ready') {
-      this.fail(this.snapshot.connected ? 'Speech recognition is still loading, or not set up. Run `agent-talk setup`.'
+      this.fail(this.snapshot.connected ? 'Speech recognition is still loading, or not set up. Run `sennet setup`.'
         : 'Voice is not connected yet.')
       return
     }

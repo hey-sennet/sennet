@@ -8,9 +8,9 @@ import asyncio
 
 import pytest
 
-from agent_talk.agents.base import ApprovalRequest, FileChange
-from agent_talk.approvals import Approvals
-from agent_talk.db import Database
+from sennet.agents.base import ApprovalRequest, FileChange
+from sennet.approvals import Approvals
+from sennet.db import Database
 
 DIFF = "--- a/src/app.py\n+++ b/src/app.py\n-old\n+new\n"
 

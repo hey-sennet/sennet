@@ -2,7 +2,7 @@
 
 Grades are Kokoro's own estimates of each voice's training data, from
 https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md. Voices in other
-languages are in the voices file too, but Agent Talk is English only.
+languages are in the voices file too, but Sennet is English only.
 """
 from __future__ import annotations
 

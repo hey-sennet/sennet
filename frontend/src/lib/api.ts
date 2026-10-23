@@ -1,5 +1,5 @@
-// Types mirror src/agent_talk/db.py rows and server.py payloads. Statuses, kinds and
-// modes are the agent contract's own words (src/agent_talk/agents/base.py), never a provider's.
+// Types mirror src/sennet/db.py rows and server.py payloads. Statuses, kinds and
+// modes are the agent contract's own words (src/sennet/agents/base.py), never a provider's.
 
 // background: the turn is over, but work the agent started goes on (it may report it in a turn of its own).
 export type TaskStatus = 'queued' | 'running' | 'awaiting_approval' | 'background' | 'completed' | 'failed' | 'cancelled' | 'unknown'
@@ -140,7 +140,7 @@ export interface AgentStatus {
   models: ModelOption[]
 }
 
-// A paired browser (src/agent_talk/access.py).
+// A paired browser (src/sennet/access.py).
 export interface Device {
   id: number
   name: string
@@ -181,7 +181,7 @@ export function whenUnpaired(handler: () => void) {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Talk': '1' },
+    headers: { 'Content-Type': 'application/json', 'X-Sennet': '1' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (response.status === 401 && path !== '/api/pair') onUnpaired()

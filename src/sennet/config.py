@@ -1,7 +1,7 @@
 """Paths and settings.
 
 Settings live in `config.toml` in the user config directory; projects, tasks and
-approvals live in SQLite in the user data directory. `AGENT_TALK_HOME` puts both
+approvals live in SQLite in the user data directory. `SENNET_HOME` puts both
 under one directory (used by tests and portable installs).
 """
 from __future__ import annotations
@@ -30,9 +30,9 @@ class Paths:
 
     @classmethod
     def default(cls) -> Paths:
-        if home := os.environ.get("AGENT_TALK_HOME"):
+        if home := os.environ.get("SENNET_HOME"):
             return cls(Path(home), Path(home))
-        return cls(Path(platformdirs.user_config_dir("agent-talk")), Path(platformdirs.user_data_dir("agent-talk")))
+        return cls(Path(platformdirs.user_config_dir("sennet")), Path(platformdirs.user_data_dir("sennet")))
 
     @property
     def config_file(self) -> Path:
@@ -40,7 +40,7 @@ class Paths:
 
     @property
     def database(self) -> Path:
-        return self.data_dir / "agent-talk.db"
+        return self.data_dir / "sennet.db"
 
     @property
     def models(self) -> Path:
@@ -54,7 +54,7 @@ RETIRED = {"assistant", "summaries"}
 class ServerSettings:
     host: str = "127.0.0.1"
     port: int = 7710
-    # The address phones reach Agent Talk at, such as https://desktop.tailnet.ts.net, for pairing
+    # The address phones reach Sennet at, such as https://desktop.tailnet.ts.net, for pairing
     # links. Setup fills it from Tailscale. Empty: the address the request came in on.
     public_url: str = ""
 

@@ -1,7 +1,7 @@
 """Direct mode: stop and cancel words, and routing by a leading project name."""
 import pytest
 
-from agent_talk.voice.dispatch import Cancel, Request, Stop, parse
+from sennet.voice.dispatch import Cancel, Request, Stop, parse
 
 PROJECTS = [
     {"id": 1, "name": "backend", "aliases": ["api"]},

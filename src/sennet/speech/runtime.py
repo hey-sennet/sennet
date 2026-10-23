@@ -29,7 +29,7 @@ def ort():
     try:
         import onnxruntime
     except ImportError as error:
-        raise RuntimeMissing("no ONNX runtime is installed; run `agent-talk setup`") from error
+        raise RuntimeMissing("no ONNX runtime is installed; run `sennet setup`") from error
     onnxruntime.set_default_logger_severity(3)
     if hasattr(onnxruntime, "preload_dlls") and runtime_distribution() == "onnxruntime-gpu":
         # Loads the CUDA and cuDNN libraries from the nvidia-* wheels.

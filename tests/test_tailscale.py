@@ -1,6 +1,6 @@
 """Reading Tailscale for the phone address: setup's question and doctor's checks."""
-from agent_talk import cli, setup, tailscale
-from agent_talk.config import Settings
+from sennet import cli, setup, tailscale
+from sennet.config import Settings
 import pytest
 from test_setup import LAPTOP, Scripted
 
@@ -16,7 +16,7 @@ def test_the_address_is_the_machine_name_over_https():
     assert tailscale.address(None) is None
 
 
-def test_serving_agent_talk_and_funnel():
+def test_serving_sennet_and_funnel():
     assert tailscale.serves(SERVING, 7710)
     assert not tailscale.serves(SERVING, 7799)
     assert tailscale.serves({"Web": {"x:443": {"Handlers": {"/": {"Proxy": "7710"}}}}}, 7710)
@@ -45,9 +45,9 @@ def test_setup_offers_the_tailnet_address_and_to_serve_it(monkeypatch):
     setup._choose_address(ui, machine("https://desk.tail1234.ts.net"), settings)
     assert settings.server.public_url == "https://desk.tail1234.ts.net"
     assert served == [7710]
-    assert ui.asked[1][0] == "Run `tailscale serve --bg 7710` now, so that address reaches Agent Talk?"
+    assert ui.asked[1][0] == "Run `tailscale serve --bg 7710` now, so that address reaches Sennet?"
     assert ui.asked[1][2] is True
-    assert "now passes requests on to Agent Talk" in ui.output()
+    assert "now passes requests on to Sennet" in ui.output()
 
 
 def test_declining_to_serve_says_how_to_later(monkeypatch):
@@ -109,7 +109,7 @@ def test_doctor_says_how_to_serve(paths, monkeypatch, capsys):
     assert cli.access_ok(Settings(), paths)
     printed = capsys.readouterr().out
     assert "none paired yet" in printed and "tailscale serve --bg 7710" in printed
-    assert "run `agent-talk setup` to use https://desk.tail1234.ts.net" in printed
+    assert "run `sennet setup` to use https://desk.tail1234.ts.net" in printed
 
 
 def test_the_public_address_must_be_a_web_address(tmp_path):

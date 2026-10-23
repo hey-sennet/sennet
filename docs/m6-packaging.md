@@ -3,12 +3,12 @@
 Status: done; tried from a clean install on a laptop, with a phone paired. Not released
 yet: that waits on the open questions below. Date: 2026-10-23.
 
-M6 takes Agent Talk from a source checkout to the one-line install in HLD §1:
-`uv tool install agent-talk && agent-talk setup`. It adds the user service, upgrade
+M6 takes Sennet from a source checkout to the one-line install in HLD §1:
+`uv tool install sennet && sennet setup`. It adds the user service, upgrade
 and uninstall, license notices in the wheel and the app, and CI that tests, builds and
 publishes a release. Gemini CLI (the rest of M4) is independent of it.
 
-Much is already in place: `setup` picks a speech tier and reinstalls Agent Talk with
+Much is already in place: `setup` picks a speech tier and reinstalls Sennet with
 the matching extra (including under `uv tool`), `doctor` checks agents, speech and
 access, NOTICES lists the speech and font licenses, and the wheel includes the built
 client when it is present. What's missing is everything between "it runs from my
@@ -22,7 +22,7 @@ checkout" and "a stranger installs it from PyPI and it is still running tomorrow
 - **`uv tool install` is the documented install.** uv fetches a suitable Python, and
   `setup` already knows how to reinstall a uv tool with an extra. `pip install` and
   `pipx` work, but aren't what the README leads with.
-- **The service runs the installed `agent-talk serve`, as the user.** A systemd
+- **The service runs the installed `sennet serve`, as the user.** A systemd
   `--user` unit on Linux, a LaunchAgent on macOS. No root, no system-wide install, no
   container.
 - **Upgrades keep data and models.** Config, database and models live in the platform
@@ -30,7 +30,7 @@ checkout" and "a stranger installs it from PyPI and it is still running tomorrow
   migrates itself by schema version.
 - **Data removal is its own command**, never a side effect of uninstalling (HLD §9).
 - **The GPL position doesn't change** (m2-backend, option A). The wheel contains only
-  Agent Talk's own code and client, so it stays Apache-2.0; the GPL-3 speech parts
+  Sennet's own code and client, so it stays Apache-2.0; the GPL-3 speech parts
   arrive from pip on the user's machine. A container image or distro package would be
   GPL-3, and isn't part of M6.
 
@@ -39,10 +39,10 @@ checkout" and "a stranger installs it from PyPI and it is still running tomorrow
 ### Install
 
 ```sh
-uv tool install agent-talk
-agent-talk setup            # speech tier and models, phone address, then the service
-agent-talk project add ~/code/api --name backend
-agent-talk pair
+uv tool install sennet
+sennet setup            # speech tier and models, phone address, then the service
+sennet project add ~/code/api --name backend
+sennet pair
 ```
 
 `setup` gains two steps at the end, each asked like the others (recommendation first,
@@ -53,21 +53,21 @@ agent-talk pair
   changes the user's Tailscale configuration, so it is always asked, and the default
   is yes only when no other `serve` rule exists.
 - **Install the service** (below), then print a pairing link, so setup ends with a
-  running Agent Talk and a way in.
+  running Sennet and a way in.
 
 ### Service
 
-`agent-talk service install | uninstall | status | restart | logs`.
+`sennet service install | uninstall | status | restart | logs`.
 
-**Linux.** A unit at `~/.config/systemd/user/agent-talk.service`:
+**Linux.** A unit at `~/.config/systemd/user/sennet.service`:
 
 ```ini
 [Unit]
-Description=Agent Talk
+Description=Sennet
 After=network-online.target
 
 [Service]
-ExecStart=<absolute path to agent-talk> serve
+ExecStart=<absolute path to sennet> serve
 Environment=PATH=<PATH when installed>
 Restart=on-failure
 RestartSec=5
@@ -77,19 +77,19 @@ WantedBy=default.target
 ```
 
 `install` writes it, runs `systemctl --user daemon-reload`, `enable` and `restart`, and
-waits for `/api/health` to answer. That returns `{"app": "agent-talk", "version": …}`
+waits for `/api/health` to answer. That returns `{"app": "sennet", "version": …}`
 only, and like the app shell needs no paired device. Logs go to the journal;
-`service logs [-f]` runs `journalctl --user -u agent-talk`. The variables that choose
-where data lives (`AGENT_TALK_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`) are carried into
+`service logs [-f]` runs `journalctl --user -u sennet`. The variables that choose
+where data lives (`SENNET_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`) are carried into
 the unit when set, so the service uses the same data as the shell that installed it.
 
 A user service starts at login and stops at logout. For a machine that should answer
 while nobody is logged in, `loginctl enable-linger` keeps it running; setup explains
 that and asks, since it is a system-wide setting for the user.
 
-**macOS.** A LaunchAgent at `~/Library/LaunchAgents/agent-talk.plist` (label
-`agent-talk`) with `RunAtLoad`, `KeepAlive` on crash, and logs in
-`~/Library/Logs/agent-talk/agent-talk.log`, loaded with `launchctl bootstrap gui/<uid>`.
+**macOS.** A LaunchAgent at `~/Library/LaunchAgents/sennet.plist` (label
+`sennet`) with `RunAtLoad`, `KeepAlive` on crash, and logs in
+`~/Library/Logs/sennet/sennet.log`, loaded with `launchctl bootstrap gui/<uid>`.
 `stop` boots it out, since `KeepAlive` would restart a killed agent. There's no Mac on the development machine, so
 this is written against Apple's documentation and needs a real Mac before release.
 
@@ -103,15 +103,15 @@ change on every Node or package upgrade.
 **Running twice.** `serve` in a terminal while the service holds the port fails with a
 message naming the service and how to stop it, rather than a bare "address in use";
 another program on the port gets its own message. `service install` refuses while an
-`agent-talk serve` outside the service holds the port. The pairing link `serve` prints
+`sennet serve` outside the service holds the port. The pairing link `serve` prints
 on first run goes to the journal under the service, which is why `service install` and
 setup print one themselves when nothing is paired.
 
 ### Upgrade and uninstall
 
-- **`agent-talk --version`**, and the version in `doctor`, `/api/health`, `/api/state`
+- **`sennet --version`**, and the version in `doctor`, `/api/health`, `/api/state`
   and Settings → About.
-- **`agent-talk upgrade`** runs `uv tool upgrade agent-talk` (which keeps the extra
+- **`sennet upgrade`** runs `uv tool upgrade sennet` (which keeps the extra
   from the receipt), then restarts the service. A restart ends running tasks, which
   recovery marks `unknown`, so `upgrade` first reads the database for running or
   background tasks and asks before going on (`--yes` doesn't). Outside a uv tool install
@@ -119,11 +119,11 @@ setup print one themselves when nothing is paired.
 - **The client notices a new version.** An open tab would keep the old client against
   the new server. The client remembers the version it first loaded with, compares it with
   `/api/state`'s on each reconnect, and offers to reload when it differs.
-- **`agent-talk service uninstall`** stops and removes the unit or agent.
-  `uv tool uninstall agent-talk` then removes the program.
-- **`agent-talk remove-data`** lists the config and data directories with their sizes,
+- **`sennet service uninstall`** stops and removes the unit or agent.
+  `uv tool uninstall sennet` then removes the program.
+- **`sennet remove-data`** lists the config and data directories with their sizes,
   asks (default no; `--yes` doesn't), and deletes them. It refuses while the service runs
-  or anything holds the port, since an Agent Talk too old to answer `/api/health` is still
+  or anything holds the port, since a Sennet too old to answer `/api/health` is still
   using the data.
 
 ### Notices
@@ -231,13 +231,14 @@ newest Python it could (3.14, against `>=3.12`), and the speech stack worked on 
 
 ## Open questions
 
-- **The PyPI name.** `agent-talk` is taken by an unrelated project (0.1.0, "an
-  email-like messaging platform for AI agents"). Options: ask for it under PEP 541
-  (slow, and only if it is abandoned), publish under another distribution name while
-  the command stays `agent-talk`, or rename. This blocks step 5's real publish, not
-  TestPyPI.
+- **The name.** `agent-talk` was taken on PyPI by an unrelated project (an "email-like
+  messaging platform for AI agents"), so the project is now Sennet: `sennet` was free on
+  PyPI, TestPyPI and npm when checked (2026-10-23), and nothing else in this space uses
+  it. Nothing holds the name until the first real publish. Still to do before release:
+  a USPTO and UK IPO search for SENNET in classes 9 and 42, and a domain (sennet.com,
+  .dev, .io and .app are taken; getsennet.com looked free).
 - **The repository.** There's no remote yet; CI and trusted publishing need the GitHub
-  repository it will live in.
+  repository it will live in (the `sennet` user is taken; `sennet-dev` was free).
 - **Linger by default?** Off by default is safer, but a desktop that is left logged out
   is a common case for "talk to my machine from my phone".
 - **macOS speech.** The `cpu` extra's onnxruntime includes CoreML on macOS, but no tier

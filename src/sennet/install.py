@@ -1,6 +1,6 @@
-"""How this copy of Agent Talk was installed, and `agent-talk upgrade` and `remove-data`.
+"""How this copy of Sennet was installed, and `sennet upgrade` and `remove-data`.
 
-The documented install is `uv tool install agent-talk`, whose receipt says what was
+The documented install is `uv tool install sennet`, whose receipt says what was
 asked for, including the speech extra `setup` chose. Upgrading keeps that, and keeps the
 config, database and models, which live in the platform directories outside the tool.
 """
@@ -36,7 +36,7 @@ def uv_tool_requirement() -> dict | None:
     receipt = uv_tool_receipt()
     if receipt is None:
         return None
-    requirement = next((r for r in receipt.get("tool", {}).get("requirements", []) if r.get("name") == "agent-talk"),
+    requirement = next((r for r in receipt.get("tool", {}).get("requirements", []) if r.get("name") == "sennet"),
                        None)
     if requirement and not any(k in requirement for k in ("git", "url", "directory", "path", "editable")):
         return requirement
@@ -47,20 +47,20 @@ def uv_tool_spec(extra: str) -> str | None:
     """What to give `uv tool install --reinstall` for this install with `extra`: the same package from
     the index, or the same wheel file (as when trying a local build). None for checkouts, URLs and git."""
     if (requirement := uv_tool_requirement()) is not None:
-        return f"agent-talk[{extra}]" + (requirement.get("specifier") or "")
+        return f"sennet[{extra}]" + (requirement.get("specifier") or "")
     receipt = uv_tool_receipt() or {}
-    requirement = next((r for r in receipt.get("tool", {}).get("requirements", []) if r.get("name") == "agent-talk"),
+    requirement = next((r for r in receipt.get("tool", {}).get("requirements", []) if r.get("name") == "sennet"),
                        {})
     wheel = Path(requirement.get("path") or "")
     if wheel.suffix == ".whl" and wheel.is_file() and not requirement.get("editable"):
-        return f"agent-talk[{extra}] @ {wheel.resolve().as_uri()}"
+        return f"sennet[{extra}] @ {wheel.resolve().as_uri()}"
     return None
 
 
 def source_checkout() -> Path | None:
     """The repository this package runs from, when it is an editable install."""
     for parent in Path(__file__).resolve().parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "src" / "agent_talk").is_dir():
+        if (parent / "pyproject.toml").is_file() and (parent / "src" / "sennet").is_dir():
             return parent
     return None
 
@@ -78,52 +78,52 @@ def active_tasks(paths: Paths) -> list[dict]:
 def upgrade(paths: Paths, port: int, assume_yes: bool) -> int:
     if uv_tool_requirement() is None:
         if (checkout := source_checkout()) is not None:
-            print(f"This Agent Talk runs from a checkout ({checkout}); update it with `git pull` and `uv sync`.")
+            print(f"This copy of Sennet runs from a checkout ({checkout}); update it with `git pull` and `uv sync`.")
         elif uv_tool_receipt() is not None:
-            print("This Agent Talk was installed with `uv tool install` from a file, URL or git; "
+            print("This copy of Sennet was installed with `uv tool install` from a file, URL or git; "
                   "install the new version the same way.")
         else:
-            print("This Agent Talk wasn't installed with `uv tool install`; upgrade it the way it was installed "
-                  "(for example `pip install --upgrade agent-talk`).")
+            print("This copy of Sennet wasn't installed with `uv tool install`; upgrade it the way it was installed "
+                  "(for example `pip install --upgrade sennet`).")
         return 1
     if not shutil.which("uv"):
-        print("uv isn't on PATH; install it (https://docs.astral.sh/uv/), then run `agent-talk upgrade` again.")
+        print("uv isn't on PATH; install it (https://docs.astral.sh/uv/), then run `sennet upgrade` again.")
         return 1
     manager, status = _service()
     running = active_tasks(paths) if status and status.running else []
     if running and not assume_yes:
         names = ", ".join(f"“{t['title']}”" for t in running[:3]) + (" …" if len(running) > 3 else "")
-        print(f"{len(running)} task{'s' if len(running) > 1 else ''} still going ({names}). Restarting Agent Talk "
+        print(f"{len(running)} task{'s' if len(running) > 1 else ''} still going ({names}). Restarting Sennet "
               "stops them, and they're marked unknown.")
         if not _confirm("Upgrade and restart anyway?"):
             return 1
-    if subprocess.run(["uv", "tool", "upgrade", "agent-talk"]).returncode != 0:
+    if subprocess.run(["uv", "tool", "upgrade", "sennet"]).returncode != 0:
         print("The upgrade failed; see the output above.", file=sys.stderr)
         return 1
     program = service.program()
     new = subprocess.run([*program, "--version"], capture_output=True, text=True).stdout.strip() or "?"
     if new == __version__:
-        print(f"Agent Talk {__version__} is the latest version.")
+        print(f"Sennet {__version__} is the latest version.")
         return 0
-    print(f"Upgraded Agent Talk from {__version__} to {new}.")
+    print(f"Upgraded Sennet from {__version__} to {new}.")
     if status and status.running:
         # The new version restarts its own service, so it waits for itself to answer.
         return subprocess.run([*program, "service", "restart"]).returncode
-    print("Restart `agent-talk serve` to use it, and reload Agent Talk in your browsers.")
+    print("Restart `sennet serve` to use it, and reload Sennet in your browsers.")
     return 0
 
 
 def remove_data(paths: Paths, port: int, assume_yes: bool) -> int:
     """Delete the config, the database and the downloaded models, after showing what and asking."""
     manager, status = _service()
-    # Anything on the port counts: an Agent Talk too old to answer the health check is still using the data.
+    # Anything on the port counts: a Sennet too old to answer the health check is still using the data.
     if (status and status.running) or service.port_taken(port):
-        print(f"Agent Talk is running (something is using port {port}). Stop it first (`agent-talk service stop`, or Ctrl+C where "
-              "`agent-talk serve` runs), then run this again.", file=sys.stderr)
+        print(f"Sennet is running (something is using port {port}). Stop it first (`sennet service stop`, or Ctrl+C where "
+              "`sennet serve` runs), then run this again.", file=sys.stderr)
         return 1
     targets = [d for d in dict.fromkeys([paths.config_dir, paths.data_dir]) if d.exists()]
     if not targets:
-        print("There's no Agent Talk data to remove.")
+        print("There's no Sennet data to remove.")
         return 0
     print("This deletes, for good:")
     for directory in targets:
@@ -139,8 +139,8 @@ def remove_data(paths: Paths, port: int, assume_yes: bool) -> int:
     print("Deleted.")
     if status and status.installed:
         print(f"The {manager.name} is still installed; it starts with fresh data next time. "
-              "`agent-talk service uninstall` removes it.")
-    print("`uv tool uninstall agent-talk` removes the program itself.")
+              "`sennet service uninstall` removes it.")
+    print("`uv tool uninstall sennet` removes the program itself.")
     return 0
 
 

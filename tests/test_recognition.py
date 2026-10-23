@@ -4,10 +4,10 @@ import asyncio
 import numpy as np
 import pytest
 
-from agent_talk.speech import Speech
-from agent_talk.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
-from agent_talk.voice import recognition
-from agent_talk.voice.recognition import Recognition, caption_period
+from sennet.speech import Speech
+from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
+from sennet.voice import recognition
+from sennet.voice.recognition import Recognition, caption_period
 
 pytestmark = pytest.mark.timeout(30)
 
@@ -139,7 +139,7 @@ async def test_cancel_stops_background_passes(stt):
     speech.close()
 
 
-# Real models (opt-in: AGENT_TALK_MODELS=<models dir> uv run pytest -m models)
+# Real models (opt-in: SENNET_MODELS=<models dir> uv run pytest -m models)
 
 @pytest.mark.models
 @pytest.mark.timeout(120)
@@ -148,13 +148,13 @@ async def test_real_turn_with_a_pause(device):
     import os
     from pathlib import Path
 
-    from agent_talk import setup
-    from agent_talk.speech.runtime import cuda_available
+    from sennet import setup
+    from sennet.speech.runtime import cuda_available
 
     if device == "cuda" and not cuda_available():
         pytest.skip("no CUDA runtime")
     speech = Speech()
-    await speech.load(Path(os.environ["AGENT_TALK_MODELS"]), device, 4, "af_heart")
+    await speech.load(Path(os.environ["SENNET_MODELS"]), device, 4, "af_heart")
     first, second = "Please run the unit tests in the backend.", "Then tell me which ones failed."
     said = [setup._resample(await speech.run("tts", speech.tts.synthesize, s), speech.tts.rate, RATE)
             for s in (first, second)]

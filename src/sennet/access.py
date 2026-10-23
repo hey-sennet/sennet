@@ -1,4 +1,4 @@
-"""Paired devices: who may use Agent Talk (HLD §8, docs/m5-access.md).
+"""Paired devices: who may use Sennet (HLD §8, docs/m5-access.md).
 
 There are no accounts. A device pairs once by redeeming a pairing code, and gets a
 token of its own, which it keeps in a cookie until the device is revoked. A pairing
@@ -6,7 +6,7 @@ code comes in two forms, either of which redeems it, once: a long code carried i
 link (`<url>/pair#<code>`), and a short one to type on a phone that can't scan the
 link's QR code. Codes and tokens are stored only as SHA-256 hashes.
 
-`agent-talk pair` makes codes straight in the database, so anyone who can run it (the
+`sennet pair` makes codes straight in the database, so anyone who can run it (the
 user) can always pair a device, with or without the daemon running.
 """
 from __future__ import annotations
@@ -20,10 +20,10 @@ from dataclasses import dataclass
 
 from .db import Database
 
-COOKIE = "agent_talk_device"
+COOKIE = "sennet_device"
 COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60
 TERMINAL = "the terminal"
-TERMINAL_TTL_S = 15 * 60       # a code from `agent-talk pair`
+TERMINAL_TTL_S = 15 * 60       # a code from `sennet pair`
 DEVICE_TTL_S = 5 * 60          # a code another device shows
 # Typed codes leave out characters that are easy to confuse: 0 and O, 1, I and L.
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"

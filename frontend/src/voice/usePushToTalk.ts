@@ -56,7 +56,7 @@ export function usePushToTalk(target: Target) {
   }
 
   const label = !state.connected ? 'Voice is connecting'
-    : state.stt !== 'ready' ? 'Speech recognition is not ready; run agent-talk setup'
+    : state.stt !== 'ready' ? 'Speech recognition is not ready; run sennet setup'
     : state.listening && state.opening ? 'Starting the microphone'
     : state.listening ? (tapped ? 'Listening: tap to send' : 'Listening: release to send')
     : 'Hold to talk'

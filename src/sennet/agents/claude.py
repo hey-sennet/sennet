@@ -6,9 +6,9 @@ of ours in flight is a turn Claude started itself, to report work it left runnin
 in the background. The adapter picks the session id, so the resume token is known
 before the process starts; `--resume` continues the conversation in a new one.
 
-Approvals come through `--permission-prompt-tool`: an MCP tool Agent Talk serves
+Approvals come through `--permission-prompt-tool`: an MCP tool Sennet serves
 at a per-session URL (agents.callbacks), which waits for the user's answer.
-Agent Talk runs the user's own unmodified `claude` on their subscription login,
+Sennet runs the user's own unmodified `claude` on their subscription login,
 and never reads or passes on its credentials.
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ APPROVE_TOOL = {
         "tool_name": {"type": "string"}, "input": {"type": "object"}, "tool_use_id": {"type": "string"}},
         "required": ["tool_name", "input"]},
 }
-PROMPT_TOOL = f"mcp__agent_talk__{APPROVE_TOOL['name']}"
+PROMPT_TOOL = f"mcp__sennet__{APPROVE_TOOL['name']}"
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
 # Claude's tool for asking the user mid-turn is disallowed, so the instructions name none.
 INSTRUCTIONS = spoken_instructions()
@@ -60,7 +60,7 @@ MODELS = [ModelOption("opus", "Opus", EFFORTS), ModelOption("sonnet", "Sonnet", 
 
 
 def permission_args(policy: TurnPolicy, cwd: Path) -> list[str]:
-    """Agent Talk's approval mode and access level as Claude Code's permission mode and rules.
+    """Sennet's approval mode and access level as Claude Code's permission mode and rules.
 
     Claude's bash sandbox would map `workspace` exactly, but it doesn't run everywhere
     (nested user namespaces), so access is enforced with modes and path-scoped rules.
@@ -190,7 +190,7 @@ class ClaudeSession:
         args = [*command, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages", "--append-system-prompt", INSTRUCTIONS,
                 *(["--resume", token] if token else ["--session-id", self.resume_token]),
-                *model_args(policy, bool(token)), *config_args(policy), "--mcp-config", json.dumps({"mcpServers": {"agent_talk": server}}),
+                *model_args(policy, bool(token)), *config_args(policy), "--mcp-config", json.dumps({"mcpServers": {"sennet": server}}),
                 "--permission-prompt-tool", PROMPT_TOOL, *permission_args(policy, self.cwd)]
         try:
             # Its own session: a Ctrl-C meant for the daemon doesn't reach it, and closing it can stop
@@ -369,7 +369,7 @@ class ClaudeSession:
         tool, data, use_id = arguments.get("tool_name") or "", arguments.get("input") or {}, arguments.get("tool_use_id")
         decision = await self.on_approval(approval_request(tool, data, self.cwd))
         if decision in ("approve", "approve_always"):
-            # "Always" stays in Agent Talk's rules: updatedPermissions would write to the project's settings.
+            # "Always" stays in Sennet's rules: updatedPermissions would write to the project's settings.
             return json.dumps({"behavior": "allow", "updatedInput": data})
         if use_id:
             self.declined.add(use_id)

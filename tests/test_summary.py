@@ -2,11 +2,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk.server import create_app
-from agent_talk.speech import Speech
-from agent_talk.speech.fakes import FakeRecognizer, FakeVAD
-from agent_talk.voice import summary
-from agent_talk.voice.dispatch import Details, Request, parse
+from sennet.server import create_app
+from sennet.speech import Speech
+from sennet.speech.fakes import FakeRecognizer, FakeVAD
+from sennet.voice import summary
+from sennet.voice.dispatch import Details, Request, parse
 from conftest import HEADERS, wait_for, paired
 from test_voice import GatedSynthesizer, Voice
 

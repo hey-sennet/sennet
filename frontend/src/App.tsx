@@ -58,7 +58,7 @@ export default function App() {
   // After an upgrade the server comes back newer than this page; offer the new client.
   useEffect(() => {
     if (!live.updated) return
-    toast('Agent Talk was updated', {
+    toast('Sennet was updated', {
       id: 'updated', duration: Infinity, description: 'Reload to use the new version.',
       action: { label: 'Reload', onClick: () => location.reload() },
     })
@@ -161,7 +161,7 @@ export default function App() {
     >
       <header className="col-span-full flex items-center justify-between gap-3 px-5 lg:px-8">
         <button className="font-serif text-[22px]" onClick={newTask}>
-          agent talk<span className="text-muted-foreground">.</span>
+          sennet<span className="text-muted-foreground">.</span>
         </button>
         <div className="flex min-w-0 items-center gap-2">
           {live.projects.length > 0 && homeProject && (

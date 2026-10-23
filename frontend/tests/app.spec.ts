@@ -9,7 +9,7 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   const name = `e2e-${info.project.name}`
   const directory = path.join(home, name)
   mkdirSync(directory, { recursive: true })
-  // Everything, fonts included, is served by Agent Talk itself.
+  // Everything, fonts included, is served by Sennet itself.
   const external: string[] = []
   page.on('request', (request) => {
     if (new URL(request.url()).origin !== new URL(info.project.use.baseURL!).origin) external.push(request.url())

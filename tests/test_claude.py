@@ -10,9 +10,9 @@ import pytest
 
 from conftest import pending_approval, wait_for
 
-from agent_talk.agents.base import AgentEvent, TurnPolicy, check_event, spoken_instructions
-from agent_talk.agents.callbacks import CallbackServer
-from agent_talk.agents.claude import ClaudeAgent, ClaudeSession, approval_request, permission_args
+from sennet.agents.base import AgentEvent, TurnPolicy, check_event, spoken_instructions
+from sennet.agents.callbacks import CallbackServer
+from sennet.agents.claude import ClaudeAgent, ClaudeSession, approval_request, permission_args
 
 CWD = Path("/home/me/repo")
 
@@ -237,7 +237,7 @@ def test_claude_runs_with_the_session_id_as_resume_token(live, tmp_path, claude_
     assert argv[argv.index("--append-system-prompt") + 1] == spoken_instructions()
     assert "--bare" not in argv
     assert argv[argv.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" in argv
-    server = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["agent_talk"]
+    server = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["sennet"]
     assert server["timeout"] > 60_000
     assert claude_log("cwd")[0] == project["path"]
 

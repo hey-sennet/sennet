@@ -1,6 +1,6 @@
 """End-to-end voice timings on the real speech models, with the fake Codex as the agent.
 
-    uv run python tests/voice_bench.py --models ~/.local/share/agent-talk/models --device cpu
+    uv run python tests/voice_bench.py --models ~/.local/share/sennet/models --device cpu
     uv run python tests/voice_bench.py --models ... --device cuda --wav my-command.wav
 
 Each run streams a spoken command over /api/voice in real time, 20 ms frames, as a
@@ -26,10 +26,10 @@ from pathlib import Path
 import numpy as np
 from fastapi.testclient import TestClient
 
-from agent_talk import setup
-from agent_talk.config import Paths, Settings
-from agent_talk.server import create_app
-from agent_talk.speech import Speech
+from sennet import setup
+from sennet.config import Paths, Settings
+from sennet.server import create_app
+from sennet.speech import Speech
 from conftest import paired
 
 COMMAND = "In backend, run the unit tests and tell me which ones failed."
@@ -144,7 +144,7 @@ def bench(models: Path, device: str, runs: int, wav: Path | None = None, threads
         settings.speech.device = device
         try:
             with paired(TestClient(create_app(settings, Paths(home, home), speech=speech),
-                                   headers={"X-Agent-Talk": "1"})) as client:
+                                   headers={"X-Sennet": "1"})) as client:
                 client.post("/api/projects", json={"path": str(home / "repo"), "name": "backend"})
                 return [run_once(client, audio, f"t{i}") for i in range(runs)]
         finally:

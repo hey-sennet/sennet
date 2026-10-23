@@ -39,7 +39,7 @@ test('pair a browser with the code a paired one shows, then unpair it', async ({
 })
 
 test('a pairing link pairs straight away, once', async ({ page, browser }, info) => {
-  const shown = await (await page.request.post('/api/devices/pairing', { headers: { 'X-Agent-Talk': '1' } })).json()
+  const shown = await (await page.request.post('/api/devices/pairing', { headers: { 'X-Sennet': '1' } })).json()
   const link = new URL(shown.link)
   const stranger = await unpaired(browser, info)
   await stranger.goto(link.pathname + link.hash)

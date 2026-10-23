@@ -20,7 +20,7 @@ collecting, storing or intermediating Claude.ai credentials or session tokens. I
 says this "does not … prevent an end user from signing in to the unmodified Claude Code
 binary with their own Claude subscription".
 
-Agent Talk is self-hosted: it runs the user's own installed `claude`, unmodified, on
+Sennet is self-hosted: it runs the user's own installed `claude`, unmodified, on
 their own machine, after they log in with `claude auth login`. We read that as allowed,
 on these conditions, which the adapter keeps:
 
@@ -28,7 +28,7 @@ on these conditions, which the adapter keeps:
   developers to API keys.
 - No `--bare`: it ignores the subscription login, so it would push users to API keys.
 - Never read, copy or pass on credentials. `doctor` reports `claude auth status` only.
-- Sign-in happens in `claude` itself, never in Agent Talk.
+- Sign-in happens in `claude` itself, never in Sennet.
 
 This is a reading of the terms, not legal advice; if Anthropic's wording changes, check
 again before a release.
@@ -44,7 +44,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose
        --include-partial-messages --append-system-prompt <spoken instructions>
        --session-id <uuid> | --resume <uuid>
        --permission-mode <mode> --mcp-config <json>
-       --permission-prompt-tool mcp__agent_talk__approve
+       --permission-prompt-tool mcp__sennet__approve
        --setting-sources user --strict-mcp-config
        --disallowedTools AskUserQuestion
 ```
@@ -58,7 +58,7 @@ next one.
 
 Claude can start a command in the background, say so, and end its turn. When the
 command finishes, Claude starts a turn of its own, with no user message, and reports.
-Agent Talk keeps that behaviour: the reply to start the work is spoken as usual, and
+Sennet keeps that behaviour: the reply to start the work is spoken as usual, and
 the report is spoken when it comes. The generic layer gains:
 
 - A capability, `background_turns`: the agent keeps working after its turn ends and
@@ -79,16 +79,16 @@ the report is spoken when it comes. The generic layer gains:
   chime: the report can come minutes later, so it shouldn't start out of silence. With
   no owner connected, the reply is only shown.
 - Cancelling a task with background work stops the agent's process, which ends the
-  work. Background work doesn't survive an Agent Talk restart: recovery marks the task
+  work. Background work doesn't survive a Sennet restart: recovery marks the task
   `unknown`, as it does a running one.
 
 ### Approvals
 
-Through `--permission-prompt-tool`, the documented route: Agent Talk's own server serves
+Through `--permission-prompt-tool`, the documented route: Sennet's own server serves
 a minimal MCP endpoint over HTTP at `/mcp/<session secret>`, given to `claude` with
 `--mcp-config`, and the tool call waits for the user's answer. The server entry sets
 `timeout`: HTTP MCP requests otherwise fail after 60 s, too soon for a voice approval. The adapter answers allow
-or deny only. "Approve always" stays in Agent Talk's rules; it never returns
+or deny only. "Approve always" stays in Sennet's rules; it never returns
 `updatedPermissions`, which would write to the project's `.claude/settings.local.json`.
 
 Rejected: the Agent SDK's stdio control protocol (`can_use_tool` on the same pipe).

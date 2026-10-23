@@ -28,7 +28,7 @@ jobs:
       - name: The tag matches the version
         if: github.ref_type == 'tag'
         run: |
-          version=$(uv run --no-project python -c 'import re; print(re.search(r"__version__ = \"(.+)\"", open("src/agent_talk/__init__.py").read())[1])')
+          version=$(uv run --no-project python -c 'import re; print(re.search(r"__version__ = \"(.+)\"", open("src/sennet/__init__.py").read())[1])')
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, but the package is $version"; exit 1; }
       - run: cd frontend && npm ci && npm run build
       - run: uv build

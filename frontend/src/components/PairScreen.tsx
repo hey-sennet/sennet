@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 
 /**
  * What an unpaired browser sees (docs/m5-access.md). A pairing link (`/pair#<code>`) pairs it
- * straight away; otherwise the code from `agent-talk pair`, or from Settings on a paired device,
+ * straight away; otherwise the code from `sennet pair`, or from Settings on a paired device,
  * is typed here. Pairing reloads the app, now with this device's cookie.
  */
 export function PairScreen() {
@@ -37,12 +37,12 @@ export function PairScreen() {
   return (
     <main className="grid min-h-dvh place-items-center px-6">
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <p className="font-serif text-[22px]">agent talk<span className="text-muted-foreground">.</span></p>
+        <p className="font-serif text-[22px]">sennet<span className="text-muted-foreground">.</span></p>
         <div className="flex flex-col gap-2">
           <h1 className="font-serif text-3xl">Pair this device</h1>
           <p className="text-sm text-muted-foreground">
-            Agent Talk runs commands on your computer, so each browser pairs once before it can use it.
-            Run <code className="font-mono text-xs text-foreground">agent-talk pair</code> on that computer and
+            Sennet runs commands on your computer, so each browser pairs once before it can use it.
+            Run <code className="font-mono text-xs text-foreground">sennet pair</code> on that computer and
             open the link it prints, or type the code it shows. A paired device can show a code too, in Settings.
           </p>
         </div>

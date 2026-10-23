@@ -10,7 +10,7 @@ const home = path.resolve(import.meta.dirname, '../../.e2e-home/repo')
 async function addProject(page: Page, name: string) {
   const directory = path.join(home, name)
   mkdirSync(directory, { recursive: true })
-  const response = await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Agent-Talk': '1' } })
+  const response = await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })
   expect(response.ok()).toBe(true)
 }
 

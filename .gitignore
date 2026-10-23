@@ -15,7 +15,7 @@ node_modules/
 frontend/test-results/
 frontend/playwright-report/
 # Built web client, packaged into the wheel at release time
-src/agent_talk/web/
+src/sennet/web/
 
 # OS files
 .DS_Store

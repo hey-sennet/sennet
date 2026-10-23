@@ -1,6 +1,6 @@
 [project]
-name = "agent-talk"
-dynamic = ["version"]   # from src/agent_talk/__init__.py
+name = "sennet"
+dynamic = ["version"]   # from src/sennet/__init__.py
 description = "Talk to your coding agents: a self-hosted voice interface for Codex, Claude Code and Gemini CLI"
 readme = "README.md"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "platformdirs>=4",
     "tomli-w>=1",
-    # Speech. The ONNX runtime comes from the cpu or cuda extra, which `agent-talk setup` picks.
+    # Speech. The ONNX runtime comes from the cpu or cuda extra, which `sennet setup` picks.
     "numpy>=2",
     "onnx-asr>=0.12",
     "phonemizer>=3.3",       # GPL-3.0-or-later, see NOTICES
@@ -26,7 +26,7 @@ cpu = ["onnxruntime>=1.20,!=1.24.1,!=1.25.*,!=1.26.0"]
 cuda = ["onnxruntime-gpu[cuda,cudnn]>=1.20,!=1.24.1,!=1.25.*,!=1.26.0; sys_platform == 'linux'"]
 
 [project.scripts]
-agent-talk = "agent_talk.cli:main"
+sennet = "sennet.cli:main"
 
 [dependency-groups]
 dev = [
@@ -45,22 +45,22 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "src/agent_talk/__init__.py"
+path = "src/sennet/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_talk"]
+packages = ["src/sennet"]
 # The built web client is not in git; include it when present.
-artifacts = ["src/agent_talk/web/**"]
+artifacts = ["src/sennet/web/**"]
 
 [tool.hatch.build.targets.sdist]
 # The package, its tests and the client's source; not the spikes (their models and caches are gigabytes).
-include = ["/src/agent_talk", "/tests", "/frontend", "/LICENSE", "/NOTICES", "/README.md"]
+include = ["/src/sennet", "/tests", "/frontend", "/LICENSE", "/NOTICES", "/README.md"]
 exclude = ["frontend/node_modules", "frontend/test-results", "frontend/playwright-report", "**/__pycache__"]
-artifacts = ["src/agent_talk/web/**"]
+artifacts = ["src/sennet/web/**"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-markers = ["models: needs the downloaded speech models (set AGENT_TALK_MODELS)"]
+markers = ["models: needs the downloaded speech models (set SENNET_MODELS)"]
 addopts = "-m 'not models'"

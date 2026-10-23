@@ -10,7 +10,7 @@ import type { Plugin } from 'vite'
  */
 export function licenses({ root, css, notices }: { root: string; css: string; notices: string }): Plugin {
   return {
-    name: 'agent-talk-licenses',
+    name: 'sennet-licenses',
     apply: 'build',
     generateBundle(_, bundle) {
       const sources = new Set<string>()
@@ -32,7 +32,7 @@ export function licenses({ root, css, notices }: { root: string; css: string; no
       const entries = [...packages].sort(([a], [b]) => a.localeCompare(b)).map(([name, directory]) => entry(name, directory))
       this.emitFile({
         type: 'asset', fileName: 'licenses.txt',
-        source: 'Third-party software in the Agent Talk web client\n'
+        source: 'Third-party software in the Sennet web client\n'
           + `${'='.repeat(51)}\n\n${entries.length} packages, each with its license.\n\n${entries.join('\n\n')}\n`,
       })
       this.emitFile({ type: 'asset', fileName: 'notices.txt', source: readFileSync(notices, 'utf8') })

@@ -5,7 +5,7 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk.server import create_app
+from sennet.server import create_app
 
 TOOL = {"name": "approve", "description": "", "inputSchema": {"type": "object"}}
 

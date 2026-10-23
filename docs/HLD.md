@@ -1,4 +1,4 @@
-# Agent Talk — High-Level Design
+# Sennet — High-Level Design
 
 Status: draft for review. Date: 2026-10-23.
 
@@ -8,12 +8,12 @@ document describes the Python rewrite.
 ## 1. Goal and principles
 
 Talk to your coding agents. Speak a request; an agent (Codex, Claude Code, Gemini CLI)
-works on your own computer; Agent Talk asks you for approvals and reads you the
+works on your own computer; Sennet asks you for approvals and reads you the
 results, in a version the agent writes to be heard.
 
 - **Self-hosted FOSS.** Each user installs and runs their own copy. It is not a hosted service.
 - **Subscriptions, not API keys.** Agents run through the official CLIs under the user's
-  existing login. Agent Talk never holds provider credentials or calls provider APIs itself.
+  existing login. Sennet never holds provider credentials or calls provider APIs itself.
 - **Local except the agents.** Speech recognition and speech synthesis run on the
   user's machine. The only cloud traffic is what the official agent CLIs send to their
   providers.
@@ -23,8 +23,8 @@ results, in a version the agent writes to be heard.
   first. No model guesses where a request should go (§6.3).
 - **Runs on the host.** The daemon is a user-level system service, so agents act on the
   user's real repositories, toolchains and credentials. The agents' own sandbox and
-  permission modes are the safety boundary, plus Agent Talk's approval policy.
-- **One install.** `uv tool install agent-talk && agent-talk setup`. No Docker, Node,
+  permission modes are the safety boundary, plus Sennet's approval policy.
+- **One install.** `uv tool install sennet && sennet setup`. No Docker, Node,
   Ollama or compiler required.
 - **Configurable to the hardware.** Works CPU-only, and makes stronger models easy to
   choose when a GPU or Apple Silicon is available.
@@ -41,7 +41,7 @@ flowchart LR
         UI[React UI]
         AW[AudioWorklet capture + playback]
     end
-    subgraph Daemon[agent-talk daemon — Python, user service]
+    subgraph Daemon[sennet daemon — Python, user service]
         WS[HTTP + WebSocket gateway]
         VOICE[Voice pipeline: VAD → turn detection → STT]
         HUB[Voice hub: commands, routing, replies]
@@ -66,17 +66,17 @@ flowchart LR
 | --- | --- | --- |
 | Backend | Python 3.12+, asyncio, FastAPI/Starlette, uvicorn | Single process. Inference runs in worker threads or processes, never on the event loop. |
 | Frontend | React + TypeScript + Vite, shadcn/ui (Radix + Tailwind), PWA | Largest contributor pool and component ecosystem. The prototype's UI is the visual reference. The built assets ship inside the Python wheel. |
-| Storage | SQLite (WAL) + `config.toml` | Data under XDG data dir on Linux, `~/Library/Application Support/agent-talk` on macOS. |
+| Storage | SQLite (WAL) + `config.toml` | Data under XDG data dir on Linux, `~/Library/Application Support/sennet` on macOS. |
 | Speech models | ONNX Runtime (CPU / CUDA / CoreML execution providers); onnx-asr for Parakeet, kokoro-onnx for Kokoro | Installed from pip; no system packages. Our own pipeline code, not Pipecat (§6). |
 | Remote access | Tailscale (`tailscale serve`) recommended, or any HTTPS reverse proxy | Provides HTTPS. Daemon itself binds loopback only; who may use it is decided by device pairing (§8), not by the transport. |
-| Service | systemd `--user` unit / launchd LaunchAgent | Installed by `agent-talk service install`. Runs as the user. |
+| Service | systemd `--user` unit / launchd LaunchAgent | Installed by `sennet service install`. Runs as the user. |
 
 ## 3. Core concepts
 
 - **Project.** A registered directory with a name, optional spoken aliases (e.g.
   "backend", "api"), a default agent with its model and effort, and an approval policy.
   Added via UI or
-  `agent-talk project add ~/code/api --name backend --alias api`.
+  `sennet project add ~/code/api --name backend --alias api`.
 - **Task.** One unit of agent work: project + agent + agent session/thread + status,
   with an optional model and effort that override the project's. Tasks are long-lived;
   follow-ups to the same work go to the same task, so the agent keeps its context.
@@ -90,7 +90,7 @@ flowchart LR
 
 ### 4.1 Adapter contract
 
-The contract is in `src/agent_talk/agents/base.py`. An adapter provides `status()`
+The contract is in `src/sennet/agents/base.py`. An adapter provides `status()`
 (installed, logged in), `capabilities`, and `open(cwd, resume_token, policy, on_event,
 on_approval)`, which returns a session with `send(text)`, `interrupt()` and `close()`.
 Capabilities declare what the CLI really supports (interruption, resume, live
@@ -132,7 +132,7 @@ a default model and effort, a task may override them, and a change applies from 
 task's next turn: between turns for an agent with `live_model_change`, otherwise by
 reopening the session on the same conversation.
 
-Adapters whose CLI calls back into Agent Talk (Claude Code's permission prompts) use
+Adapters whose CLI calls back into Sennet (Claude Code's permission prompts) use
 the daemon's MCP endpoint, `/mcp/<secret>`: one secret per session, local requests
 only, never browsers (`agents/callbacks.py`).
 
@@ -182,7 +182,7 @@ edits that delete files).
 A per-class setting can raise the bar, e.g. destructive actions require repeating a
 confirmation phrase even when edits are approved by plain "yes".
 
-Voice approval is a fixed flow, not free chat. Agent Talk plays a short chime as the
+Voice approval is a fixed flow, not free chat. Sennet plays a short chime as the
 approval appears instead of reading it out; the card shows the task and the action.
 Only a clear
 yes/no/always is accepted; anything else re-prompts. Pending approvals never time out
@@ -196,7 +196,7 @@ A curated catalog (shipped with the app, updatable) lists tested models per role
 (STT, VAD, turn detection, TTS). Each entry has a download URL, SHA-256,
 size, RAM/VRAM need, license, and tier.
 
-`agent-talk setup` detects CPU, RAM and accelerator (CUDA, Vulkan, Metal) and proposes
+`sennet setup` detects CPU, RAM and accelerator (CUDA, Vulkan, Metal) and proposes
 a tier. Settings shows the catalog with "fits your machine" hints. Changing a model
 downloads it in the background and switches when ready.
 
@@ -245,7 +245,7 @@ returns:
   llama.cpp release and verifies checksums: Metal on macOS arm64, Vulkan on Linux x64
   (covers NVIDIA, AMD, Intel GPUs), CPU fallback. Stored under the app data dir.
 - **No interference with a user's existing llama.cpp/Ollama/LM Studio:**
-  - Agent Talk only ever starts its own binary from its own data dir, never one on `PATH`.
+  - Sennet only ever starts its own binary from its own data dir, never one on `PATH`.
   - It binds `127.0.0.1` on a free port chosen at start (never a fixed default
     such as 8080), with a random per-start API key.
   - It tracks its child by PID/process group and only stops processes it started.
@@ -259,7 +259,7 @@ returns:
 
 ### 6.1 Capture and transport
 
-- Commands are plain HTTP (`/api/...`, with a required `X-Agent-Talk` header as CSRF
+- Commands are plain HTTP (`/api/...`, with a required `X-Sennet` header as CSRF
   protection). One WebSocket per client (`/api/events`) pushes live events; on
   reconnect the client reloads state, so missed events never matter. Audio uses a
   separate per-device WebSocket (`/api/voice`), specified in
@@ -374,18 +374,18 @@ Built in M5; breakdown in [m5-access.md](m5-access.md), hosting in [hosting.md](
   documented, and a reverse proxy (Caddy, nginx) or tunnel works the same way.
 - **Devices are paired, Jupyter-style.** No accounts or passwords: a device redeems a
   single-use, short-lived pairing code and gets a token of its own, kept in an HttpOnly,
-  SameSite=Strict cookie and stored only as a hash. `agent-talk pair` prints a pairing
+  SameSite=Strict cookie and stored only as a hash. `sennet pair` prints a pairing
   link (and a terminal QR code); a paired device shows a QR code and a typed code in
-  Settings to pair a phone. Settings and `agent-talk devices` list and revoke devices.
+  Settings to pair a phone. Settings and `sennet devices` list and revoke devices.
 - **Every request is checked, loopback included**: behind a proxy on the same machine
   every request comes from 127.0.0.1, so "local" proves nothing. Only the app shell and
   its static files, the pairing endpoint (rate-limited), `/api/health` (the version only)
   and the agents' `/mcp/<secret>` endpoint are exempt.
 - WebSocket Origin is validated, state-changing HTTP requests are CSRF-protected, and
   responses carry a strict Content-Security-Policy.
-- Exposing Agent Talk publicly (Tailscale Funnel, an open port) works but is warned
+- Exposing Sennet publicly (Tailscale Funnel, an open port) works but is warned
   against: a paired device is a remote shell as the user.
-- Agents run with the user's permissions; Agent Talk adds the approval policy (§4.4)
+- Agents run with the user's permissions; Sennet adds the approval policy (§4.4)
   and relies on each agent's sandbox modes. It does not claim to be a sandbox.
 - Logs exclude audio, transcripts, command output and credentials by default.
 - Setup states plainly that transcripts, repository content and tool results are sent
@@ -396,23 +396,23 @@ Built in M5; breakdown in [m5-access.md](m5-access.md), hosting in [hosting.md](
 Built in M6; breakdown in [m6-packaging.md](m6-packaging.md).
 
 ```sh
-uv tool install agent-talk
-agent-talk setup            # hardware and speech tier, models, phone address, `tailscale serve`, the service
-agent-talk project add ~/code/api --name backend
-agent-talk pair             # one-time link and QR code to pair a browser or phone
-agent-talk doctor           # agents, speech, devices, Tailscale, and whether the service runs this install
+uv tool install sennet
+sennet setup            # hardware and speech tier, models, phone address, `tailscale serve`, the service
+sennet project add ~/code/api --name backend
+sennet pair             # one-time link and QR code to pair a browser or phone
+sennet doctor           # agents, speech, devices, Tailscale, and whether the service runs this install
 ```
 
 - The service is a systemd `--user` unit or a LaunchAgent running this install's
-  `agent-talk serve`, with the installing shell's `PATH` so it finds the agents.
-  `agent-talk service install | uninstall | start | stop | restart | status | logs`.
+  `sennet serve`, with the installing shell's `PATH` so it finds the agents.
+  `sennet service install | uninstall | start | stop | restart | status | logs`.
 - Agent CLIs are installed and logged in by the user with their official tools;
   `doctor` checks them, including from the service's `PATH`.
-- `agent-talk upgrade` runs `uv tool upgrade agent-talk` (keeping the speech extra) and
+- `sennet upgrade` runs `uv tool upgrade sennet` (keeping the speech extra) and
   restarts the service, asking first if tasks are running; data and models persist. Open
   pages offer to reload.
-- `agent-talk service uninstall` removes the service; `agent-talk remove-data` deletes the
-  config, data and models, after asking; `uv tool uninstall agent-talk` removes the program.
+- `sennet service uninstall` removes the service; `sennet remove-data` deletes the
+  config, data and models, after asking; `uv tool uninstall sennet` removes the program.
 - One pure-Python wheel with the built client, `LICENSE` and `NOTICES` inside. Release CI
   tests on Ubuntu and macOS, smoke-tests the built wheel, and publishes to PyPI by trusted
   publishing.
@@ -455,7 +455,7 @@ automatically.
    itself to report background work; agent picker in Settings; model and effort per
    project and per task, from Settings or the dock's model button. Gemini CLI next.
 6. **M5 — Access. Done.** Breakdown in [m5-access.md](m5-access.md). Device pairing
-   (`agent-talk pair`, a pairing screen, devices in Settings), every request checked for a
+   (`sennet pair`, a pairing screen, devices in Settings), every request checked for a
    paired device, the phone address filled from Tailscale, and a hosting guide for
    Tailscale, Caddy and nginx ([hosting.md](hosting.md)).
 7. **M6 — Packaging. Done.** Breakdown in [m6-packaging.md](m6-packaging.md). The user

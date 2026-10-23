@@ -46,7 +46,7 @@ if args[:2] == ["auth", "status"]:
 
 log({"argv": args, "cwd": os.getcwd()})
 session_id = option("--session-id") or option("--resume")
-mcp_url = json.loads(option("--mcp-config"))["mcpServers"]["agent_talk"]["url"]
+mcp_url = json.loads(option("--mcp-config"))["mcpServers"]["sennet"]["url"]
 rpc_ids = itertools.count(1)
 
 

@@ -30,7 +30,7 @@ real models and removed; step 2 says why.
 - A config section, now `[summaries]` (step 2): `enabled`, `model`, `gpu_layers`,
   `context`, and `endpoint` for an existing OpenAI-compatible server instead of the
   bundled one (off by default).
-- The LLM part of `agent-talk setup`: recommend a model for the hardware and say why,
+- The LLM part of `sennet setup`: recommend a model for the hardware and say why,
   download the binary and model, check them, and run a self-test. (The setup
   docstring said M5 adds this step; it moved to M3, because M3 can't be used without it.)
 - The status joins the voice protocol's speech status (`summaries`): `loading`,
@@ -182,7 +182,7 @@ that came without one, and the opening sentences do well enough there. It added 
 32 MB binary, a model download, a setup step and about 1,100 lines, so it was taken out
 of main: the `llm` package, setup's model step, `[summaries]` (an existing section is
 skipped on load and dropped on the next save), the `summaries` speech status, and
-`agent-talk doctor`'s check. What stays: the length threshold and the four-sentence
+`sennet doctor`'s check. What stays: the length threshold and the four-sentence
 fallback, symbols as words, spoken versions, "read me the details", and setup's
 guided lists and voice previews.
 

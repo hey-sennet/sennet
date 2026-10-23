@@ -1,7 +1,7 @@
 """What Tailscale says about this machine, for setup and doctor (docs/m5-access.md).
 
-Agent Talk reads this machine's tailnet address, to fill `server.public_url` for pairing
-links, and what `tailscale serve` exposes: whether it passes Agent Talk's port on, and
+Sennet reads this machine's tailnet address, to fill `server.public_url` for pairing
+links, and what `tailscale serve` exposes: whether it passes Sennet's port on, and
 whether Funnel puts it on the public internet. The one change it makes is `tailscale
 serve --bg <port>`, and only when setup has asked.
 """
@@ -49,7 +49,7 @@ def address(tailnet: dict | None) -> str | None:
 
 
 def serves(serving: dict | None, port: int) -> bool:
-    """Whether `tailscale serve` passes requests on to Agent Talk's port on this machine."""
+    """Whether `tailscale serve` passes requests on to Sennet's port on this machine."""
     for site in ((serving or {}).get("Web") or {}).values():
         for handler in (site.get("Handlers") or {}).values():
             proxy = handler.get("Proxy") or ""
@@ -74,7 +74,7 @@ def serve(port: int) -> bool:
 
 
 def serves_other(serving: dict | None, port: int) -> bool:
-    """Whether `tailscale serve` passes anything on besides Agent Talk, which serving it at / would replace."""
+    """Whether `tailscale serve` passes anything on besides Sennet, which serving it at / would replace."""
     for site in ((serving or {}).get("Web") or {}).values():
         for handler in (site.get("Handlers") or {}).values():
             if not serves({"Web": {"_": {"Handlers": {"/": handler}}}}, port):

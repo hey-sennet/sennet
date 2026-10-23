@@ -1,7 +1,7 @@
 """Voice approvals: hearing the answer."""
 import pytest
 
-from agent_talk.voice.asking import answer
+from sennet.voice.asking import answer
 
 
 @pytest.mark.parametrize("text, expected", [

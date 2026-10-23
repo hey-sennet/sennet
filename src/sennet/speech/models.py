@@ -2,7 +2,7 @@
 ones each device uses.
 
 Models live under `<data dir>/models/<model>/`. They are downloaded by
-`agent-talk setup`, never vendored. Licences are listed in NOTICES.
+`sennet setup`, never vendored. Licences are listed in NOTICES.
 """
 from __future__ import annotations
 

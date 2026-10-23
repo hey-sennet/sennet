@@ -1,7 +1,7 @@
-Agent Talk
-Copyright 2026 The Agent Talk authors
+Sennet
+Copyright 2026 The Sennet authors
 
-Agent Talk is licensed under the Apache License, Version 2.0 (see LICENSE). Third-party
+Sennet is licensed under the Apache License, Version 2.0 (see LICENSE). Third-party
 speech components are listed under "Speech" below. The built web client bundles the
 third-party fonts below, each under the SIL Open Font License, Version 1.1, whose
 text follows the list. Every npm package in the built client, the fonts included, is
@@ -40,14 +40,14 @@ shadcn/ui styles
   DEALINGS IN THE SOFTWARE.
 
 Speech
-  Agent Talk's speech dependencies are installed by pip or uv, and its speech models are
-  downloaded by `agent-talk setup`; none of them are part of this repository.
+  Sennet's speech dependencies are installed by pip or uv, and its speech models are
+  downloaded by `sennet setup`; none of them are part of this repository.
 
   GPL-3 components. Kokoro's text-to-phoneme step uses phonemizer (GPL-3.0-or-later,
   https://github.com/bootphon/phonemizer) and espeak-ng (GPL-3.0-or-later,
   https://github.com/espeak-ng/espeak-ng, shipped in the espeakng-loader wheel). Both load
-  into the Agent Talk process. Agent Talk's own code remains under the Apache License 2.0,
-  but a distribution that bundles Agent Talk with its speech dependencies (for example a
+  into the Sennet process. Sennet's own code remains under the Apache License 2.0,
+  but a distribution that bundles Sennet with its speech dependencies (for example a
   container image, a system package or a frozen binary) must be offered under the terms of
   GPL-3.0.
 
@@ -58,7 +58,7 @@ Speech
   Kokoro-82M v1.0
     Copyright hexgrad (https://huggingface.co/hexgrad/Kokoro-82M). License: Apache-2.0.
     ONNX export by thewh1teagle (https://github.com/thewh1teagle/kokoro-onnx, MIT).
-    src/agent_talk/speech/kokoro_vocab.json is Kokoro-82M's phoneme vocabulary.
+    src/sennet/speech/kokoro_vocab.json is Kokoro-82M's phoneme vocabulary.
   Silero VAD v6.2
     Copyright Silero Team (https://github.com/snakers4/silero-vad). License: MIT.
   onnx-asr (MIT), ONNX Runtime (MIT), NumPy (BSD-3-Clause).
@@ -66,7 +66,7 @@ Speech
   license agreements that come with them.
 
 Setup
-  Rich (MIT), questionary (MIT) and prompt_toolkit (BSD-3-Clause) draw `agent-talk setup`.
+  Rich (MIT), questionary (MIT) and prompt_toolkit (BSD-3-Clause) draw `sennet setup`.
 
 Pairing
   segno (BSD-3-Clause) draws the QR codes for pairing a device.

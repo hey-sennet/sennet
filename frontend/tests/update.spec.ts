@@ -1,6 +1,6 @@
 import { expect, test, type WebSocketRoute } from '@playwright/test'
 
-// After `agent-talk upgrade` the server restarts with a new version, and an open page reconnects to
+// After `sennet upgrade` the server restarts with a new version, and an open page reconnects to
 // it with the old client. It should offer to reload.
 test('a page offers to reload when the server comes back newer', async ({ page }) => {
   let version: string | undefined
@@ -22,16 +22,16 @@ test('a page offers to reload when the server comes back newer', async ({ page }
   await page.goto('/')
   await expect(page.getByTitle('Connected')).toBeVisible()
   await page.getByRole('button', { name: 'Settings' }).click()
-  await expect(page.getByRole('dialog')).toContainText(`Agent Talk ${version}`)
+  await expect(page.getByRole('dialog')).toContainText(`Sennet ${version}`)
   for (const [name, file] of [['Notices', '/notices.txt'], ['licenses', '/licenses.txt']]) {
     await expect(page.getByRole('link', { name, exact: true })).toHaveAttribute('href', file)
     expect((await page.request.get(file)).status()).toBe(200)
   }
   await page.keyboard.press('Escape')
-  await expect(page.getByText('Agent Talk was updated')).toHaveCount(0)
+  await expect(page.getByText('Sennet was updated')).toHaveCount(0)
 
   await events!.close({ code: 1012, reason: 'restarting' })
-  await expect(page.getByText('Agent Talk was updated')).toBeVisible()
+  await expect(page.getByText('Sennet was updated')).toBeVisible()
   await page.getByRole('button', { name: 'Reload' }).click()
   await expect(page.getByTitle('Connected')).toBeVisible()
 })

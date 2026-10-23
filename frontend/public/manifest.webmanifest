@@ -1,6 +1,6 @@
 {
-  "name": "Agent Talk",
-  "short_name": "Agent Talk",
+  "name": "Sennet",
+  "short_name": "Sennet",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#100f0d",

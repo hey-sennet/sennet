@@ -1,4 +1,4 @@
-"""Command line: `agent-talk setup`, `serve`, `service …`, `pair`, `devices`, `project …`, `doctor`,
+"""Command line: `sennet setup`, `serve`, `service …`, `pair`, `devices`, `project …`, `doctor`,
 `upgrade` and `remove-data`."""
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .db import Database
 
 
 def main(argv: list[str] | None = None):
-    parser = argparse.ArgumentParser(prog="agent-talk", description="Talk to your coding agents.")
+    parser = argparse.ArgumentParser(prog="sennet", description="Talk to your coding agents.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None):
     serve.add_argument("--host", help="bind address (default from config: 127.0.0.1)")
     serve.add_argument("--port", type=int, help="port (default from config: 7710)")
 
-    service = commands.add_parser("service", help="run Agent Talk in the background, from login")
+    service = commands.add_parser("service", help="run Sennet in the background, from login")
     service_commands = service.add_subparsers(dest="action", required=True)
     service_commands.add_parser("install", help="install the service and start it (again, to update it)")
     service_commands.add_parser("uninstall", help="stop the service and remove it")
@@ -56,10 +56,10 @@ def main(argv: list[str] | None = None):
     device_commands = devices.add_subparsers(dest="action")
     device_commands.add_parser("list", help="list paired devices (the default)")
     revoke = device_commands.add_parser("revoke", help="unpair a device; it must pair again to get back in")
-    revoke.add_argument("id", type=int, help="the device's number, from `agent-talk devices`")
+    revoke.add_argument("id", type=int, help="the device's number, from `sennet devices`")
 
     commands.add_parser("doctor", help="check agents and configuration")
-    upgrade = commands.add_parser("upgrade", help="upgrade Agent Talk and restart the service")
+    upgrade = commands.add_parser("upgrade", help="upgrade Sennet and restart the service")
     upgrade.add_argument("--yes", action="store_true", help="don't ask, even with tasks still going")
     remove = commands.add_parser("remove-data", help="delete the config, tasks, paired devices and models")
     remove.add_argument("--yes", action="store_true", help="don't ask")
@@ -103,23 +103,23 @@ def serve_command(settings: Settings, paths: Paths, args):
     host = settings.server.host = args.host or settings.server.host
     port = settings.server.port = args.port or settings.server.port  # agents call back on it
     if host not in ("127.0.0.1", "::1", "localhost"):
-        logging.warning("binding %s serves Agent Talk without HTTPS, so browsers won't let it use the "
+        logging.warning("binding %s serves Sennet without HTTPS, so browsers won't let it use the "
                         "microphone. Use `tailscale serve` or a reverse proxy with the default loopback "
                         "address instead.", host)
     if not WEB_DIR.is_dir():
         logging.warning("web client not built; only the API is available (see frontend/README.md)")
     if (running := service.health(port)) is not None:
-        sys.exit(f"Agent Talk {running['version']} is already running on port {port}. If it's the service, "
-                 "`agent-talk service stop` stops it, and `agent-talk service logs` shows its output.")
+        sys.exit(f"Sennet {running['version']} is already running on port {port}. If it's the service, "
+                 "`sennet service stop` stops it, and `sennet service logs` shows its output.")
     if service.port_taken(port):
         sys.exit(f"another program is using port {port}; stop it, or pass --port or set server.port in the config")
-    print(f"Agent Talk on http://{host}:{port}", flush=True)
+    print(f"Sennet on http://{host}:{port}", flush=True)
     db = Database(paths.database)
     try:
         if not db.devices():  # first run: like Jupyter, print a way in
             pairing = access.new_pairing(db, access.TERMINAL, access.TERMINAL_TTL_S)
             print(f"No browser is paired yet. Open {pairing.link(settings.server.local_url)} "
-                  f"(works once, for {access.TERMINAL_TTL_S // 60} minutes), or run `agent-talk pair`.", flush=True)
+                  f"(works once, for {access.TERMINAL_TTL_S // 60} minutes), or run `sennet pair`.", flush=True)
     finally:
         db.close()
     uvicorn.run(create_app(settings, paths), host=host, port=port, log_level="warning")
@@ -130,7 +130,7 @@ def service_command(settings: Settings, paths: Paths, args) -> int:
     try:
         if args.action == "install":
             manager, found = service.install(port)
-            print(f"Agent Talk {found['version']} is running as a {manager.name}, and starts at login.")
+            print(f"Sennet {found['version']} is running as a {manager.name}, and starts at login.")
             print(f"  {manager.file}")
             if manager.lingering() is False:
                 print("It stops when you log out. To keep it running then, run `loginctl enable-linger`.")
@@ -146,12 +146,12 @@ def service_command(settings: Settings, paths: Paths, args) -> int:
             if args.action == "uninstall":
                 print("the service isn't installed")
                 return 0
-            print("the service isn't installed; `agent-talk service install` installs and starts it", file=sys.stderr)
+            print("the service isn't installed; `sennet service install` installs and starts it", file=sys.stderr)
             return 1
         if args.action == "uninstall":
             manager.uninstall()
             print(f"stopped the service and removed {manager.file}. Your data and models are still there; "
-                  "`agent-talk remove-data` deletes them.")
+                  "`sennet remove-data` deletes them.")
         elif args.action == "logs":
             try:
                 return subprocess.run(manager.logs_command(args.follow)).returncode
@@ -159,15 +159,15 @@ def service_command(settings: Settings, paths: Paths, args) -> int:
                 return 0
         elif args.action == "stop":
             manager.stop()
-            print("stopped; `agent-talk service start` starts it again, and it starts at the next login")
+            print("stopped; `sennet service start` starts it again, and it starts at the next login")
         else:  # start, restart
             getattr(manager, args.action)()
             found = service.wait_until_up(port)
             if found is None:
-                print(f"the service didn't answer on port {port}; `agent-talk service logs` shows why",
+                print(f"the service didn't answer on port {port}; `sennet service logs` shows why",
                       file=sys.stderr)
                 return 1
-            print(f"Agent Talk {found['version']} is running")
+            print(f"Sennet {found['version']} is running")
     except service.ServiceError as error:
         print(error, file=sys.stderr)
         return 1
@@ -176,7 +176,7 @@ def service_command(settings: Settings, paths: Paths, args) -> int:
 
 def _show_service(manager, status: service.Status, port: int) -> int:
     if not status.installed:
-        print("not installed; `agent-talk service install` installs and starts it")
+        print("not installed; `sennet service install` installs and starts it")
         return 3  # as systemctl status does for a unit that isn't running
     found = service.health(port) if status.running else None
     print(f"{manager.name}: {status.detail}{f', pid {status.pid}' if status.pid else ''}")
@@ -184,7 +184,7 @@ def _show_service(manager, status: service.Status, port: int) -> int:
     if status.command:
         print(f"  runs:    {' '.join(status.command)} serve")
     if found:
-        print(f"  answers: Agent Talk {found['version']} on port {port}")
+        print(f"  answers: Sennet {found['version']} on port {port}")
     elif status.running:
         print(f"  answers: nothing on port {port} yet")
     return 0 if status.running else 3
@@ -207,7 +207,7 @@ def pair_command(settings: Settings, paths: Paths):
     finally:
         db.close()
     public = settings.server.public_url
-    print(f"Pair a browser with Agent Talk. The code works once, for {access.TERMINAL_TTL_S // 60} minutes.\n")
+    print(f"Pair a browser with Sennet. The code works once, for {access.TERMINAL_TTL_S // 60} minutes.\n")
     print(f"  On this computer:  {pairing.link(settings.server.local_url)}")
     if public:
         print(f"  On your phone:     {pairing.link(public)}  (or scan the code below)")
@@ -216,8 +216,8 @@ def pair_command(settings: Settings, paths: Paths):
         print()
         segno.make(pairing.link(public), error="m").terminal(compact=True)
     else:
-        print("\nOn another device, open Agent Talk's address and type the code. To get a link and a QR code "
-              "for your phone, set server.public_url in the config, or run `agent-talk setup`.")
+        print("\nOn another device, open Sennet's address and type the code. To get a link and a QR code "
+              "for your phone, set server.public_url in the config, or run `sennet setup`.")
 
 
 def devices_command(paths: Paths, args):
@@ -226,13 +226,13 @@ def devices_command(paths: Paths, args):
         if args.action == "revoke":
             device = db.device(args.id)
             if device is None:
-                sys.exit(f"no device {args.id}; `agent-talk devices` lists them")
+                sys.exit(f"no device {args.id}; `sennet devices` lists them")
             db.remove_device(device["id"])
             print(f"revoked {device['name']}; it has to pair again to get back in")
             return
         rows = db.devices()
         if not rows:
-            print("no devices paired yet; pair one with `agent-talk pair`")
+            print("no devices paired yet; pair one with `sennet pair`")
         for device in rows:
             seen = time.strftime("%Y-%m-%d %H:%M", time.localtime(device["last_seen_at"]))
             print(f"{device['id']:>3}  {device['name']}  (paired by {device['paired_by']}, last seen {seen})")
@@ -249,7 +249,7 @@ def project_command(paths: Paths, args):
         elif args.action == "list":
             rows = db.projects()
             if not rows:
-                print("no projects yet; add one with `agent-talk project add PATH`")
+                print("no projects yet; add one with `sennet project add PATH`")
             for project in rows:
                 aliases = f" (also: {', '.join(project['aliases'])})" if project["aliases"] else ""
                 print(f"{project['id']:>3}  {project['name']}{aliases}  [{project['agent']}]  {project['path']}")
@@ -320,24 +320,24 @@ def service_ok(settings: Settings, agents: dict) -> bool:
     status = manager.status()
     port = settings.server.port
     if not status.installed:
-        _line("service", "not installed; `agent-talk service install` runs Agent Talk in the background, from login")
+        _line("service", "not installed; `sennet service install` runs Sennet in the background, from login")
         return True
     ok = True
     if status.command != service.program():
         _line("service", f"problem: it runs {' '.join(status.command or ['?'])}, not this install; "
-              "run `agent-talk service install` to update it")
+              "run `sennet service install` to update it")
         ok = False
     found = service.health(port) if status.running else None
     if not status.running:
-        _line("service", f"problem: installed but {status.detail}; `agent-talk service logs` shows why, "
-              "and `agent-talk service start` starts it")
+        _line("service", f"problem: installed but {status.detail}; `sennet service logs` shows why, "
+              "and `sennet service start` starts it")
         ok = False
     elif found is None:
-        _line("service", f"problem: running, but nothing answers on port {port}; see `agent-talk service logs`")
+        _line("service", f"problem: running, but nothing answers on port {port}; see `sennet service logs`")
         ok = False
     elif found["version"] != __version__:
         _line("service", f"problem: running {found['version']}, but {__version__} is installed; "
-              "run `agent-talk service restart`")
+              "run `sennet service restart`")
         ok = False
     else:
         lingering = manager.lingering()
@@ -348,7 +348,7 @@ def service_ok(settings: Settings, agents: dict) -> bool:
         program = agent.command[0]
         if shutil.which(program) and not shutil.which(program, path=status.path or ""):
             _line("service", f"problem: the service can't find {program} ({agent.title}) on its PATH; run "
-                  "`agent-talk service install` from a shell that finds it")
+                  "`sennet service install` from a shell that finds it")
             ok = False
     return ok
 
@@ -362,18 +362,18 @@ def access_ok(settings: Settings, paths: Paths) -> bool:
         paired = len(db.devices())
     finally:
         db.close()
-    _line("devices", f"{paired} paired" if paired else "none paired yet; run `agent-talk pair`")
+    _line("devices", f"{paired} paired" if paired else "none paired yet; run `sennet pair`")
     port = settings.server.port
     tailnet = tailscale.address(tailscale.status()) if shutil.which("tailscale") else None
     serving = tailscale.serve_status() if tailnet else None
     if settings.server.public_url:
         _line("phones", f"{settings.server.public_url} (server.public_url)")
     elif tailnet:
-        _line("phones", f"not set; run `agent-talk setup` to use {tailnet}")
+        _line("phones", f"not set; run `sennet setup` to use {tailnet}")
     else:
         _line("phones", "not set (needs Tailscale or a reverse proxy with HTTPS; see server.public_url)")
     if not shutil.which("tailscale"):
-        _line("tailscale", "not installed (one way to reach Agent Talk from a phone)")
+        _line("tailscale", "not installed (one way to reach Sennet from a phone)")
     elif tailnet is None:
         _line("tailscale", "installed, not connected")
     elif tailscale.funnel(serving):
@@ -381,9 +381,9 @@ def access_ok(settings: Settings, paths: Paths) -> bool:
               "can run commands as you; turn it off with `tailscale funnel reset` unless you mean it.")
         return False
     elif tailscale.serves(serving, port):
-        _line("tailscale", f"ok: {tailnet} serves Agent Talk")
+        _line("tailscale", f"ok: {tailnet} serves Sennet")
     else:
-        _line("tailscale", f"up at {tailnet}, not serving Agent Talk; run `tailscale serve --bg {port}`")
+        _line("tailscale", f"up at {tailnet}, not serving Sennet; run `tailscale serve --bg {port}`")
     return True
 
 
@@ -396,12 +396,12 @@ def speech_ok(settings: Settings, paths: Paths) -> bool:
         return True
     runtime = runtime_distribution()
     if runtime is None:
-        _line("speech", "problem: no ONNX runtime installed; run `agent-talk setup`")
+        _line("speech", "problem: no ONNX runtime installed; run `sennet setup`")
         return False
     device = resolve_device(settings.speech.device)
     missing = [m.id for m in models.MODELS[device].values() if not models.present(paths.models, m)]
     if missing:
-        _line("speech", f"problem: {device} models missing ({', '.join(missing)}); run `agent-talk setup`")
+        _line("speech", f"problem: {device} models missing ({', '.join(missing)}); run `sennet setup`")
         return False
     _line("speech", f"ok: {device} via {runtime}, models in {paths.models}")
     return True

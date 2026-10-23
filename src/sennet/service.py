@@ -1,7 +1,7 @@
-"""`agent-talk service`: run Agent Talk as a user service (docs/m6-packaging.md).
+"""`sennet service`: run Sennet as a user service (docs/m6-packaging.md).
 
 A systemd `--user` unit on Linux, a LaunchAgent on macOS. Either runs this install's
-`agent-talk serve` as the user, starts at login and restarts after a crash. A service
+`sennet serve` as the user, starts at login and restarts after a crash. A service
 doesn't get the login shell's PATH, so the agents (`claude` in ~/.local/bin, `codex`
 under nvm or Homebrew) wouldn't be found; install records the installing shell's PATH
 in the unit, and `doctor` compares the two.
@@ -24,11 +24,11 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-NAME = "agent-talk"
-LABEL = "agent-talk"            # launchd label
+NAME = "sennet"
+LABEL = "sennet"                # launchd label
 START_TIMEOUT_S = 30
 # Variables the service needs to find the same install, data and agents as the installing shell.
-KEPT = ("AGENT_TALK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME")
+KEPT = ("SENNET_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME")
 
 
 class ServiceError(Exception):
@@ -47,11 +47,11 @@ class Status:
 
 
 def program() -> list[str]:
-    """The command that runs this install of Agent Talk."""
+    """The command that runs this install of Sennet."""
     script = Path(sys.prefix) / "bin" / NAME
     if script.is_file() and os.access(script, os.X_OK):
         return [str(script)]
-    return [sys.executable, "-m", "agent_talk"]
+    return [sys.executable, "-m", "sennet"]
 
 
 def search_path(path: str | None = None) -> str:
@@ -75,11 +75,11 @@ def manager() -> Systemd | Launchd:
         return Systemd()
     if system == "Darwin":
         return Launchd()
-    raise ServiceError(f"services aren't supported on {system}; run `agent-talk serve` instead")
+    raise ServiceError(f"services aren't supported on {system}; run `sennet serve` instead")
 
 
 def health(port: int, timeout: float = 1.0) -> dict | None:
-    """What answers on Agent Talk's port: its health, or None when nothing does or it isn't Agent Talk."""
+    """What answers on Sennet's port: its health, or None when nothing does or it isn't Sennet."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=timeout) as response:
             body = json.loads(response.read())
@@ -120,9 +120,9 @@ class Systemd:
     def unit(self, command: list[str], env: dict[str, str]) -> str:
         variables = "\n".join(f"Environment={_quote(f'{k}={v}')}" for k, v in env.items())
         return (
-            "# Written by `agent-talk service install`; run it again to update this file.\n"
+            "# Written by `sennet service install`; run it again to update this file.\n"
             "[Unit]\n"
-            "Description=Agent Talk\n"
+            "Description=Sennet\n"
             "After=network-online.target\n"
             "\n"
             "[Service]\n"
@@ -257,7 +257,7 @@ class Launchd:
         try:
             config = plistlib.loads(self.file.read_bytes())
         except (OSError, plistlib.InvalidFileException, ValueError):
-            return Status(True, False, detail=f"{self.file} can't be read; run `agent-talk service install`")
+            return Status(True, False, detail=f"{self.file} can't be read; run `sennet service install`")
         command = list(config.get("ProgramArguments", []))[:-1] or None
         path = (config.get("EnvironmentVariables") or {}).get("PATH")
         printed = _run(["launchctl", "print", f"{self.target}/{LABEL}"], check=False)
@@ -297,20 +297,20 @@ def _quote(value: str) -> str:
 
 
 def install(port: int) -> tuple[Systemd | Launchd, dict]:
-    """Install the service for this install of Agent Talk, or update it, and start it. Returns the
+    """Install the service for this install of Sennet, or update it, and start it. Returns the
     manager and the started daemon's health."""
     service = manager()
     before = service.status()
     if not before.running:
         if health(port) is not None:
-            raise ServiceError(f"Agent Talk is already running on port {port}, outside the service. Stop it "
-                               "(Ctrl+C where `agent-talk serve` runs), then install the service again.")
+            raise ServiceError(f"Sennet is already running on port {port}, outside the service. Stop it "
+                               "(Ctrl+C where `sennet serve` runs), then install the service again.")
         if port_taken(port):
             raise ServiceError(f"another program is using port {port}. Stop it, or set server.port in the config.")
     service.install(program(), environment())
     if (found := wait_until_up(port)) is None:
         raise ServiceError(f"the service started but didn't answer on port {port} within {START_TIMEOUT_S} s; "
-                           "`agent-talk service logs` shows why")
+                           "`sennet service logs` shows why")
     return service, found
 
 

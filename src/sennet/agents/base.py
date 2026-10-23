@@ -247,7 +247,7 @@ class AgentSession(Protocol):
 
 class Agent(Protocol):
     """An adapter, built from the command that starts its CLI (`agents.commands` in the config) and
-    the daemon's MCP endpoint (agents.callbacks), for a CLI that calls back into Agent Talk."""
+    the daemon's MCP endpoint (agents.callbacks), for a CLI that calls back into Sennet."""
 
     name: str
     title: str                         # as the user knows it, e.g. "Claude Code"

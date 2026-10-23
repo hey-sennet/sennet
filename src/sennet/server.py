@@ -1,13 +1,13 @@
 """HTTP API and live event WebSocket.
 
 Commands are plain HTTP; live updates arrive over `/api/events`. State-changing
-requests must carry the `X-Agent-Talk` header: browsers cannot add custom headers
+requests must carry the `X-Sennet` header: browsers cannot add custom headers
 to cross-site requests without CORS permission, which this server never grants.
 
 Everything under `/api/` needs a paired device's cookie (access.py), loopback
 included: behind a proxy on this machine every request comes from 127.0.0.1. Two are
 open: `POST /api/pair`, which redeems a pairing code and is throttled, and
-`GET /api/health`, which says only that this is Agent Talk and its version. A
+`GET /api/health`, which says only that this is Sennet and its version. A
 WebSocket from an unpaired device, or one revoked while it is open, is closed with
 code 4401. The app shell is served to anyone, so an unpaired browser can pair.
 
@@ -45,7 +45,7 @@ from .voice import VoiceHub, VoiceSession
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).parent / "web"
-CSRF_HEADER = "x-agent-talk"
+CSRF_HEADER = "x-sennet"
 UNPAIRED = 4401                 # WebSocket close code: pair this device, don't just reconnect
 SWEEP_S = 30                    # how often open sockets are checked for devices revoked elsewhere
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -144,7 +144,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                 app.state.speech.close()
             db.close()
 
-    app = FastAPI(title="Agent Talk", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="Sennet", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.callbacks = callbacks
 
     @app.middleware("http")
@@ -183,8 +183,8 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     @app.get("/api/health")
     async def health():
-        """For the service and `doctor`: is this Agent Talk, and which version."""
-        return {"app": "agent-talk", "version": __version__}
+        """For the service and `doctor`: is this Sennet, and which version."""
+        return {"app": "sennet", "version": __version__}
 
     @app.post("/api/pair")
     async def pair(body: PairIn, request: Request):

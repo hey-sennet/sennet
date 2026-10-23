@@ -65,7 +65,7 @@ class Speech:
         chosen = models.MODELS[device]
         missing = [m.id for m in chosen.values() if not models.present(models_root, m)]
         if missing:
-            detail = f"models missing ({', '.join(missing)}); run `agent-talk setup`"
+            detail = f"models missing ({', '.join(missing)}); run `sennet setup`"
             for role in ROLES:
                 self._set(role, "unavailable", detail)
             return

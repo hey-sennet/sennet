@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_talk.agents import registry
-from agent_talk.agents.base import AgentEvent, check_event, spoken_instructions
-from agent_talk.agents.codex import CodexAgent, CodexSession
-from agent_talk.config import Settings
-from agent_talk.db import SCHEMA_VERSION, Database
-from agent_talk.server import create_app
+from sennet.agents import registry
+from sennet.agents.base import AgentEvent, check_event, spoken_instructions
+from sennet.agents.codex import CodexAgent, CodexSession
+from sennet.config import Settings
+from sennet.db import SCHEMA_VERSION, Database
+from sennet.server import create_app
 from conftest import HEADERS, pending_approval, wait_for, paired
 
 

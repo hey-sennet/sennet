@@ -1,12 +1,12 @@
-"""`agent-talk upgrade` and `remove-data`, and how the install is recognised (docs/m6-packaging.md)."""
+"""`sennet upgrade` and `remove-data`, and how the install is recognised (docs/m6-packaging.md)."""
 import subprocess
 import sys
 
 import pytest
 
-from agent_talk import __version__, install, service, setup
-from agent_talk.config import Paths
-from agent_talk.db import Database
+from sennet import __version__, install, service, setup
+from sennet.config import Paths
+from sennet.db import Database
 
 
 def receipt(tmp_path, monkeypatch, requirement: str):
@@ -15,14 +15,14 @@ def receipt(tmp_path, monkeypatch, requirement: str):
 
 
 def test_an_index_install_can_be_upgraded(tmp_path, monkeypatch):
-    receipt(tmp_path, monkeypatch, '{ name = "agent-talk", extras = ["cuda"] }')
-    assert install.uv_tool_requirement() == {"name": "agent-talk", "extras": ["cuda"]}
+    receipt(tmp_path, monkeypatch, '{ name = "sennet", extras = ["cuda"] }')
+    assert install.uv_tool_requirement() == {"name": "sennet", "extras": ["cuda"]}
 
 
 def test_an_install_from_a_directory_or_git_cant(tmp_path, monkeypatch):
-    receipt(tmp_path, monkeypatch, '{ name = "agent-talk", directory = "/src/agent-talk" }')
+    receipt(tmp_path, monkeypatch, '{ name = "sennet", directory = "/src/sennet" }')
     assert install.uv_tool_receipt() is not None and install.uv_tool_requirement() is None
-    receipt(tmp_path, monkeypatch, '{ name = "agent-talk", git = "https://example.com/agent-talk" }')
+    receipt(tmp_path, monkeypatch, '{ name = "sennet", git = "https://example.com/sennet" }')
     assert install.uv_tool_requirement() is None
 
 
@@ -55,9 +55,9 @@ class Ran:
 
 @pytest.fixture
 def uv_tool(tmp_path, monkeypatch):
-    receipt(tmp_path, monkeypatch, '{ name = "agent-talk", extras = ["cpu"] }')
+    receipt(tmp_path, monkeypatch, '{ name = "sennet", extras = ["cpu"] }')
     monkeypatch.setattr(install.shutil, "which", lambda name: f"/bin/{name}")
-    monkeypatch.setattr(service, "program", lambda: ["/tools/agent-talk/bin/agent-talk"])
+    monkeypatch.setattr(service, "program", lambda: ["/tools/sennet/bin/sennet"])
 
 
 def use_service(monkeypatch, managed):
@@ -84,8 +84,8 @@ def test_upgrade_restarts_a_running_service_with_the_new_version(uv_tool, monkey
     use_service(monkeypatch, Service(running=True))
     ran = Ran(monkeypatch)
     assert install.upgrade(paths, 7710, False) == 0
-    assert ran.calls[0] == ["uv", "tool", "upgrade", "agent-talk"]
-    assert ran.calls[-1] == ["/tools/agent-talk/bin/agent-talk", "service", "restart"]
+    assert ran.calls[0] == ["uv", "tool", "upgrade", "sennet"]
+    assert ran.calls[-1] == ["/tools/sennet/bin/sennet", "service", "restart"]
     assert f"from {__version__} to 0.2.0" in capsys.readouterr().out
 
 
@@ -94,7 +94,7 @@ def test_upgrade_without_a_service_says_to_restart(uv_tool, monkeypatch, paths, 
     ran = Ran(monkeypatch)
     assert install.upgrade(paths, 7710, False) == 0
     assert "service" not in ran.calls[-1]
-    assert "Restart `agent-talk serve`" in capsys.readouterr().out
+    assert "Restart `sennet serve`" in capsys.readouterr().out
 
 
 def test_upgrade_to_the_same_version_restarts_nothing(uv_tool, monkeypatch, paths, capsys):
@@ -158,7 +158,7 @@ def test_remove_data_deletes_config_data_and_models_only(monkeypatch, tmp_path, 
     assert not paths.config_dir.exists() and not paths.data_dir.exists()
     assert (project / "main.py").exists()
     assert "(2 MB)" in out and "under 1 MB" in out
-    assert "still installed" in out and "uv tool uninstall agent-talk" in out
+    assert "still installed" in out and "uv tool uninstall sennet" in out
 
 
 def test_remove_data_asks_and_keeps_everything_on_no(monkeypatch, paths):
@@ -185,44 +185,44 @@ def test_nothing_to_remove(monkeypatch, paths, capsys):
     use_service(monkeypatch, Service(running=False, installed=False))
     monkeypatch.setattr(service, "port_taken", lambda port: False)
     assert install.remove_data(paths, 7710, True) == 0
-    assert "no Agent Talk data" in capsys.readouterr().out
+    assert "no Sennet data" in capsys.readouterr().out
 
 
 # Reinstalling with the extra setup picks
 
 def test_setup_reinstalls_an_index_install_with_the_extra(tmp_path, monkeypatch):
-    receipt(tmp_path, monkeypatch, '{ name = "agent-talk", specifier = ">=0.1" }')
-    assert install.uv_tool_spec("cuda") == "agent-talk[cuda]>=0.1"
+    receipt(tmp_path, monkeypatch, '{ name = "sennet", specifier = ">=0.1" }')
+    assert install.uv_tool_spec("cuda") == "sennet[cuda]>=0.1"
 
 
 def test_setup_reinstalls_a_wheel_file_with_the_extra(tmp_path, monkeypatch):
-    wheel = tmp_path / "agent_talk-0.1.0-py3-none-any.whl"
+    wheel = tmp_path / "sennet-0.1.0-py3-none-any.whl"
     wheel.write_bytes(b"")
-    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", path = "{wheel}" }}')
-    assert install.uv_tool_spec("cuda") == f"agent-talk[cuda] @ {wheel.as_uri()}"
+    receipt(tmp_path, monkeypatch, f'{{ name = "sennet", path = "{wheel}" }}')
+    assert install.uv_tool_spec("cuda") == f"sennet[cuda] @ {wheel.as_uri()}"
     command, _ = setup._install_command("cuda")
-    assert command == ["uv", "tool", "install", "--reinstall", f"agent-talk[cuda] @ {wheel.as_uri()}"]
+    assert command == ["uv", "tool", "install", "--reinstall", f"sennet[cuda] @ {wheel.as_uri()}"]
 
 
 def test_a_directory_install_cant_be_reinstalled_with_an_extra(tmp_path, monkeypatch):
-    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", directory = "{tmp_path}" }}')
+    receipt(tmp_path, monkeypatch, f'{{ name = "sennet", directory = "{tmp_path}" }}')
     assert install.uv_tool_spec("cuda") is None
     wheel = tmp_path / "gone.whl"  # a wheel since deleted
-    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", path = "{wheel}" }}')
+    receipt(tmp_path, monkeypatch, f'{{ name = "sennet", path = "{wheel}" }}')
     assert install.uv_tool_spec("cuda") is None
 
 
 def test_setup_shows_the_reinstall_command_with_its_extra(tmp_path, monkeypatch):
     from test_setup import Scripted
 
-    wheel = tmp_path / "agent_talk-0.1.0-py3-none-any.whl"
+    wheel = tmp_path / "sennet-0.1.0-py3-none-any.whl"
     wheel.write_bytes(b"")
-    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", path = "{wheel}" }}')
+    receipt(tmp_path, monkeypatch, f'{{ name = "sennet", path = "{wheel}" }}')
     monkeypatch.setattr(setup, "runtime_distribution", lambda: None)
     ui = Scripted(False)
     assert setup._runtime_ready(ui, "cuda") is False
-    assert f"'agent-talk[cuda]@{wheel.as_uri()}'" in "".join(ui.output().split())  # however it wraps
-    receipt(tmp_path, monkeypatch, f'{{ name = "agent-talk", directory = "{tmp_path}" }}')
+    assert f"'sennet[cuda]@{wheel.as_uri()}'" in "".join(ui.output().split())  # however it wraps
+    receipt(tmp_path, monkeypatch, f'{{ name = "sennet", directory = "{tmp_path}" }}')
     ui = Scripted()
     setup._runtime_ready(ui, "cuda")
-    assert "pip install agent-talk[cuda]" in " ".join(ui.output().split())
+    assert "pip install sennet[cuda]" in " ".join(ui.output().split())

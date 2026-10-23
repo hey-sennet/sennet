@@ -106,7 +106,7 @@ const TASKS = [
   { project: 'docs', title: 'Update the install guide', status: 'done', timeline: [
     { kind: 'you', text: 'In docs, update the install guide for the new setup command' },
     { kind: 'files', text: 'docs/install.md', result: '+38 −21' },
-    { kind: 'agent', text: 'The install guide now walks through agent-talk setup. One file changed.' },
+    { kind: 'agent', text: 'The install guide now walks through sennet setup. One file changed.' },
   ] },
 ]
 let selectedTask = Math.min(TASKS.length - 1, Math.max(0, +params.get('task') || 0))
@@ -122,7 +122,7 @@ function buildChrome(concept) {
   document.body.insertAdjacentHTML('afterbegin', html`
     <canvas id="field" aria-hidden="true"></canvas>
     <header class="top">
-      <div class="mark">agent talk<span>.</span></div>
+      <div class="mark">sennet<span>.</span></div>
       <button class="project" aria-label="Project"><i></i>backend<svg viewBox="0 0 12 12"><path d="M3 4.5 6 7.5 9 4.5"/></svg></button>
     </header>
     <aside class="rail" aria-label="Tasks">

@@ -1,4 +1,4 @@
--- The schema before version 2 (agent-talk M1), for migration tests.
+-- The schema before version 2 (sennet M1), for migration tests.
 
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY,

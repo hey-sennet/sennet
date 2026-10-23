@@ -11,13 +11,13 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from agent_talk import access
-from agent_talk.config import Paths, Settings
-from agent_talk.server import create_app
+from sennet import access
+from sennet.config import Paths, Settings
+from sennet.server import create_app
 
 FAKE_CODEX = Path(__file__).parent / "fake_codex.py"
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude.py"
-HEADERS = {"X-Agent-Talk": "1"}
+HEADERS = {"X-Sennet": "1"}
 
 
 def pair(client, db) -> dict:

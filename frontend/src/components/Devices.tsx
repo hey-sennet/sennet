@@ -29,7 +29,7 @@ export function Devices({ subscribe }: {
 
   const revoke = async (device: Device) => {
     const question = device.current
-      ? 'Unpair this device? You will need a new code to use Agent Talk here again.'
+      ? 'Unpair this device? You will need a new code to use Sennet here again.'
       : `Unpair ${device.name}? It will need a new code to get back in.`
     if (!confirm(question)) return
     try {
@@ -107,13 +107,13 @@ function ShowPairing({ pairing, onDone }: { pairing: Pairing; onDone: () => void
       <div className="flex min-w-0 flex-col gap-2 text-sm">
         <p className="text-muted-foreground">
           {pairing.local_only
-            ? 'On the other device, open Agent Talk at the address you use there and type this code:'
-            : 'Scan the code with the other device, or open Agent Talk there and type:'}
+            ? 'On the other device, open Sennet at the address you use there and type this code:'
+            : 'Scan the code with the other device, or open Sennet there and type:'}
         </p>
         <p className="font-mono text-2xl tracking-[0.2em]" aria-label="Pairing code">{pairing.code}</p>
         <p className="text-xs text-muted-foreground">
           Works once, for {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}.
-          {pairing.local_only && ' To get a QR code for your phone, set server.public_url in the config, or run agent-talk setup.'}
+          {pairing.local_only && ' To get a QR code for your phone, set server.public_url in the config, or run sennet setup.'}
         </p>
         <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={onDone}>Done</Button>
       </div>

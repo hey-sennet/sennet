@@ -93,7 +93,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
           ))}
         </Section>
 
-        <Section title="Devices" hint="Browsers paired with Agent Talk. Unpair any you no longer use.">
+        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use.">
           <Devices subscribe={subscribe} />
         </Section>
 
@@ -108,7 +108,7 @@ function About({ version }: { version: string | null }) {
   return (
     <Section title="About">
       <p className="text-sm">
-        Agent Talk {version ?? ''}
+        Sennet {version ?? ''}
         <span className="text-muted-foreground"> · free and open source under the Apache License 2.0</span>
       </p>
       <p className="text-xs text-muted-foreground">

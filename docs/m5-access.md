@@ -2,13 +2,13 @@
 
 Status: done (steps 1 to 5); a real phone paired and worked in M6's clean install. Date: 2026-10-23.
 
-M5 decides who may use a running Agent Talk, and how it is reached from a phone.
+M5 decides who may use a running Sennet, and how it is reached from a phone.
 Packaging (`setup`, `service install`, release CI) follows in M6.
 
 Until now access rested on Tailscale: the daemon binds loopback, `tailscale serve`
 gives HTTPS, and an allowlist of Tailscale identities was planned (never built). That
 leaves nothing for anyone hosting another way, and behind any proxy on the same machine
-every request comes from 127.0.0.1, so "local" proves nothing. Agent Talk runs commands
+every request comes from 127.0.0.1, so "local" proves nothing. Sennet runs commands
 as its user, so it needs its own answer to "may this request run?", whatever sits in
 front of it.
 
@@ -18,11 +18,11 @@ front of it.
   pairs once, with a one-time code, and keeps a token of its own in a cookie until it
   is revoked.
 - **Every request is checked, loopback included.** A desktop browser on the same
-  machine pairs too, by opening the link `agent-talk pair` prints. Nothing a proxy does
+  machine pairs too, by opening the link `sennet pair` prints. Nothing a proxy does
   can then open a back door. The one exception is `/mcp/<secret>`, which stays
   protected by its per-session secret (HLD §4.1).
 - **Transport is the host's choice.** Tailscale stays the recommended route: it gives
-  HTTPS and keeps Agent Talk off the internet. A reverse proxy (Caddy, nginx) or a
+  HTTPS and keeps Sennet off the internet. A reverse proxy (Caddy, nginx) or a
   tunnel works with nothing special, since pairing doesn't depend on what is in front.
   An authenticating proxy (Authelia, oauth2-proxy, Cloudflare Access) is an extra layer,
   not a replacement.
@@ -37,13 +37,13 @@ A pairing code is single use and short-lived. It comes in two forms:
 
 - **A link**, `<url>/pair#<code>`, with a 128-bit code. The code is in the fragment, so
   it never reaches a proxy's logs; the pairing page posts it. Links come from
-  `agent-talk pair` (valid 15 minutes), which also prints the link as a QR code in the
+  `sennet pair` (valid 15 minutes), which also prints the link as a QR code in the
   terminal, and from Settings on a paired device (valid 5 minutes), as a QR code.
 - **A typed code**, eight characters from an unambiguous alphabet (about 40 bits), shown
   beside the QR code for a phone that can't scan it. It is entered on the pairing screen
   any unpaired browser sees.
 
-`agent-talk pair` writes the code to the database directly, so it works whether or not
+`sennet pair` writes the code to the database directly, so it works whether or not
 the daemon is running, and needs no login: anyone who can run it is already the user.
 It is also the recovery path when every device is lost.
 
@@ -58,7 +58,7 @@ keeps the typed code safe even on a public address.
 
 ### Devices
 
-Each device has a 256-bit random token. The cookie (`agent_talk_device`) is HttpOnly,
+Each device has a 256-bit random token. The cookie (`sennet_device`) is HttpOnly,
 SameSite=Strict, Secure when the browser is on HTTPS (the request's scheme, or its Origin
 behind a proxy that doesn't say), and lasts a year. The
 database stores only a SHA-256 hash of the token, so a copy of the database can't be
@@ -67,7 +67,7 @@ used to sign in.
 A device has a name (from its user agent, such as "Firefox on Linux", which can be
 renamed), when it paired, when it was last seen, and how it paired (`cli` or the
 device that showed the code). Settings lists them, and revokes any of them; revoking
-also closes that device's open sockets. `agent-talk devices` lists and revokes from the
+also closes that device's open sockets. `sennet devices` lists and revokes from the
 terminal.
 
 ### Checks
@@ -76,11 +76,11 @@ terminal.
   client takes as "pair this device" rather than "reconnect".
 - The app shell and its assets load without a cookie, so an unpaired browser can show
   the pairing screen.
-- The `X-Agent-Talk` header (CSRF) and the WebSocket Origin check stay as they are.
+- The `X-Sennet` header (CSRF) and the WebSocket Origin check stay as they are.
 - Responses get a Content-Security-Policy (`default-src 'self'`, no inline scripts, no
   framing; inline styles are allowed, since UI libraries inject them), `nosniff` and
   `no-referrer`: agent output is rendered as markdown, and a stolen cookie is a remote
-  shell. Images in agent output load only from Agent Talk itself.
+  shell. Images in agent output load only from Sennet itself.
 
 ### Hosting
 
@@ -97,9 +97,9 @@ terminal.
 ### 1. Storage and CLI
 
 Done (421bc56, with step 2). Schema version 6: `devices` (name, token hash, how it paired, paired and last-seen
-times) and `pairing_codes` (code hash, form, expiry, who made it). `agent-talk pair`
-prints a link and a terminal QR code; `agent-talk devices` lists and revokes. QR codes
-come from `segno` (BSD), used for the terminal and for Settings' SVG. `agent-talk serve`
+times) and `pairing_codes` (code hash, form, expiry, who made it). `sennet pair`
+prints a link and a terminal QR code; `sennet devices` lists and revokes. QR codes
+come from `segno` (BSD), used for the terminal and for Settings' SVG. `sennet serve`
 also prints a pairing link while no device is paired, as Jupyter prints its token.
 
 ### 2. The check

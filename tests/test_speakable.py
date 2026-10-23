@@ -1,7 +1,7 @@
 """Agent text made fit to speak, and its clauses."""
 import pytest
 
-from agent_talk.voice.speakable import CODE_NOTE, TABLE_NOTE, clauses, for_speech, spoken_part, without_spoken
+from sennet.voice.speakable import CODE_NOTE, TABLE_NOTE, clauses, for_speech, spoken_part, without_spoken
 
 CODEX_REPLY = """I fixed the failing test in `tests/test_tasks.py`.
 
@@ -22,7 +22,7 @@ Run `uv run pytest` to check. Details: https://github.com/example/repo/pull/12."
      f"(see the docs). Added a regression test. {CODE_NOTE} Run uv run pytest to check. Details: a link."),
     ("All 40 tests pass.", "All 40 tests pass."),
     ("# Summary\nDone", "Summary. Done."),
-    ("Edited `src/agent_talk/voice/session.py` and ./README.md.", "Edited session.py and README.md."),
+    ("Edited `src/sennet/voice/session.py` and ./README.md.", "Edited session.py and README.md."),
     ("Use read/write mode and/or retry.", "Use read/write mode and/or retry."),
     ("Set `x = foo(1, 2)` first.", "Set some code first."),
     ("The branch `main` is clean.", "The branch main is clean."),

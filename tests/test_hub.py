@@ -1,7 +1,7 @@
 """Which reply the hub speaks, fed bus events directly."""
-from agent_talk.events import EventBus
-from agent_talk.speech import Speech
-from agent_talk.voice.hub import VoiceHub
+from sennet.events import EventBus
+from sennet.speech import Speech
+from sennet.voice.hub import VoiceHub
 
 
 class Session:

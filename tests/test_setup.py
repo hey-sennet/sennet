@@ -8,12 +8,12 @@ import numpy as np
 import pytest
 from rich.console import Console
 
-from agent_talk import setup
-from agent_talk.config import Settings
-from agent_talk.prompts import Abort, Downloads, Option, Prompter
-from agent_talk.speech import hardware, preview, voices
-from agent_talk.speech.fakes import FakeSynthesizer
-from agent_talk.speech.models import Model, ModelFile
+from sennet import setup
+from sennet.config import Settings
+from sennet.prompts import Abort, Downloads, Option, Prompter
+from sennet.speech import hardware, preview, voices
+from sennet.speech.fakes import FakeSynthesizer
+from sennet.speech.models import Model, ModelFile
 
 LAPTOP = hardware.Hardware("Linux", "x86_64", 16, 32000, [hardware.Gpu("NVIDIA GeForce RTX 4060 Laptop GPU", 8188, 7900)])
 
@@ -116,7 +116,7 @@ def test_a_checkout_continues_setup_in_the_same_interpreter(tmp_path, monkeypatc
     monkeypatch.setattr(sys, "prefix", str(tmp_path))  # no uv receipt here
     command, rerun = setup._install_command("cpu")
     assert command[:2] == ["uv", "sync"] and command[-2:] == ["--extra", "cpu"]
-    assert rerun == [sys.executable, "-m", "agent_talk"]
+    assert rerun == [sys.executable, "-m", "sennet"]
 
 
 # The voice

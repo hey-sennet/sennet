@@ -13,7 +13,7 @@ export const TOKEN = 'e2e-device-token'
 
 // Chromium's fake microphone plays this file: a tone that swells four times a second, loud
 // enough for the fake voice detector and varied enough to pass noise suppression.
-const micFile = path.join(tmpdir(), 'agent-talk-fake-mic.wav')
+const micFile = path.join(tmpdir(), 'sennet-fake-mic.wav')
 writeFileSync(micFile, wav(48000, 2, (t) => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (0.6 + 0.4 * Math.sin(2 * Math.PI * 4 * t))))
 
 function wav(rate: number, seconds: number, sample: (t: number) => number) {
@@ -37,7 +37,7 @@ export default defineConfig({
     },
     permissions: ['microphone'],
     storageState: {
-      cookies: [{ name: 'agent_talk_device', value: TOKEN, domain: '127.0.0.1', path: '/', expires: -1,
+      cookies: [{ name: 'sennet_device', value: TOKEN, domain: '127.0.0.1', path: '/', expires: -1,
         httpOnly: true, secure: false, sameSite: 'Strict' }],
       origins: [],
     },
@@ -48,7 +48,7 @@ export default defineConfig({
   ],
   workers: 1,
   webServer: {
-    command: `cd .. && AGENT_TALK_FAKE_SPEECH='${HEARD}' AGENT_TALK_E2E_TOKEN=${TOKEN} uv run python tests/e2e_server.py ${port} .e2e-home`,
+    command: `cd .. && SENNET_FAKE_SPEECH='${HEARD}' SENNET_E2E_TOKEN=${TOKEN} uv run python tests/e2e_server.py ${port} .e2e-home`,
     url: `http://127.0.0.1:${port}/api/state`,
     reuseExistingServer: false,
   },

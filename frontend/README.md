@@ -1,12 +1,12 @@
-# Agent Talk web client
+# Sennet web client
 
 React + TypeScript + Vite, with Tailwind and shadcn/ui components (Base UI primitives).
-The Python package serves the built client from `src/agent_talk/web/`; users never need Node.
+The Python package serves the built client from `src/sennet/web/`; users never need Node.
 
 ```sh
 npm ci
-npm run dev      # Vite on :5173, proxying /api to agent-talk serve on :7710
-npm run build    # type-check and build into ../src/agent_talk/web
+npm run dev      # Vite on :5173, proxying /api to sennet serve on :7710
+npm run build    # type-check and build into ../src/sennet/web
 npm test         # unit tests, then build, then Playwright on desktop and phone
 npm run test:unit  # Vitest only: src/**/*.test.ts
 ```

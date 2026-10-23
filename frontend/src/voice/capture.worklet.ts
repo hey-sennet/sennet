@@ -38,4 +38,4 @@ class CaptureProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('agent-talk-capture', CaptureProcessor)
+registerProcessor('sennet-capture', CaptureProcessor)

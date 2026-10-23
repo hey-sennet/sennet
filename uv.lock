@@ -2,68 +2,9 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 conflicts = [[
-    { package = "agent-talk", extra = "cpu" },
-    { package = "agent-talk", extra = "cuda" },
+    { package = "sennet", extra = "cpu" },
+    { package = "sennet", extra = "cuda" },
 ]]
-
-[[package]]
-name = "agent-talk"
-source = { editable = "." }
-dependencies = [
-    { name = "espeakng-loader" },
-    { name = "fastapi" },
-    { name = "numpy" },
-    { name = "onnx-asr" },
-    { name = "phonemizer" },
-    { name = "platformdirs" },
-    { name = "questionary" },
-    { name = "rich" },
-    { name = "segno" },
-    { name = "tomli-w" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-cpu = [
-    { name = "onnxruntime" },
-]
-cuda = [
-    { name = "onnxruntime-gpu", extra = ["cuda", "cudnn"], marker = "(sys_platform == 'linux' and extra == 'extra-10-agent-talk-cuda') or (extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda')" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-timeout" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "espeakng-loader", specifier = ">=0.2.4" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "numpy", specifier = ">=2" },
-    { name = "onnx-asr", specifier = ">=0.12" },
-    { name = "onnxruntime", marker = "extra == 'cpu'", specifier = ">=1.20,!=1.24.1,!=1.25.*,!=1.26.0" },
-    { name = "onnxruntime-gpu", extras = ["cuda", "cudnn"], marker = "sys_platform == 'linux' and extra == 'cuda'", specifier = ">=1.20,!=1.24.1,!=1.25.*,!=1.26.0" },
-    { name = "phonemizer", specifier = ">=3.3" },
-    { name = "platformdirs", specifier = ">=4" },
-    { name = "questionary", specifier = ">=2" },
-    { name = "rich", specifier = ">=13" },
-    { name = "segno", specifier = ">=1.6" },
-    { name = "tomli-w", specifier = ">=1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-]
-provides-extras = ["cpu", "cuda"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
-]
 
 [[package]]
 name = "annotated-doc"
@@ -89,7 +30,7 @@ version = "4.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
-    { name = "typing-extensions", marker = "python_full_version < '3.15' or (extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.15' or (extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc37b1db102b386ba719b66e95b0f0d751f556b387e6d2/anyio-4.15.1.tar.gz", hash = "sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94", size = 276966, upload-time = "2026-09-05T10:42:39.44Z" }
 wheels = [
@@ -815,7 +756,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -832,7 +773,7 @@ version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/43/7c/d36d04db312ecf4298932ef77e6e4a9e8ad017906e24e34f0b0c361a2473/pytest_asyncio-1.4.0.tar.gz", hash = "sha256:c6c0d2259945122819f171a32ecea2c349ead889ee28176caaf492143424be42", size = 58514, upload-time = "2026-05-26T09:56:04.083Z" }
 wheels = [
@@ -941,12 +882,71 @@ wheels = [
 ]
 
 [[package]]
+name = "sennet"
+source = { editable = "." }
+dependencies = [
+    { name = "espeakng-loader" },
+    { name = "fastapi" },
+    { name = "numpy" },
+    { name = "onnx-asr" },
+    { name = "phonemizer" },
+    { name = "platformdirs" },
+    { name = "questionary" },
+    { name = "rich" },
+    { name = "segno" },
+    { name = "tomli-w" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+cpu = [
+    { name = "onnxruntime" },
+]
+cuda = [
+    { name = "onnxruntime-gpu", extra = ["cuda", "cudnn"], marker = "(sys_platform == 'linux' and extra == 'extra-6-sennet-cuda') or (extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda')" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "espeakng-loader", specifier = ">=0.2.4" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "numpy", specifier = ">=2" },
+    { name = "onnx-asr", specifier = ">=0.12" },
+    { name = "onnxruntime", marker = "extra == 'cpu'", specifier = ">=1.20,!=1.24.1,!=1.25.*,!=1.26.0" },
+    { name = "onnxruntime-gpu", extras = ["cuda", "cudnn"], marker = "sys_platform == 'linux' and extra == 'cuda'", specifier = ">=1.20,!=1.24.1,!=1.25.*,!=1.26.0" },
+    { name = "phonemizer", specifier = ">=3.3" },
+    { name = "platformdirs", specifier = ">=4" },
+    { name = "questionary", specifier = ">=2" },
+    { name = "rich", specifier = ">=13" },
+    { name = "segno", specifier = ">=1.6" },
+    { name = "tomli-w", specifier = ">=1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+provides-extras = ["cpu", "cuda"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+]
+
+[[package]]
 name = "starlette"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ad/eb/4e197bf26b023abafc5e9043ec8710d7de0fcb032d0969045236d72aa0b1/starlette-1.9.0.tar.gz", hash = "sha256:3d931de246ed870e35ce605974440816ef895e592f255d1396cfdf191d4c4318", size = 2732466, upload-time = "2026-10-18T15:50:33.189Z" }
 wheels = [
@@ -1001,7 +1001,7 @@ standard = [
     { name = "httptools" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda') or (sys_platform == 'cygwin' and extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda') or (sys_platform == 'win32' and extra == 'extra-10-agent-talk-cpu' and extra == 'extra-10-agent-talk-cuda')" },
+    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda') or (sys_platform == 'cygwin' and extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda') or (sys_platform == 'win32' and extra == 'extra-6-sennet-cpu' and extra == 'extra-6-sennet-cuda')" },
     { name = "watchfiles" },
     { name = "websockets" },
 ]

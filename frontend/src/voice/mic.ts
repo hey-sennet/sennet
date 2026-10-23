@@ -29,7 +29,7 @@ export class Microphone {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new MicError(window.isSecureContext
         ? 'This browser has no microphone access.'
-        : 'The microphone needs HTTPS. Open Agent Talk through `tailscale serve`, or on this computer at localhost.')
+        : 'The microphone needs HTTPS. Open Sennet through `tailscale serve`, or on this computer at localhost.')
     }
     // Build the audio graph while the browser asks for permission, so capture runs the moment
     // the stream exists: on a first press, anything said before that is lost. The context is
@@ -51,7 +51,7 @@ export class Microphone {
     try {
       await loaded
       const source = context.createMediaStreamSource(stream)
-      const capture = new AudioWorkletNode(context, 'agent-talk-capture', { numberOfOutputs: 1 })
+      const capture = new AudioWorkletNode(context, 'sennet-capture', { numberOfOutputs: 1 })
       let mic: Microphone | null = null
       capture.port.onmessage = (event) => {
         if (event.data === 'flushed') mic?.flushed.shift()?.()

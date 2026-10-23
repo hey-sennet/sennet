@@ -9,14 +9,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from agent_talk import setup
-from agent_talk.config import Settings
-from agent_talk.speech import Speech, hardware, models
-from agent_talk.speech.base import AudioBuffer
-from agent_talk.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
-from agent_talk.speech.stt import StreamingTranscriber
-from agent_talk.speech.tts import VOCAB, split, tokens, trim
-from agent_talk.speech.worker import CAPTION, FINAL, Worker
+from sennet import setup
+from sennet.config import Settings
+from sennet.speech import Speech, hardware, models
+from sennet.speech.base import AudioBuffer
+from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
+from sennet.speech.stt import StreamingTranscriber
+from sennet.speech.tts import VOCAB, split, tokens, trim
+from sennet.speech.worker import CAPTION, FINAL, Worker
 
 
 # Inference worker
@@ -181,14 +181,14 @@ async def test_speech_without_models_is_unavailable_and_says_why(tmp_path):
     speech = Speech()
     await speech.load(tmp_path / "models", "cpu", 4, "af_heart")
     assert speech.snapshot() == {"stt": "unavailable", "tts": "unavailable"}
-    assert "agent-talk setup" in speech.detail["stt"]
+    assert "sennet setup" in speech.detail["stt"]
     speech.close()
 
 
 def test_the_daemon_starts_without_models(settings, paths):
     from fastapi.testclient import TestClient
 
-    from agent_talk.server import create_app
+    from sennet.server import create_app
 
     from conftest import paired
 
@@ -218,31 +218,31 @@ def test_setup_needs_a_terminal_or_yes(settings, paths, monkeypatch, capsys):
 
 def test_setup_reinstalls_a_uv_tool_with_the_chosen_extra(tmp_path, monkeypatch):
     (tmp_path / "uv-receipt.toml").write_text(
-        '[tool]\nrequirements = [{ name = "agent-talk", specifier = ">=0.1" }]\n')
+        '[tool]\nrequirements = [{ name = "sennet", specifier = ">=0.1" }]\n')
     monkeypatch.setattr(sys, "prefix", str(tmp_path))
     command, rerun = setup._install_command("cuda")
-    assert command == ["uv", "tool", "install", "--reinstall", "agent-talk[cuda]>=0.1"]
+    assert command == ["uv", "tool", "install", "--reinstall", "sennet[cuda]>=0.1"]
     assert rerun
 
 
 def test_setup_leaves_a_git_install_to_the_user(tmp_path, monkeypatch):
     (tmp_path / "uv-receipt.toml").write_text(
-        '[tool]\nrequirements = [{ name = "agent-talk", git = "https://example.com/agent-talk" }]\n')
+        '[tool]\nrequirements = [{ name = "sennet", git = "https://example.com/sennet" }]\n')
     monkeypatch.setattr(sys, "prefix", str(tmp_path))
     assert setup._install_command("cuda") == (None, None)
 
 
-# Real models (opt-in: AGENT_TALK_MODELS=<models dir> uv run pytest -m models)
+# Real models (opt-in: SENNET_MODELS=<models dir> uv run pytest -m models)
 
 @pytest.mark.models
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 async def test_real_engines_hear_what_they_say(device):
-    from agent_talk.speech.runtime import cuda_available
+    from sennet.speech.runtime import cuda_available
 
     if device == "cuda" and not cuda_available():
         pytest.skip("no CUDA runtime")
     speech = Speech()
-    await speech.load(Path(os.environ["AGENT_TALK_MODELS"]), device, 4, "af_heart")
+    await speech.load(Path(os.environ["SENNET_MODELS"]), device, 4, "af_heart")
     try:
         assert speech.snapshot() == {"stt": "ready", "tts": "ready"}, speech.detail
         audio = await speech.run("tts", speech.tts.synthesize, setup.SELF_TEST)

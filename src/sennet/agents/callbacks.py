@@ -1,4 +1,4 @@
-"""Agent Talk's own MCP endpoint, for agent CLIs that call back into it.
+"""Sennet's own MCP endpoint, for agent CLIs that call back into it.
 
 Claude Code asks a permission prompt tool, an MCP tool, before a tool call that
 needs the user's say. The daemon serves such tools over HTTP at `/mcp/<secret>`,
@@ -23,7 +23,7 @@ from .. import __version__
 log = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_NAME = "agent_talk"
+SERVER_NAME = "sennet"
 
 # A tool call: the tool's name and arguments in, its text result out.
 ToolCall = Callable[[str, dict], Awaitable[str]]
@@ -67,7 +67,7 @@ class CallbackServer:
         if method == "initialize":
             result = {"protocolVersion": params.get("protocolVersion", PROTOCOL_VERSION),
                       "capabilities": {"tools": {}},
-                      "serverInfo": {"name": SERVER_NAME, "title": "Agent Talk", "version": __version__}}
+                      "serverInfo": {"name": SERVER_NAME, "title": "Sennet", "version": __version__}}
         elif method == "tools/list":
             result = {"tools": registration.tools}
         elif method == "tools/call":

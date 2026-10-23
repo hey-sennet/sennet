@@ -1,10 +1,10 @@
 import pytest
 
-from agent_talk import projects
-from agent_talk.agents.base import ApprovalRequest
-from agent_talk.agents.codex import _read_only, unwrap
-from agent_talk.approvals import classify, command_prefix, matches
-from agent_talk.db import Database
+from sennet import projects
+from sennet.agents.base import ApprovalRequest
+from sennet.agents.codex import _read_only, unwrap
+from sennet.approvals import classify, command_prefix, matches
+from sennet.db import Database
 
 
 @pytest.mark.parametrize("command, unwrapped", [

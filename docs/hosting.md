@@ -1,25 +1,25 @@
-# Reaching Agent Talk from your phone
+# Reaching Sennet from your phone
 
-Agent Talk listens on `127.0.0.1:7710` only. A phone reaches it through something in front
+Sennet listens on `127.0.0.1:7710` only. A phone reaches it through something in front
 that gives it an HTTPS address, because browsers only let a page use the microphone over
 HTTPS (or on `localhost`). Tailscale is the simplest; any reverse proxy works.
 
-Whatever is in front, every browser pairs before it can use Agent Talk, including one on
+Whatever is in front, every browser pairs before it can use Sennet, including one on
 the same computer ([m5-access.md](m5-access.md)). A paired device can run commands on your
-computer as you, so unpair any you stop using: in Settings, or with `agent-talk devices`.
+computer as you, so unpair any you stop using: in Settings, or with `sennet devices`.
 
 ## Pairing
 
 ```sh
-agent-talk pair
+sennet pair
 ```
 
 prints a link for this computer, a link and QR code for your phone (when
 `server.public_url` is set), and a code to type. Each works once, for 15 minutes. Open the
-link, scan the QR code, or open Agent Talk on the other device and type the code.
+link, scan the QR code, or open Sennet on the other device and type the code.
 
 A paired device can pair another from Settings, under Devices: "Pair a device" shows a QR
-code and a code to type, for 5 minutes. If you lose every device, `agent-talk pair` gets
+code and a code to type, for 5 minutes. If you lose every device, `sennet pair` gets
 you back in.
 
 ## Tailscale (recommended)
@@ -29,9 +29,9 @@ gives the computer an HTTPS address on it. Nothing is exposed to the internet.
 
 1. Install Tailscale on the computer and the phone, and sign in to the same tailnet on
    both. In the tailnet's admin console, turn on MagicDNS and HTTPS certificates.
-2. Run `agent-talk setup`. It finds the computer's address, such as
+2. Run `sennet setup`. It finds the computer's address, such as
    `https://desk.tail1234.ts.net`, and saves it as `server.public_url`.
-3. Setup then offers to pass that address on to Agent Talk, which is:
+3. Setup then offers to pass that address on to Sennet, which is:
 
    ```sh
    tailscale serve --bg 7710
@@ -42,15 +42,15 @@ gives the computer an HTTPS address on it. Nothing is exposed to the internet.
    `sudo tailscale set --operator=$USER` and run it again. It replaces whatever this
    computer already serves at `/` on its tailnet address; setup warns when there is
    something.
-4. Setup ends by printing a pairing link and QR code (or run `agent-talk pair`); scan it
+4. Setup ends by printing a pairing link and QR code (or run `sennet pair`); scan it
    with the phone.
 
-`agent-talk doctor` checks each of these.
+`sennet doctor` checks each of these.
 
 ## Caddy
 
 Caddy gets a certificate for your domain by itself, passes WebSockets through, and keeps
-the `Host` header, which Agent Talk checks WebSockets against.
+the `Host` header, which Sennet checks WebSockets against.
 
 ```caddy
 agent.example.com {
@@ -106,7 +106,7 @@ The proxy never needs to serve `/mcp/`: only agents on this computer call it, st
 
 ## On the public internet
 
-Tailscale Funnel or an open port puts Agent Talk on the internet. Pairing still guards it:
+Tailscale Funnel or an open port puts Sennet on the internet. Pairing still guards it:
 codes work once, expire in minutes, and wrong ones are throttled. But a paired device is a
-shell on your computer, so keep Agent Talk on a private network unless you have a reason
-not to. `agent-talk doctor` reports when Funnel is on.
+shell on your computer, so keep Sennet on a private network unless you have a reason
+not to. `sennet doctor` reports when Funnel is on.

@@ -1,5 +1,5 @@
-from agent_talk.config import Settings
-from agent_talk.db import Database
+from sennet.config import Settings
+from sennet.db import Database
 from conftest import pending_approval, wait_for, paired
 
 
@@ -36,7 +36,7 @@ def test_follow_up_reuses_the_warm_session(client, project, codex_log):
 def test_follow_up_resumes_the_thread_after_idle_close(settings, paths, codex_log, tmp_path):
     from fastapi.testclient import TestClient
 
-    from agent_talk.server import create_app
+    from sennet.server import create_app
     from conftest import HEADERS
 
     settings.tasks.idle_timeout_s = 0
@@ -145,7 +145,7 @@ def test_one_running_task_per_project(client, project, tmp_path):
 def test_global_concurrency_limit(settings, paths, tmp_path, codex_log):
     from fastapi.testclient import TestClient
 
-    from agent_talk.server import create_app
+    from sennet.server import create_app
     from conftest import HEADERS
 
     settings.tasks.max_concurrent = 1
@@ -209,8 +209,8 @@ def test_settings_round_trip(paths):
 def test_shutdown_does_not_start_queued_tasks(settings, paths, codex_log, tmp_path):
     from fastapi.testclient import TestClient
 
-    from agent_talk.db import Database
-    from agent_talk.server import create_app
+    from sennet.db import Database
+    from sennet.server import create_app
     from conftest import HEADERS
 
     (tmp_path / "repo").mkdir()

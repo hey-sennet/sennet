@@ -8,11 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from agent_talk.server import create_app
-from agent_talk.speech import Speech
-from agent_talk.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
-from agent_talk.voice import frames
-from agent_talk.voice.session import VoiceSession
+from sennet.server import create_app
+from sennet.speech import Speech
+from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
+from sennet.voice import frames
+from sennet.voice.session import VoiceSession
 from conftest import HEADERS, wait_for, paired
 
 pytestmark = pytest.mark.timeout(20)
