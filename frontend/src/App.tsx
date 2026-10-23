@@ -122,6 +122,28 @@ export default function App() {
     return () => observer.disconnect()
   }, [desktop])
 
+  // Keys on a keyboard: N for a new task, / to type, Escape to close what's open. Not while
+  // typing in a field or a dialog is up, and never with a modifier held.
+  const keys = useRef({ newTask: () => {}, typing, panelOpen, railOpen, settingsOpen })
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
+      const now = keys.current
+      if (now.settingsOpen) return
+      if (event.key === 'n' || event.key === 'N') now.newTask()
+      else if (event.key === '/') setTyping(true)
+      else if (event.key === 'Escape' && now.typing) setTyping(false)
+      else if (event.key === 'Escape' && now.panelOpen) setPanelOpen(false)
+      else if (event.key === 'Escape' && now.railOpen) setRailOpen(false)
+      else return
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const openTask = (id: number) => {
     setSelected(id)
     if (desktop) setPanelOpen(true)
@@ -131,6 +153,9 @@ export default function App() {
     setSelected(null)
     setPanelOpen(false)
   }
+  useEffect(() => {
+    keys.current = { newTask, typing, panelOpen, railOpen, settingsOpen }
+  })
 
   // The model glyph's menu: the selected task's own choice, or the next task's. The project's
   // choice is the default, while the project still uses the task's agent.

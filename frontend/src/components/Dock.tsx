@@ -64,7 +64,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
       <div className={cn('flex min-w-0 items-center gap-3', typing && 'flex-1 justify-center')}>
         {!typing && (
           <button type="button" className={cn(glyph, !onNewTask && 'pointer-events-none opacity-40')}
-            aria-label="New task" title="New task" disabled={!onNewTask} onClick={onNewTask}>
+            aria-label="New task" title="New task (N)" disabled={!onNewTask} onClick={onNewTask}>
             <Plus />
           </button>
         )}
@@ -86,7 +86,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
           }}
         >
           <button type="button" className={cn(glyph, typing && 'border-transparent text-foreground')}
-            aria-label={typing ? 'Close typing' : 'Type instead'} title={typing ? 'Close typing' : 'Type instead'} aria-expanded={typing}
+            aria-label={typing ? 'Close typing' : 'Type instead'} title={typing ? 'Close typing (Esc)' : 'Type instead (/)'} aria-expanded={typing}
             onClick={() => onTypingChange(!typing)}>
             <Keyboard />
           </button>

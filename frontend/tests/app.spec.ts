@@ -106,9 +106,22 @@ test('a running task stops from the main screen, and the task being followed up 
   await page.screenshot({ path: `test-results/${info.project.name}-following-up.png` })
   await expect(stage.getByRole('button', { name: 'New task instead' })).toBeVisible()
   // The bottom row's new-task glyph does the same, in one click on any screen.
-  await page.getByTitle('New task', { exact: true }).click()
+  await page.getByTitle('New task (N)', { exact: true }).click()
   await expect(stage.getByText(`New task · ${name}`)).toBeVisible()
-  await expect(page.getByTitle('New task', { exact: true })).toBeDisabled()
+  await expect(page.getByTitle('New task (N)', { exact: true })).toBeDisabled()
+
+  // On a keyboard: / opens the type bar, Escape closes it, N leaves a task for a new one.
+  await page.keyboard.press('/')
+  await expect(page.getByPlaceholder(`Ask codex to do something in ${name}`)).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Type instead' })).toHaveAttribute('aria-expanded', 'false')
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  await page.getByPlaceholder(`Ask codex to do something in ${name}`).fill('second')
+  await page.keyboard.press('Enter')
+  await expect(stage.getByText('Following up')).toBeVisible()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()) // out of the type bar
+  await page.keyboard.press('n')
+  await expect(stage.getByText(`New task · ${name}`)).toBeVisible()
 })
 
 test('an approval is asked on the device that started its task; another sees a quiet line', async ({ page, browser }, info) => {
