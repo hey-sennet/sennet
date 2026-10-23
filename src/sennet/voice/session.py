@@ -22,7 +22,8 @@ from starlette.websockets import WebSocket, WebSocketState
 from ..speech import RATE, Speech
 from ..speech.stt import Caption
 from .conversation import ECHO_WINDOW_S, Conversation
-from .frames import INPUT_RATE, BadFrame, decode_uplink, encode_downlink
+from . import opus
+from .frames import INPUT_RATE, BadFrame, OpusDownlink, OpusUplink, decode_uplink, encode_downlink
 from .recognition import Recognition
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ log = logging.getLogger(__name__)
 TURN_ID_MAX = 64
 UPLINK_LIMIT_S = 2.0    # audio received but not yet taken by recognition
 TURN_LIMIT_S = 300.0
+PCM, OPUS = "pcm_s16le", "opus"
 PLAYBACK_TAIL_S = 0.4   # the client starts each run of audio a little late (playback.ts LEAD_S)
 
 
@@ -96,6 +98,9 @@ class VoiceSession:
         self.ignored_frames = 0
         self.approvals: dict[int, tuple[dict, str]] = {}  # waiting to be asked: id → (approval, project)
         self.asking: Asking | None = None
+        self.uplink: OpusUplink | None = None      # set once the client asks for Opus (`codecs`)
+        self.downlink: OpusDownlink | None = None
+        self.opus_down = False
 
     # Socket loop
 
@@ -104,7 +109,7 @@ class VoiceSession:
         await self.send(type="ready", session=self.id, generation=self.generation,
                         input={"rate": INPUT_RATE, "format": "pcm_s16le", "channels": 1},
                         output={"rate": output_rate, "format": "pcm_s16le", "channels": 1},
-                        speech=self.hub.status())
+                        codecs=[PCM, OPUS] if opus.available() else [PCM], speech=self.hub.status())
         speaker = asyncio.ensure_future(self._speaker())
         try:
             while True:
@@ -170,11 +175,34 @@ class VoiceSession:
             await self._open_conversation(message)
         elif kind == "close_mic":
             await self.close_conversation("closed")
+        elif kind == "codecs":
+            await self._codecs(message)
         elif kind == "target":
             if self.conversation is not None and (target := await self._target(message)) is not None:
                 self.conversation.retarget(target)
         else:
             await self.error("bad_message", f"unknown message type {kind!r}")
+
+    async def _codecs(self, message: dict):
+        """The client picks PCM or Opus for each direction; it applies to the frames after this."""
+        uplink, downlink = message.get("uplink", PCM), message.get("downlink", PCM)
+        offered = (PCM, OPUS) if opus.available() else (PCM,)
+        if uplink not in offered or downlink not in offered:
+            await self.error("bad_message", f"codecs must be one of {', '.join(offered)}")
+            return
+        self.uplink = OpusUplink() if uplink == OPUS else None
+        self.opus_down = downlink == OPUS
+        self.downlink = None
+
+    def _decode(self, data: bytes):
+        return self.uplink.decode(data) if self.uplink is not None else decode_uplink(data)
+
+    def _encode(self, audio, rate: int, generation: int, segment: int) -> list[bytes]:
+        if not self.opus_down:
+            return encode_downlink(audio, rate, generation, segment)
+        if self.downlink is None or self.downlink.rate != rate:
+            self.downlink = OpusDownlink(rate)
+        return self.downlink.frames(audio, generation, segment)
 
     async def _target(self, message: dict, turn_id: str | None = None) -> dict | None:
         """The task, project, model and effort a message names, or None (and an error) if malformed."""
@@ -272,9 +300,11 @@ class VoiceSession:
     async def _frame(self, data: bytes):
         if self.conversation is not None:
             try:
-                audio = decode_uplink(data)
+                audio = self._decode(data)
             except BadFrame as error:
                 await self.error("bad_frame", str(error), self.turn.id if self.turn else None)
+                return
+            if not len(audio):
                 return
             if not self.conversation.add(audio):
                 turn = self.conversation.turn
@@ -288,9 +318,11 @@ class VoiceSession:
             self.ignored_frames += 1
             return
         try:
-            audio = decode_uplink(data)
+            audio = self._decode(data)
         except BadFrame as error:
             await self._fail(turn, "bad_frame", str(error))
+            return
+        if not len(audio):
             return
         if (turn.queued + len(audio)) / RATE > UPLINK_LIMIT_S:
             await self._fail(turn, "uplink_behind", "recognition fell behind; the turn was dropped so no words are lost "
@@ -466,7 +498,7 @@ class VoiceSession:
                 self.playing_until = max(self.playing_until - PLAYBACK_TAIL_S, now) + len(audio) / tts.rate \
                     + PLAYBACK_TAIL_S
                 self.spoken.append((now, text))
-                for frame in encode_downlink(audio, tts.rate, generation, index):
+                for frame in self._encode(audio, tts.rate, generation, index):
                     if self.generation != generation or reply.cancelled:
                         return
                     await self.send_bytes(frame)

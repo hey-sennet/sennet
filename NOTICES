@@ -51,6 +51,13 @@ Speech
   container image, a system package or a frozen binary) must be offered under the terms of
   GPL-3.0.
 
+  libopus (optional)
+    Copyright Xiph.Org Foundation, Skype Limited, Octasic, Jean-Marc Valin, Timothy B.
+    Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo and others
+    (https://opus-codec.org). License: BSD-3-Clause. Not bundled: Sennet loads the system's
+    libopus when it is installed, for Opus voice audio. Opus is covered by royalty-free patent
+    licenses (https://opus-codec.org/license/).
+
   Parakeet TDT 0.6B v2
     Copyright NVIDIA Corporation (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
     License: CC-BY-4.0. ONNX export by istupakov

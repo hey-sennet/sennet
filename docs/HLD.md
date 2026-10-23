@@ -265,7 +265,8 @@ returns:
   separate per-device WebSocket (`/api/voice`), specified in
   [voice-protocol.md](voice-protocol.md). All of them need a paired device (§8).
 - AudioWorklet captures at the device rate and downsamples once to 16 kHz mono PCM16,
-  sent in 20 ms frames. Browser echo cancellation and automatic gain control are on;
+  in 20 ms frames, which go as Opus in 60 ms packets where the browser has WebCodecs and
+  the server has libopus, and as PCM otherwise (voice-protocol §3). Browser echo cancellation and automatic gain control are on;
   noise suppression is off. In Q7's browser check (Kokoro speech as Chromium's fake
   microphone, real Parakeet), noise suppression changed words in every run ("In
   backend, add…" became "In backhand, at…"), and nothing else did. That was synthetic

@@ -24,11 +24,13 @@ function upsert<T extends { id: number }>(items: T[], item: T, first = false): T
 }
 
 /** Server state plus live events. Reloads everything on reconnect, so missed events never matter.
- * `updated` turns true when the server comes back with another version than this page loaded with. */
+ * `updated` turns true when the server comes back with another version than this page loaded with.
+ * `reconnects` counts the reloads after the first, for views that hold more than this state. */
 export function useLiveState() {
   const [live, setLive] = useState<Live>(empty)
   const [connection, setConnection] = useState<Connection>('connecting')
   const [updated, setUpdated] = useState(false)
+  const [reconnects, setReconnects] = useState(0)
   const listeners = useRef(new Set<(event: ServerEvent) => void>())
   const firstVersion = useRef<string | null>(null)
 
@@ -44,6 +46,7 @@ export function useLiveState() {
     let retry: ReturnType<typeof setTimeout> | undefined
     let attempt = 0
     let stopped = false
+    let synced = false
 
     const connect = () => {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -53,6 +56,8 @@ export function useLiveState() {
         try {
           await reload()
           setConnection('live')
+          if (synced) setReconnects((n) => n + 1)
+          synced = true
         } catch {
           socket?.close()
         }
@@ -82,7 +87,7 @@ export function useLiveState() {
     return () => void listeners.current.delete(listener)
   }, [])
 
-  return { ...live, connection, updated, reload, subscribe }
+  return { ...live, connection, updated, reconnects, reload, subscribe }
 }
 
 function apply(state: Live, event: ServerEvent): Live {
@@ -106,8 +111,10 @@ function apply(state: Live, event: ServerEvent): Live {
   }
 }
 
-/** Full detail for one task, kept current from live events, including streamed text. */
-export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeof useLiveState>['subscribe']) {
+/** Full detail for one task, kept current from live events, including streamed text.
+ * Fetched again after a reconnect (`reconnects` changes), since events sent while offline are lost. */
+export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeof useLiveState>['subscribe'],
+                              reconnects: number) {
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [streaming, setStreaming] = useState<Record<string, string>>({})
 
@@ -144,6 +151,21 @@ export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeo
       unsubscribe()
     }
   }, [taskId, subscribe])
+
+  const seen = useRef(reconnects)
+  useEffect(() => {
+    if (seen.current === reconnects) return
+    seen.current = reconnects
+    if (taskId === null) return
+    let current = true
+    // Streamed text from before the drop has a gap in it; the stored message replaces it once it is done.
+    api.task(taskId).then((task) => {
+      if (!current) return
+      setDetail(task)
+      setStreaming({})
+    }).catch(() => {})
+    return () => void (current = false)
+  }, [reconnects, taskId])
 
   return { detail, streaming: Object.values(streaming).join('\n\n') }
 }

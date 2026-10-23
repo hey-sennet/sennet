@@ -1,5 +1,6 @@
 // Push-to-talk, outside React: opens the microphone on the first press, streams 20 ms frames
-// to /api/voice while a turn is open, and releases the microphone after a quiet minute.
+// to /api/voice while a turn is open, and releases the microphone after a quiet minute. Audio
+// goes as Opus both ways where the browser and server can (opus.ts), else as PCM.
 // A conversation keeps it open and streaming, and the server opens and ends turns (§12).
 // Replies play through `playback`, dropping any generation older than the floor (§7).
 // React subscribes to the snapshot; Strata reads `source` and `playback.source` each frame.
@@ -8,8 +9,9 @@ import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
 import chime from './approval-chime.mp3'
+import { OpusDownlink, OpusUplink, opusSupport, parseOpusFrame } from './opus'
 import { Playback, parseFrame } from './playback'
-import { VoiceSocket, type SpeechStatus, type VoiceMessage, type VoiceState } from './socket'
+import { VoiceSocket, type Codec, type SpeechStatus, type VoiceMessage, type VoiceState } from './socket'
 
 const RELEASE_MIC_AFTER_MS = 60_000
 const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session is quiet
@@ -38,9 +40,19 @@ export interface VoiceSnapshot {
   words: Words | null
 }
 
+interface Played {
+  generation: number
+  onStart?: () => void
+}
+
 export class Voice {
   readonly socket = new VoiceSocket()
   readonly playback = new Playback()
+  private readonly opus = opusSupport()
+  private codecs: { uplink: Codec; downlink: Codec } = { uplink: 'pcm_s16le', downlink: 'pcm_s16le' }
+  private uplink: OpusUplink | null = null // the open stream of Opus frames, from a turn's or conversation's first frame
+  private streams = 0
+  private downlink: OpusDownlink<Played> | null = null
   private mic: Microphone | null = null
   private opening: Promise<Microphone> | null = null
   private releaseTimer: ReturnType<typeof setTimeout> | null = null
@@ -68,6 +80,7 @@ export class Voice {
       // A closed socket ends its session: the rest of the reply isn't spoken (§6).
       if (!connected) {
         this.playback.silence()
+        this.useCodecs({ uplink: 'pcm_s16le', downlink: 'pcm_s16le' }) // until the next session agrees otherwise
         if (this.snapshot.conversation) this.endConversation() // a new session starts without one
       }
       this.update({ connected, ...(connected ? {} : { stt: null, state: 'idle' }) })
@@ -185,7 +198,7 @@ export class Voice {
     const turn = this.turn
     this.ending = turn
     this.endTurn()
-    const flushed = this.mic ? this.mic.flush() : Promise.resolve()
+    const flushed = (this.mic ? this.mic.flush() : Promise.resolve()).then(() => this.endStream())
     void flushed.then(() => {
       if (this.ending === turn) this.ending = null
       this.socket.send({ type: 'end', turn })
@@ -196,6 +209,7 @@ export class Voice {
   cancel() {
     if (!this.turn) return
     this.socket.send({ type: 'cancel', turn: this.turn })
+    this.dropStream()
     this.endTurn()
   }
 
@@ -225,6 +239,7 @@ export class Voice {
   }
 
   private endConversation() {
+    this.dropStream()
     this.turn = null
     this.update({ conversation: false, listening: false })
     this.releaseMicLater()
@@ -257,7 +272,7 @@ export class Voice {
     this.opening ??= Microphone.open((frame) => {
       // The first frame is the moment capture really started: from here, speech is heard.
       if (this.snapshot.opening) this.update({ opening: false })
-      if (this.turn || this.ending || this.snapshot.conversation) this.socket.sendFrame(frame)
+      if (this.turn || this.ending || this.snapshot.conversation) this.send(frame)
     })
     try {
       this.mic = await this.opening
@@ -276,11 +291,62 @@ export class Voice {
     await mic?.close()
   }
 
+  private send(frame: Int16Array<ArrayBuffer>) {
+    if (this.codecs.uplink === 'pcm_s16le') return this.socket.sendFrame(frame)
+    this.uplink ??= new OpusUplink(++this.streams, (data) => this.socket.sendFrame(data), (error) => {
+      console.warn('Opus encoding failed; sending PCM instead', error)
+      this.useCodecs({ ...this.codecs, uplink: 'pcm_s16le' }, true)
+    })
+    this.uplink.push(frame, this.turn !== null)
+  }
+
+  /** The end of a turn: the last packets go out before `end`, and the next turn is a new stream. */
+  private async endStream() {
+    const uplink = this.uplink
+    this.uplink = null
+    await uplink?.flush()
+  }
+
+  private dropStream() {
+    this.uplink?.close()
+    this.uplink = null
+  }
+
+  /** Switch codecs for what is sent and received from here on, telling the server if `tell`. */
+  private useCodecs(codecs: { uplink: Codec; downlink: Codec }, tell = false) {
+    if (tell) this.socket.send({ type: 'codecs', ...codecs })
+    if (codecs.uplink !== this.codecs.uplink) this.dropStream()
+    if (codecs.downlink !== this.codecs.downlink || codecs.downlink === 'pcm_s16le') {
+      this.downlink?.close()
+      this.downlink = null
+    }
+    this.codecs = codecs
+    if (codecs.downlink === 'opus' && !this.downlink) {
+      this.downlink = new OpusDownlink<Played>((samples, rate, played) => {
+        if (played.generation >= this.floor) this.playback.play(samples, rate, played.onStart)
+      }, (error) => {
+        console.warn('Opus decoding failed; asking for PCM instead', error)
+        this.useCodecs({ ...this.codecs, downlink: 'pcm_s16le' }, true)
+      })
+    }
+  }
+
+  /** A new session offers Opus: use it in each direction this browser can. */
+  private async negotiate(offered: string[]) {
+    if (!offered.includes('opus')) return
+    const support = await this.opus
+    if (!this.socket.open || (!support.uplink && !support.downlink)) return
+    this.useCodecs({ uplink: support.uplink ? 'opus' : 'pcm_s16le', downlink: support.downlink ? 'opus' : 'pcm_s16le' },
+      true)
+  }
+
   private receive(message: VoiceMessage) {
     if (message.type === 'ready') {
       // A new session: generations start again from its own.
       this.latest = this.floor = message.generation
       this.outputRate = message.output.rate
+      this.useCodecs({ uplink: 'pcm_s16le', downlink: 'pcm_s16le' })
+      void this.negotiate(message.codecs ?? [])
     }
     if (message.type === 'ready' || message.type === 'speech_status') {
       this.update({ stt: message.speech.stt, turnReady: message.speech.turn === 'ready' })
@@ -329,7 +395,7 @@ export class Voice {
   }
 
   private hear(data: ArrayBuffer) {
-    const frame = parseFrame(data)
+    const frame = parseOpusFrame(data) ?? parseFrame(data)
     if (!frame) return
     this.latest = Math.max(this.latest, frame.generation)
     if (frame.generation < this.floor) return
@@ -337,7 +403,13 @@ export class Voice {
     const heard = this.heard
     const first = heard && heard.segment === frame.segment ? heard : null
     if (first) this.heard = null
-    this.playback.play(frame.samples, this.outputRate, first ? () => this.spoken(first.reply, first.segment) : undefined)
+    const onStart = first ? () => this.spoken(first.reply, first.segment) : undefined
+    if ('packets' in frame) {
+      this.downlink?.decode(frame.packets, (firstPacket) => ({ generation: frame.generation,
+        onStart: firstPacket ? onStart : undefined }))
+    } else {
+      this.playback.play(frame.samples, this.outputRate, onStart)
+    }
   }
 
   /** A segment started playing: its reply so far is said, the segments queued behind it are not yet. */

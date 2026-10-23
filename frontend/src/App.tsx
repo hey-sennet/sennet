@@ -47,7 +47,7 @@ export default function App() {
   const homeProject = live.projects.find((p) => p.id === homeProjectId) ?? live.projects[0]
   const task = live.tasks.find((t) => t.id === selected)
   const project = task ? live.projects.find((p) => p.id === task.project_id) : homeProject
-  const { detail, streaming } = useTaskDetail(selected, live.subscribe)
+  const { detail, streaming } = useTaskDetail(selected, live.subscribe, live.reconnects)
   const agents = useAgents()
   // The next task's model, chosen before it starts; it belongs to the project it was chosen in.
   const [draft, setDraft] = useState<ModelChoice & { project_id: number | null }>({ project_id: null, model: null, effort: null })

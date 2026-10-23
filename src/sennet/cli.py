@@ -408,4 +408,11 @@ def speech_ok(settings: Settings, paths: Paths) -> bool:
     optional = [m.id for role, m in chosen.items() if role in models.OPTIONAL and not models.present(paths.models, m)]
     if optional:
         _line("conversation", f"off: {', '.join(optional)} not downloaded; run `sennet setup` for open-mic sessions")
+    from .voice import opus
+
+    if opus.available():
+        _line("audio", f"ok: Opus ({opus.version()}), for browsers with WebCodecs")
+    else:
+        _line("audio", "PCM: libopus isn't installed, so voice uses about ten times the data "
+              "(`sudo apt install libopus0`, or `brew install opus`)")
     return True

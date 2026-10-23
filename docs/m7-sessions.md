@@ -111,8 +111,8 @@ With the mic always open, a television or another person can say "yes".
 - A screen wake lock while it is open, where the browser allows one. Hiding the page ends
   it, since phones suspend a hidden page's mic anyway.
 - Changing the selection sends `target`, so the next turn goes there.
-- The uplink is about 256 kbps while open. Opus follows M7 ([performance.md](performance.md)
-  step 5).
+- The uplink was about 256 kbps while open. With Opus it is about 21 kbps, or about 37 kbps
+  counting packet headers ([performance.md](performance.md) steps 5 and 6).
 
 ### Setup
 

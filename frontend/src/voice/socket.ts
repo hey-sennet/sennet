@@ -8,7 +8,7 @@ export type VoiceState = 'idle' | 'open' | 'listening' | 'transcribing' | 'speak
 export type SpeechStatuses = { stt: SpeechStatus; tts: SpeechStatus; turn?: SpeechStatus }
 
 export type VoiceMessage =
-  | { type: 'ready'; session: string; generation: number; output: { rate: number }; speech: SpeechStatuses }
+  | { type: 'ready'; session: string; generation: number; output: { rate: number }; codecs?: string[]; speech: SpeechStatuses }
   | { type: 'speech_status'; speech: SpeechStatuses }
   | { type: 'voice_state'; state: VoiceState; turn: string | null }
   | { type: 'caption'; turn: string; committed: string; provisional: string }
@@ -32,6 +32,9 @@ export type Control =
   | { type: 'stop' }
   | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation (docs/voice-protocol.md §12)
   | { type: 'close_mic' }
+  | { type: 'codecs'; uplink: Codec; downlink: Codec } // §3: PCM unless the client asks for Opus
+
+export type Codec = 'pcm_s16le' | 'opus'
 
 type Listener = (message: VoiceMessage) => void
 
@@ -67,7 +70,7 @@ export class VoiceSocket {
     return true
   }
 
-  sendFrame(frame: Int16Array<ArrayBuffer>) {
+  sendFrame(frame: Int16Array<ArrayBuffer> | ArrayBuffer) {
     if (this.open) this.socket!.send(frame)
   }
 

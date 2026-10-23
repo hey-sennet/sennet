@@ -1,6 +1,6 @@
 # Voice protocol (M2, M7)
 
-Status: agreed; conversations (§12) added in M7. Date: 2026-10-23.
+Status: agreed; conversations (§12) added in M7, Opus (§3) after it. Date: 2026-10-23.
 
 How a client streams push-to-talk audio to the daemon and plays back the agent's speech.
 It covers the socket, the binary frames, the control and voice messages, and how
@@ -37,8 +37,12 @@ One session per voice socket. The server sends `ready` first:
 {"type": "ready", "session": "b3f1…", "generation": 0,
  "input": {"rate": 16000, "format": "pcm_s16le", "channels": 1},
  "output": {"rate": 24000, "format": "pcm_s16le", "channels": 1},
+ "codecs": ["pcm_s16le", "opus"],
  "speech": {"stt": "ready", "tts": "ready", "turn": "ready"}}
 ```
+
+`codecs` lists what this server can send and receive: `opus` only where it has libopus
+(§3). Both directions are PCM until the client sends `codecs` (§4).
 
 `speech.stt`, `speech.tts` and `speech.turn` are `ready`, `loading` or `unavailable`;
 `turn` is end-of-turn detection, which only conversations need (§12). Until STT is
@@ -53,7 +57,11 @@ of captions.
 
 ## 3. Binary frames
 
-All integers are little-endian.
+All integers are little-endian. Each direction is PCM until the client chooses Opus for it
+with a `codecs` message (§4); the choice applies to every frame after that message. Opus
+cuts audio about ten times (docs/performance.md, step 5). A client uses it in each
+direction where its browser has WebCodecs Opus, and the server offers it where libopus is
+installed.
 
 **Uplink (client → server): raw PCM, no header.** 16 kHz mono PCM16, 20 ms per frame
 (640 bytes) recommended; the server accepts any whole number of samples up to 100 ms, so
@@ -75,6 +83,32 @@ are ignored and counted in debug logs.
 Chunks are about 100 ms (4800 bytes of audio). A client that sees a version or kind it
 doesn't know drops the frame.
 
+**Opus uplink (client → server): 8-byte header, then one Opus packet.**
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | u8 | version, `1` |
+| 1 | u8 | kind, `2` = Opus |
+| 2 | u16 | stream: changes whenever the client starts a new encoder |
+| 4 | u32 | position of the packet's first sample, in 16 kHz samples from the stream's start |
+| 8 | … | one Opus packet of 16 kHz mono, up to 120 ms; or nothing (below) |
+
+The client encodes with DTX and sends nothing while its encoder is in DTX (packets of 2
+bytes or less). The server fills a gap between positions with silence, so its timeline,
+which voice activity and the end of a turn are found on, stays whole. So that it keeps
+moving through a long silence, the client sends a frame with no packet, meaning "silent up
+to this position": every 100 ms while a turn is open, every second otherwise. One frame
+fills at most 1.5 s. A packet that overlaps a position already reached is still used. A
+new stream starts a new decoder, and the timeline carries on from where it was; the client
+starts one at each turn (push-to-talk) or conversation, and after each `end`. The browser
+client sends 60 ms packets at 24 kbps.
+
+**Opus downlink (server → client): the 8-byte header with kind `2`, then packets.**
+The segment and generation are as for PCM. After the header come one or more Opus
+packets, each preceded by its length as a u16: 20 ms packets of 24 kHz mono at 32 kbps,
+five to a frame, so frames are still about 100 ms. One encoder runs for the whole session:
+frames dropped for an old generation look like lost packets to the client's decoder.
+
 ## 4. Client → server messages
 
 JSON text frames.
@@ -85,6 +119,7 @@ JSON text frames.
 | `{"type": "end", "turn": "t7"}` | Released. The server runs the final pass. |
 | `{"type": "cancel", "turn": "t7"}` | Discard the turn (slid off the button, or held too briefly). No final pass. |
 | `{"type": "stop"}` | Stop speaking. Audio only; agent work carries on (HLD §6.4). |
+| `{"type": "codecs", "uplink": "opus", "downlink": "opus"}` | Each `pcm_s16le` (the default) or `opus`, from those `ready` offered; for the frames after it (§3). A codec that wasn't offered gets `bad_message`. |
 
 The client picks the `turn` id (any short string, unique per session), so it can tag its
 own UI before the server answers. A message whose `turn` doesn't match the open turn is

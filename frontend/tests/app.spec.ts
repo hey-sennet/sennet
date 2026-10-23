@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 
@@ -110,6 +110,44 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   const timeline = await openTask(page, 'bg:make build')
   await expect(timeline.getByText('Started it in the background.')).toBeVisible()
   await expect(timeline.getByText('The agent picked this up again')).toBeVisible()
+})
+
+test('an open task catches up on what it missed while the phone was offline', async ({ page }, info) => {
+  const name = `offline-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  // The events socket can be cut off from the server without the page knowing, as a phone on a train is.
+  let offline = false
+  let events: WebSocketRoute | undefined
+  await page.routeWebSocket('**/api/events', (ws) => {
+    const server = ws.connectToServer()
+    server.onMessage((message) => { if (!offline) ws.send(message) })
+    events = ws
+  })
+  const headers = { 'X-Sennet': '1' }
+  await page.request.post('/api/projects', { headers, data: { path: directory, name } })
+
+  await page.goto('/')
+  await expect(page.getByTitle('Connected')).toBeVisible()
+  await page.getByLabel('Project').selectOption({ label: name })
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  await page.getByPlaceholder(`Ask codex to do something in ${name}`).fill('hello')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('main').getByText('You said: hello')).toBeVisible()
+  const timeline = await openTask(page, 'hello')
+  await expect(timeline.getByText('You said: hello')).toBeVisible()
+
+  offline = true
+  const state = await (await page.request.get('/api/state')).json()
+  const task = state.tasks.find((t: { title: string }) => t.title.includes('hello'))
+  await page.request.post(`/api/tasks/${task.id}/messages`, { headers, data: { text: 'while away' } })
+  await expect.poll(async () => JSON.stringify(await (await page.request.get(`/api/tasks/${task.id}`)).json()))
+    .toContain('You said: while away')
+  await expect(timeline.getByText('You said: while away')).toHaveCount(0)
+
+  offline = false
+  await events!.close({ code: 1006 })
+  await expect(timeline.getByText('You said: while away')).toBeVisible()
 })
 
 /** The selected task's timeline: picked from the opened rail into the drawer on desktop; on phones the

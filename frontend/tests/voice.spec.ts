@@ -119,3 +119,53 @@ test('the reply is spoken, and stop silences it', async ({ page }, info) => {
   await stop.click()
   await expect(stop).toBeHidden()
 })
+
+/** The binary frames on the voice socket, each way. */
+function audioFrames(page: Page) {
+  const frames = { sent: [] as Buffer[], received: [] as Buffer[] }
+  page.on('websocket', (ws) => {
+    if (!ws.url().endsWith('/api/voice')) return
+    ws.on('framesent', ({ payload }) => { if (typeof payload !== 'string') frames.sent.push(payload) })
+    ws.on('framereceived', ({ payload }) => { if (typeof payload !== 'string') frames.received.push(payload) })
+  })
+  return frames
+}
+
+async function talkAndHearTheReply(page: Page, name: string) {
+  await addProject(page, name)
+  await page.goto('/')
+  await page.getByLabel('Project').selectOption({ label: name })
+  const talk = page.getByRole('button', { name: 'Hold to talk' })
+  await expect(talk).toBeEnabled()
+  await talk.hover()
+  await page.mouse.down()
+  await expect(page.locator('[data-speaker="user"]', { hasText: HEARD })).toBeVisible()
+  await page.mouse.up()
+  await expect(page.getByRole('main').getByText(`You said: ${HEARD}`)).toBeVisible()
+  // Shown while the reply's audio is playing, so it was decoded.
+  await expect(page.getByRole('button', { name: 'Stop speaking' })).toBeVisible()
+}
+
+const kind = (frame: Buffer) => [frame[0], frame[1]].join(',')
+
+test('voice goes as Opus both ways where the browser has WebCodecs', async ({ page }, info) => {
+  const frames = audioFrames(page)
+  await talkAndHearTheReply(page, `voice-opus-${info.project.name}`)
+  expect(frames.sent.length).toBeGreaterThan(0)
+  expect(new Set(frames.sent.map(kind))).toEqual(new Set(['1,2']))
+  expect(new Set(frames.received.map(kind))).toEqual(new Set(['1,2']))
+  // A few dozen bytes per 60 ms packet, where PCM would be 1,920.
+  const packets = frames.sent.filter((f) => f.length > 8)
+  expect(packets.reduce((sum, f) => sum + f.length, 0) / packets.length).toBeLessThan(400)
+})
+
+test('without WebCodecs, voice stays on PCM', async ({ page }, info) => {
+  await page.addInitScript(() => {
+    delete (window as Partial<typeof window>).AudioEncoder
+    delete (window as Partial<typeof window>).AudioDecoder
+  })
+  const frames = audioFrames(page)
+  await talkAndHearTheReply(page, `voice-pcm-${info.project.name}`)
+  expect(frames.sent.every((f) => f.length % 2 === 0 && f.length <= 3200)).toBe(true)
+  expect(new Set(frames.received.map(kind))).toEqual(new Set(['1,1']))
+})

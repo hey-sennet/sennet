@@ -20,6 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      # libopus for Opus voice (src/sennet/voice/opus.py); without it those tests skip.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y libopus0
+      - if: runner.os == 'macOS'
+        run: brew install opus
       - run: uv sync --locked --extra cpu
       - run: uv run pytest
 
@@ -42,6 +47,7 @@ jobs:
       - run: npm run test:unit
       - run: npm run build
       - run: uv sync --locked --extra cpu   # the browser tests run against the Python server
+      - run: sudo apt-get install -y libopus0   # voice.spec.ts checks Opus both ways
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
       - if: failure()

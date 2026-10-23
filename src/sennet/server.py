@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
+import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -27,7 +29,7 @@ from typing import Literal
 import segno
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from . import __version__, access, projects
@@ -37,7 +39,7 @@ from .agents.callbacks import CallbackServer
 from .approvals import Approvals
 from .config import Paths, Settings
 from .db import Database
-from .events import EventBus
+from .events import EventBus, batches
 from .speech import Speech
 from .tasks import TaskError, TaskManager
 from .voice import VoiceHub, VoiceSession
@@ -50,6 +52,7 @@ UNPAIRED = 4401                 # WebSocket close code: pair this device, don't 
 SWEEP_S = 30                    # how often open sockets are checked for devices revoked elsewhere
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 OPEN = ("/api/pair", "/api/health")    # the API paths an unpaired device may use
+IMMUTABLE = "public, max-age=31536000, immutable"  # built assets have hashed names
 
 
 class ProjectIn(BaseModel):
@@ -146,6 +149,8 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     app = FastAPI(title="Sennet", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.callbacks = callbacks
+    # JSON and anything built without a .gz beside it; fonts and audio are left alone.
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -370,8 +375,9 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         subscriber = bus.subscribe()
 
         async def pump():
-            while (event := await subscriber.next()) is not None:
-                await websocket.send_json(event)
+            async for batch in batches(subscriber):
+                for event in batch:
+                    await websocket.send_json(event)
             await websocket.close(code=1013)  # fell behind; the client reconnects and reloads
 
         async def listen():
@@ -421,14 +427,15 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         return JSONResponse(response) if response is not None else Response(status_code=202)
 
     if WEB_DIR.is_dir():
-        app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
-
-        @app.get("/{path:path}", include_in_schema=False)
-        async def web(path: str):
+        @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+        async def web(path: str, request: Request):
             file = (WEB_DIR / path).resolve()
             if path and file.is_file() and file.is_relative_to(WEB_DIR.resolve()):
-                return FileResponse(file)
-            return FileResponse(WEB_DIR / "index.html")
+                return _built(file, request, IMMUTABLE if path.startswith("assets/") else "no-cache")
+            if path.startswith("assets/"):
+                raise HTTPException(404)  # a chunk from an older build: not the app shell under its name
+            # no-cache: a phone must ask each time, or it keeps an old index.html and so an old build.
+            return _built(WEB_DIR / "index.html", request, "no-cache")
 
     return app
 
@@ -441,6 +448,21 @@ def _speech(settings: Settings, paths: Paths, speech: Speech | None) -> tuple[Sp
     speech = Speech()
     config = settings.speech
     return speech, asyncio.ensure_future(speech.load(paths.models, config.device, config.threads, config.voice))
+
+
+def _built(file: Path, request: Request, cache: str) -> Response:
+    """A file of the built client, as the .gz the build left beside it when the browser takes gzip."""
+    headers = {"Cache-Control": cache, "Vary": "Accept-Encoding"}
+    gzipped = file.with_name(file.name + ".gz")
+    media_type = None
+    if "gzip" in request.headers.get("accept-encoding", "") and gzipped.is_file():
+        file, media_type = gzipped, mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+    response = FileResponse(file, media_type=media_type, stat_result=os.stat(file),
+                            headers={**headers, "Content-Encoding": "gzip"} if media_type else headers)
+    etag = response.headers["etag"]
+    if etag in [tag.strip().removeprefix("W/") for tag in request.headers.get("if-none-match", "").split(",")]:
+        return Response(status_code=304, headers={**headers, "ETag": etag})
+    return response
 
 
 def _secured(response: Response, request: Request) -> Response:
