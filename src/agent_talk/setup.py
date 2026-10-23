@@ -41,6 +41,8 @@ RUNTIMES = {"cpu": "onnxruntime", "cuda": "onnxruntime-gpu"}
 NAMES = {"cpu": "CPU", "cuda": "GPU (CUDA)"}
 # Release to first reply audio, measured in M2 (docs/m2-backend.md, step 7).
 REPLY_TIME = {"cpu": "~1.4 s", "cuda": "~0.2 s"}
+DELAY_NOTE = ("Voice delay: from letting go of the talk button to hearing a short spoken answer, "
+              "on top of the agent's own time.")
 SELF_TEST = "Agent Talk is ready to listen."
 
 MORE = "more"
@@ -178,11 +180,13 @@ def _choose_speech(ui: Prompter, machine: Machine, current: str | None) -> str:
     else:
         gpu_note = ""
     options = [
-        Option("cuda", NAMES["cuda"], f"{size(_models_size('cuda'))} · replies {REPLY_TIME['cuda']}",
-               note=advice.reason if advice.device == "cuda" else gpu_note, disabled=no_cuda,
+        Option("cuda", NAMES["cuda"], f"{size(_models_size('cuda'))} · voice delay {REPLY_TIME['cuda']}",
+               note=" ".join(filter(None, [advice.reason if advice.device == "cuda" else gpu_note, DELAY_NOTE])),
+               disabled=no_cuda,
                tags=tagged("cuda", advice.device, current)),
-        Option("cpu", NAMES["cpu"], f"{size(_models_size('cpu'))} · replies {REPLY_TIME['cpu']}",
-               note=advice.reason if advice.device == "cpu" else "Works anywhere; captions update less often.",
+        Option("cpu", NAMES["cpu"], f"{size(_models_size('cpu'))} · voice delay {REPLY_TIME['cpu']}",
+               note=" ".join([advice.reason if advice.device == "cpu" else "Works anywhere; captions update less often.",
+                              DELAY_NOTE]),
                tags=tagged("cpu", advice.device, current)),
     ]
     default = current if current in ("cpu", "cuda") and not (current == "cuda" and no_cuda) else advice.device

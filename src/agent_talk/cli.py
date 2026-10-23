@@ -269,11 +269,11 @@ def doctor(settings: Settings, paths: Paths) -> int:
     problems = 0
     from .server import WEB_DIR
 
-    print(f"version:  {__version__} ({' '.join(service.program())})")
-    print(f"config:   {paths.config_file}{'' if paths.config_file.exists() else ' (defaults)'}")
-    print(f"data:     {paths.database}")
+    _line("version", f"{__version__} ({' '.join(service.program())})")
+    _line("config", f"{paths.config_file}{'' if paths.config_file.exists() else ' (defaults)'}")
+    _line("data", f"{paths.database}")
     if not (WEB_DIR / "index.html").is_file():
-        print("client:   problem: the web client isn't built, so browsers get only the API "
+        _line("client", "problem: the web client isn't built, so browsers get only the API "
               "(see frontend/README.md)")
         problems += 1
     agents = registry.build(settings.agents.commands)
@@ -281,11 +281,33 @@ def doctor(settings: Settings, paths: Paths) -> int:
         status = asyncio.run(agent.status())
         ok = status.installed and status.logged_in
         problems += not ok
-        print(f"{name + ':':<9} {'ok' if ok else 'problem'}: {status.detail}")
+        _line(name, f"{'ok' if ok else 'problem'}: {status.detail}")
     problems += not speech_ok(settings, paths)
     problems += not access_ok(settings, paths)
     problems += not service_ok(settings, agents)
+    _console().print()
+    if problems:
+        _console().print(f"[bold red]{problems} problem{'s' if problems > 1 else ''}[/] (in red above)")
+    else:
+        _console().print("[green]Everything is ready.[/]")
     return 1 if problems else 0
+
+
+def _console():
+    from rich.console import Console
+
+    return Console(highlight=False, soft_wrap=True)
+
+
+def _line(label: str, text: str):
+    """One line of doctor's report: the label, then what was found, in green when it is ok and in red
+    when it is a problem."""
+    from rich.markup import escape
+
+    status, colon, rest = text.partition(": ")
+    style = {"ok": "green", "problem": "bold red"}.get(status) if colon else None
+    found = f"[{style}]{status}:[/] {escape(rest)}" if style else escape(text)
+    _console().print(f"{label + ':':<10} {found}")
 
 
 def service_ok(settings: Settings, agents: dict) -> bool:
@@ -293,38 +315,39 @@ def service_ok(settings: Settings, agents: dict) -> bool:
     try:
         manager = service.manager()
     except service.ServiceError as error:
-        print(f"service:  {error}")
+        _line("service", f"{error}")
         return True
     status = manager.status()
     port = settings.server.port
     if not status.installed:
-        print("service:  not installed; `agent-talk service install` runs Agent Talk in the background, from login")
+        _line("service", "not installed; `agent-talk service install` runs Agent Talk in the background, from login")
         return True
     ok = True
     if status.command != service.program():
-        print(f"service:  problem: it runs {' '.join(status.command or ['?'])}, not this install; "
+        _line("service", f"problem: it runs {' '.join(status.command or ['?'])}, not this install; "
               "run `agent-talk service install` to update it")
         ok = False
     found = service.health(port) if status.running else None
     if not status.running:
-        print(f"service:  problem: installed but {status.detail}; `agent-talk service logs` shows why, "
+        _line("service", f"problem: installed but {status.detail}; `agent-talk service logs` shows why, "
               "and `agent-talk service start` starts it")
         ok = False
     elif found is None:
-        print(f"service:  problem: running, but nothing answers on port {port}; see `agent-talk service logs`")
+        _line("service", f"problem: running, but nothing answers on port {port}; see `agent-talk service logs`")
         ok = False
     elif found["version"] != __version__:
-        print(f"service:  problem: running {found['version']}, but {__version__} is installed; "
+        _line("service", f"problem: running {found['version']}, but {__version__} is installed; "
               "run `agent-talk service restart`")
         ok = False
     else:
         lingering = manager.lingering()
         later = " (stops when you log out; `loginctl enable-linger` keeps it running)" if lingering is False else ""
-        print(f"service:  ok: running{f' (pid {status.pid})' if status.pid else ''}, starts at login{later}")
+        running = f"running{f' (pid {status.pid})' if status.pid else ''}, starts at login{later}"
+        _line("service", f"ok: {running}" if ok else running)  # not "ok" beside a problem above
     for name, agent in agents.items():
         program = agent.command[0]
         if shutil.which(program) and not shutil.which(program, path=status.path or ""):
-            print(f"service:  problem: the service can't find {program} ({agent.title}) on its PATH; run "
+            _line("service", f"problem: the service can't find {program} ({agent.title}) on its PATH; run "
                   "`agent-talk service install` from a shell that finds it")
             ok = False
     return ok
@@ -339,28 +362,28 @@ def access_ok(settings: Settings, paths: Paths) -> bool:
         paired = len(db.devices())
     finally:
         db.close()
-    print(f"devices:  {paired} paired" if paired else "devices:  none paired yet; run `agent-talk pair`")
+    _line("devices", f"{paired} paired" if paired else "none paired yet; run `agent-talk pair`")
     port = settings.server.port
     tailnet = tailscale.address(tailscale.status()) if shutil.which("tailscale") else None
     serving = tailscale.serve_status() if tailnet else None
     if settings.server.public_url:
-        print(f"phones:   {settings.server.public_url} (server.public_url)")
+        _line("phones", f"{settings.server.public_url} (server.public_url)")
     elif tailnet:
-        print(f"phones:   not set; run `agent-talk setup` to use {tailnet}")
+        _line("phones", f"not set; run `agent-talk setup` to use {tailnet}")
     else:
-        print("phones:   not set (needs Tailscale or a reverse proxy with HTTPS; see server.public_url)")
+        _line("phones", "not set (needs Tailscale or a reverse proxy with HTTPS; see server.public_url)")
     if not shutil.which("tailscale"):
-        print("tailscale: not installed (one way to reach Agent Talk from a phone)")
+        _line("tailscale", "not installed (one way to reach Agent Talk from a phone)")
     elif tailnet is None:
-        print("tailscale: installed, not connected")
+        _line("tailscale", "installed, not connected")
     elif tailscale.funnel(serving):
-        print("tailscale: problem: Funnel is on, so this machine serves the public internet. A paired device "
+        _line("tailscale", "problem: Funnel is on, so this machine serves the public internet. A paired device "
               "can run commands as you; turn it off with `tailscale funnel reset` unless you mean it.")
         return False
     elif tailscale.serves(serving, port):
-        print(f"tailscale: ok: {tailnet} serves Agent Talk")
+        _line("tailscale", f"ok: {tailnet} serves Agent Talk")
     else:
-        print(f"tailscale: up at {tailnet}, not serving Agent Talk; run `tailscale serve --bg {port}`")
+        _line("tailscale", f"up at {tailnet}, not serving Agent Talk; run `tailscale serve --bg {port}`")
     return True
 
 
@@ -369,16 +392,16 @@ def speech_ok(settings: Settings, paths: Paths) -> bool:
     from .speech.runtime import resolve_device, runtime_distribution
 
     if not settings.speech.enabled:
-        print("speech:   off (speech.enabled = false)")
+        _line("speech", "off (speech.enabled = false)")
         return True
     runtime = runtime_distribution()
     if runtime is None:
-        print("speech:   problem: no ONNX runtime installed; run `agent-talk setup`")
+        _line("speech", "problem: no ONNX runtime installed; run `agent-talk setup`")
         return False
     device = resolve_device(settings.speech.device)
     missing = [m.id for m in models.MODELS[device].values() if not models.present(paths.models, m)]
     if missing:
-        print(f"speech:   problem: {device} models missing ({', '.join(missing)}); run `agent-talk setup`")
+        _line("speech", f"problem: {device} models missing ({', '.join(missing)}); run `agent-talk setup`")
         return False
-    print(f"speech:   ok: {device} via {runtime}, models in {paths.models}")
+    _line("speech", f"ok: {device} via {runtime}, models in {paths.models}")
     return True

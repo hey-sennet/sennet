@@ -95,7 +95,7 @@ def test_speech_lists_both_tiers_and_marks_the_recommendation():
     assert setup._choose_speech(ui, machine(), None) == "cpu"  # not the recommendation, but allowed
     message, options, default = ui.asked[0]
     assert [o.value for o in options] == ["cuda", "cpu"] and default == "cuda"
-    assert "recommended" in options[0].tags and "replies" in options[0].detail
+    assert "recommended" in options[0].tags and "voice delay" in options[0].detail
 
 
 def test_speech_greys_out_the_gpu_without_nvidia():
