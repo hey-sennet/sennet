@@ -47,6 +47,18 @@ SELF_TEST = "Your agents are ready to listen."   # no "Sennet": speech recogniti
 
 MORE = "more"
 RESUME = "SENNET_SETUP_RESUME_SERVICE"   # set across setup's re-exec when it stopped the service
+CONTINUED = "SENNET_SETUP_CONTINUED"     # set across setup's re-exec, so the banner shows once
+
+# Strata's disc (design/icons.py) in braille, its four ridge lines clipped by the rim, and a shade
+# per row that fades the lines downwards.
+DISC = """\
+   ⣀⣀⣀⣤⠶⠚⠛⠛⠓⠶⣤⣀⣀⣀
+ ⠈⠉⠉⠉⠁⢀⡤⠞⠋⠙⠳⢤⡀⠈⠉⠉⠉⠁
+⢠⣤⡤⠴⠶⠚⠉ ⣀⣤⣤⣀ ⠉⠓⠶⠦⢤⣤⡄
+    ⢀⣠⡴⠛⠁  ⠈⠛⢦⣄⡀
+ ⠛⠛⠋⠉⠁  ⣀⣀⣀⣀  ⠈⠉⠙⠛⠛
+  ⢤⣤⣤⠴⠖⠛⠉⠁⠈⠉⠛⠲⠦⣤⣤⡤""".splitlines()
+SHADES = ["#efe8da", "#e2dacb", "#d3cab9", "#c2b8a6", "#b0a692", "#9d927e"]
 
 
 @dataclass
@@ -72,6 +84,8 @@ def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) 
     if paused is not None:
         os.environ[RESUME] = "1"  # for the setup that runs on after reinstalling the runtime
     try:
+        if os.environ.pop(CONTINUED, None) is None:
+            _show_banner(ui)
         return _run(ui, settings, paths, device, paused is not None)
     except Abort:
         ui.console.print("\n[yellow]Setup stopped.[/] Run `sennet setup` again to pick up where you left off.")
@@ -83,7 +97,6 @@ def run(settings: Settings, paths: Paths, device: str | None, assume_yes: bool) 
 
 def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None, paused: bool = False) -> int:
     configured = paths.config_file.exists()
-    ui.console.print()
     with ui.working("Looking at this computer…"):
         machine = _machine(settings)
     _show_machine(ui, machine)
@@ -145,6 +158,15 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None, pau
     return 0
 
 
+def _show_banner(ui: Prompter):
+    words = {2: "[bold #efe8da]S E N N E T[/][#7d7468].[/]", 3: "[#9d927e]Talk to your coding agents.[/]"}
+    ui.console.print()
+    for i, (row, shade) in enumerate(zip(DISC, SHADES)):
+        beside = " " * (24 - len(row)) + words[i] if i in words else ""
+        ui.console.print(f"  [{shade}]{row}[/]{beside}")
+    ui.console.print()
+
+
 # What this computer has
 
 def _machine(settings: Settings) -> Machine:
@@ -162,7 +184,7 @@ def _show_machine(ui: Prompter, machine: Machine):
         lines.append(f"{gpu.name} · {gigabytes(gpu.free_mb)} free of {gigabytes(gpu.total_mb)}")
     if machine.speech_loaded:
         lines.append("[grey62]Sennet is running, so its speech models are already in the free figures.[/]")
-    ui.console.print(Panel("\n".join(lines), title="[bold]Sennet setup[/]", title_align="left",
+    ui.console.print(Panel("\n".join(lines), title="[bold]This computer[/]", title_align="left",
                            border_style="grey37", expand=False, padding=(0, 1)))
 
 
@@ -219,6 +241,7 @@ def _runtime_ready(ui: Prompter, device: str) -> bool:
     ui.ok(f"Installed {wanted}.")
     # This process still has the old packages loaded; continue in the new install.
     again = ["setup", "--device", device]
+    os.environ[CONTINUED] = "1"
     os.execvp(rerun[0], rerun + again + (["--yes"] if not ui.interactive else []))
 
 
