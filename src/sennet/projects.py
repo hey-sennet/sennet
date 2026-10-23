@@ -1,6 +1,7 @@
 """Project registration rules shared by the CLI and the API."""
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -10,6 +11,7 @@ from .agents.base import ACCESS_LEVELS, APPROVAL_MODES
 from .db import Database
 
 NAME_RE = re.compile(r"^[\w][\w .-]{0,39}$")
+LISTING_LIMIT = 500
 
 
 class ProjectError(ValueError):
@@ -89,3 +91,40 @@ def find(db: Database, name: str) -> dict | None:
         if key in [project["name"].lower(), *(a.lower() for a in project["aliases"])]:
             return project
     return None
+
+
+def directories(path: str | None = None) -> dict:
+    """The folders in `path` (home by default), for picking a project without typing its path.
+    Names only, no files; hidden folders are left out, and git repositories are marked."""
+    directory = Path(path).expanduser() if path else Path.home()
+    try:
+        directory = directory.resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise ProjectError(f"{directory} does not exist") from None
+    if not directory.is_dir():
+        raise ProjectError(f"{directory} is not a directory")
+    folders = []
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    if not entry.is_dir():
+                        continue
+                except OSError:
+                    continue
+                folders.append({"name": entry.name, "path": str(directory / entry.name), "repo": _repo(entry.path)})
+    except PermissionError:
+        raise ProjectError(f"{directory} can't be read") from None
+    folders.sort(key=lambda f: f["name"].lower())
+    return {"path": str(directory), "parent": str(directory.parent) if directory.parent != directory else None,
+            "home": str(Path.home()), "repo": _repo(directory), "directories": folders[:LISTING_LIMIT],
+            "more": max(len(folders) - LISTING_LIMIT, 0)}
+
+
+def _repo(path) -> bool:
+    try:
+        return os.path.exists(os.path.join(path, ".git"))
+    except OSError:
+        return False

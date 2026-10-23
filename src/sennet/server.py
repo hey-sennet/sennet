@@ -279,6 +279,15 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         except registry.ModelError as error:
             raise HTTPException(400, str(error))
 
+    @app.get("/api/directories")
+    async def directories(path: str | None = None):
+        """Folders to pick a project from: paired devices can already run agents here, so
+        showing them folder names asks no new trust."""
+        try:
+            return await asyncio.to_thread(projects.directories, path)
+        except projects.ProjectError as error:
+            raise HTTPException(404, str(error))
+
     @app.post("/api/projects", status_code=201)
     async def add_project(body: ProjectIn, request: Request):
         try:

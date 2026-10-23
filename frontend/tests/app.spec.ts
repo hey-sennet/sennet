@@ -62,6 +62,27 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   expect(external).toEqual([])
 })
 
+test('a project is picked by browsing the folders on the computer', async ({ page }, info) => {
+  const parent = path.join(home, `browse-${info.project.name}`)
+  mkdirSync(path.join(parent, 'picked', '.git'), { recursive: true })
+  mkdirSync(path.join(parent, 'other'), { recursive: true })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Project directory').fill(parent) // starts where the box points
+  await dialog.getByRole('button', { name: 'Browse' }).click()
+  await expect(dialog.getByRole('button', { name: 'other' })).toBeVisible()
+  await dialog.getByRole('button', { name: /^picked/ }).click()
+  await expect(dialog.getByText('A git repository')).toBeVisible()
+  await page.screenshot({ path: `test-results/${info.project.name}-browse.png` })
+  await dialog.getByRole('button', { name: 'Use this folder' }).click()
+  await expect(dialog.getByLabel('Project directory')).toHaveValue(path.join(parent, 'picked'))
+  await expect(dialog.getByLabel('Spoken name')).toHaveValue('picked')
+  await dialog.getByLabel('Spoken name').fill(`picked-${info.project.name}`)
+  await dialog.getByRole('button', { name: 'Add' }).click()
+  await expect(dialog.getByText(path.join(parent, 'picked'), { exact: true })).toBeVisible()
+})
+
 test('a running task stops from the main screen, and the task being followed up is named', async ({ page }, info) => {
   const name = `stop-${info.project.name}`
   const directory = path.join(home, name)

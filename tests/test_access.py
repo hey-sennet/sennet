@@ -31,6 +31,7 @@ def closed_with(client, path) -> int:
 
 def test_an_unpaired_browser_gets_the_app_but_not_the_api(unpaired):
     assert unpaired.get("/api/state").status_code == 401
+    assert unpaired.get("/api/directories").status_code == 401
     assert unpaired.post("/api/tasks", json={"project_id": 1, "text": "hi"}).status_code == 401
     assert closed_with(unpaired, "/api/events") == server.UNPAIRED
     assert closed_with(unpaired, "/api/voice") == server.UNPAIRED

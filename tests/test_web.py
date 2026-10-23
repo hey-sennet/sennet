@@ -74,3 +74,21 @@ def test_api_json_is_compressed(client, tmp_path):
 def test_head_is_answered(web):
     assert web.head("/assets/index-abc.js").status_code == 200
     assert web.head("/").status_code == 200
+
+
+def test_folders_are_listed_to_pick_a_project(client, tmp_path):
+    (tmp_path / "code" / "app" / ".git").mkdir(parents=True)
+    (tmp_path / "code" / "Notes").mkdir()
+    (tmp_path / "code" / ".cache").mkdir()
+    (tmp_path / "code" / "readme.txt").write_text("not a folder")
+    listing = client.get("/api/directories", params={"path": str(tmp_path / "code")}).json()
+    assert listing["path"] == str(tmp_path / "code")
+    assert listing["parent"] == str(tmp_path)
+    assert [(d["name"], d["repo"]) for d in listing["directories"]] == [("app", True), ("Notes", False)]
+    assert client.get("/api/directories", params={"path": str(tmp_path / "code" / "app")}).json()["repo"] is True
+
+
+def test_folders_start_at_home_and_a_missing_one_is_404(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert client.get("/api/directories").json()["path"] == str(tmp_path)
+    assert client.get("/api/directories", params={"path": str(tmp_path / "gone")}).status_code == 404

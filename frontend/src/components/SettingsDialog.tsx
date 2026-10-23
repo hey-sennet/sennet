@@ -8,6 +8,7 @@ import { refreshAgents, useAgents } from '@/lib/agents'
 import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Devices } from './Devices'
+import { FolderBrowser } from './FolderBrowser'
 import { ModelPicker } from './ModelPicker'
 
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
@@ -257,6 +258,7 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
   const [name, setName] = useState('')
   const [aliases, setAliases] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
+  const [browsing, setBrowsing] = useState(false)
   // Until one is chosen: the first agent that is set up, else the first.
   const names = agents ? Object.keys(agents) : []
   const agent = chosen ?? names.find((n) => agents?.[n].installed && agents[n].logged_in) ?? names[0]
@@ -272,11 +274,24 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
   }
   return (
     <form onSubmit={add} className="grid min-w-0 gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
-      <Input className={input} placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
+      <div className="flex min-w-0 gap-2">
+        <Input className={input} placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
+        <Button type="button" variant="outline" className="h-10 shrink-0 rounded-full px-4" aria-expanded={browsing}
+          onClick={() => setBrowsing(!browsing)}>Browse</Button>
+      </div>
+      {browsing && (
+        <div className="min-w-0 sm:order-1 sm:col-span-4">
+          <FolderBrowser start={path.trim()} onClose={() => setBrowsing(false)} onPick={(picked, folder) => {
+            setPath(picked)
+            if (!name.trim()) setName(folder)
+            setBrowsing(false)
+          }} />
+        </div>
+      )}
       <Input className={input} placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Spoken name" />
       <Input className={input} placeholder="Aliases, comma separated" value={aliases} onChange={(e) => setAliases(e.target.value)} aria-label="Aliases" />
       <Button type="submit" className="h-10 rounded-full px-5" disabled={!path.trim() || !agent}>Add</Button>
-      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-4">
+      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:order-2 sm:col-span-4">
         Agent
         <AgentSelect agents={agents} value={agent ?? ''} onChange={setChosen} label="Agent for the new project" />
       </label>

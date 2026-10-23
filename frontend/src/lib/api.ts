@@ -159,6 +159,21 @@ export interface Pairing {
   local_only: boolean // the link only works on this computer: no public address is set
 }
 
+export interface Folder {
+  name: string
+  path: string
+  repo: boolean // a git repository
+}
+
+export interface Folders {
+  path: string
+  parent: string | null
+  home: string
+  repo: boolean
+  directories: Folder[]
+  more: number // folders past the listing's limit
+}
+
 export type ServerEvent =
   | { type: 'task'; task: Task }
   | { type: 'message'; task_id: number; message: Message }
@@ -216,6 +231,8 @@ export const api = {
   updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'project_config' | 'model' | 'effort'>>) =>
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
+  directories: (path?: string) =>
+    request<Folders>('GET', `/api/directories${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   removeRule: (id: number) => request<void>('DELETE', `/api/rules/${id}`),
   pair: (code: string) => request<Device>('POST', '/api/pair', { code }),
   devices: () => request<Device[]>('GET', '/api/devices'),
