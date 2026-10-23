@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Decision, type Project, type Task } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { Diff } from './Diff'
 
 // Amber is Strata's colour for anything waiting on the user; destructive requests go red.
 const RISK: Record<Approval['risk'], { label: string; tone: string }> = {
@@ -74,13 +75,7 @@ export function ApprovalCard({ approval, task, project, onOpenTask }: {
               <p className="font-mono text-xs text-muted-foreground">
                 {change.path}{change.kind !== 'update' && <span> · {change.kind === 'add' ? 'new file' : change.kind === 'delete' ? 'deleted' : 'moved'}</span>}
               </p>
-              {change.diff && (
-                <pre className="mt-1 max-h-72 overflow-auto rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs leading-relaxed">
-                  {change.diff.split('\n').map((line, i) => (
-                    <span key={i} className={cn('block', line.startsWith('+') && 'text-emerald-400', line.startsWith('-') && 'text-red-400')}>{line || ' '}</span>
-                  ))}
-                </pre>
-              )}
+              {change.diff && <Diff diff={change.diff} className="mt-1" />}
             </div>
           ))}
         </div>

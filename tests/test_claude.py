@@ -105,8 +105,12 @@ def test_edits_are_file_changes(tmp_path):
         assistant("m", {"type": "tool_use", "id": "e2", "name": "Write",
                         "input": {"file_path": str(tmp_path / "notes.txt"), "content": "done\n"}}),
         tool_result("e2", "created"))
-    assert [e.data["changes"] for e in events] == [[{"path": "app.py", "kind": "update"}],
-                                                   [{"path": "notes.txt", "kind": "add"}]]
+    assert [[{k: c[k] for k in ("path", "kind")} for c in e.data["changes"]] for e in events] == [
+        [{"path": "app.py", "kind": "update"}], [{"path": "notes.txt", "kind": "add"}]]
+    # Each carries its diff, worked out before the edit ran, for the timeline.
+    edit, write = (e.data["changes"][0]["diff"] for e in events)
+    assert "-print('hi')" in edit and "+print('yo')" in edit
+    assert "+done" in write
 
 
 def test_background_work_and_the_turn_claude_starts_itself():

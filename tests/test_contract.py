@@ -52,8 +52,9 @@ def test_check_event_catches_provider_words():
                                  "status": "declined"}}, "command_finished", {"status": "declined", "command": "ls"}),
     ("item/completed", {"item": {"type": "fileChange", "id": "f", "status": "inProgress", "changes": [
         {"path": "a.py", "kind": {"type": "update", "move_path": "b.py"}},
-        {"path": "c.py", "kind": {"type": "add"}}]}},
-     "file_change", {"status": "running", "changes": [{"path": "a.py", "kind": "move"}, {"path": "c.py", "kind": "add"}]}),
+        {"path": "c.py", "kind": {"type": "add"}, "diff": "+x\n"}]}},
+     "file_change", {"status": "running", "changes": [{"path": "a.py", "kind": "move", "diff": ""},
+                                                      {"path": "c.py", "kind": "add", "diff": "+x\n"}]}),
 ])
 def test_codex_translates_into_the_contract(method, params, kind, expected):
     event = CodexSession(None, None)._translate(method, params)

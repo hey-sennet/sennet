@@ -1,10 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
+import { Diff } from './Diff'
 import { Markdown } from './Markdown'
 import { StatusBadge } from './StatusBadge'
 
@@ -106,16 +107,7 @@ function EventItem({ event }: { event: TaskEvent }) {
       </li>
     )
   }
-  if (kind === 'file_change') {
-    const verb = data.status === 'completed' ? 'edited' : data.status === 'declined' ? 'declined'
-      : data.status === 'failed' ? 'failed to edit' : 'editing'
-    return (
-      <li className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-[13px]">
-        <small className={cn('text-xs', data.status === 'failed' ? 'text-warn' : 'text-muted-foreground')}>{verb}</small>
-        <span className="font-mono text-[12.5px] break-all">{data.changes.map((c: { path: string }) => c.path.split('/').pop()).join(', ')}</span>
-      </li>
-    )
-  }
+  if (kind === 'file_change') return <FileChangeEntry data={data} />
   if (kind === 'plan') {
     return (
       <li>
@@ -143,4 +135,31 @@ function EventItem({ event }: { event: TaskEvent }) {
     return <li className="text-xs text-muted-foreground">{status === 'cancelled' ? 'Stopped' : `Turn ${status}`}{data.error ? `: ${data.error}` : ''}</li>
   }
   return null
+}
+
+/** Files the agent edited; each one with a diff opens to show it. */
+function FileChangeEntry({ data }: { data: TaskEvent['data'] }) {
+  const [open, setOpen] = useState<string | null>(null)
+  const verb = data.status === 'completed' ? 'edited' : data.status === 'declined' ? 'declined'
+    : data.status === 'failed' ? 'failed to edit' : 'editing'
+  const changes: { path: string; diff?: string }[] = data.changes
+  const shown = changes.find((c) => c.path === open)
+  return (
+    <li className="text-[13px]">
+      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <small className={cn('text-xs', data.status === 'failed' ? 'text-warn' : 'text-muted-foreground')}>{verb}</small>
+        {changes.map((change) => change.diff ? (
+          <button key={change.path} type="button" aria-expanded={open === change.path} title={change.path}
+            className={cn('font-mono text-[12.5px] break-all underline decoration-dotted underline-offset-4 hover:text-foreground',
+              open === change.path ? 'text-foreground' : 'text-foreground/85')}
+            onClick={() => setOpen(open === change.path ? null : change.path)}>
+            {change.path.split('/').pop()}
+          </button>
+        ) : (
+          <span key={change.path} title={change.path} className="font-mono text-[12.5px] break-all">{change.path.split('/').pop()}</span>
+        ))}
+      </div>
+      {shown?.diff && <Diff diff={shown.diff} className="mt-2" />}
+    </li>
+  )
 }

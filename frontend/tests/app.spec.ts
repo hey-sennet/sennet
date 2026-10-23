@@ -63,6 +63,26 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   expect(external).toEqual([])
 })
 
+test('an edited file opens to its diff in the timeline', async ({ page }, info) => {
+  const name = `diff-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  expect((await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })).ok()).toBe(true)
+  await page.goto('/')
+  await chooseProject(page, name)
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  await page.getByPlaceholder(`Ask codex to do something in ${name}`).fill('edit:notes.txt')
+  await page.keyboard.press('Enter')
+  const stage = page.getByRole('main')
+  await stage.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(stage.getByText('Edited.')).toBeVisible()
+  const timeline = await openTask(page, 'edit:notes.txt')
+  const file = timeline.getByRole('button', { name: 'notes.txt' })
+  await file.click()
+  await expect(file).toHaveAttribute('aria-expanded', 'true')
+  await expect(timeline.getByText('+b', { exact: true })).toBeVisible()
+})
+
 test('a project is picked by browsing the folders on the computer', async ({ page }, info) => {
   const parent = path.join(home, `browse-${info.project.name}`)
   mkdirSync(path.join(parent, 'picked', '.git'), { recursive: true })

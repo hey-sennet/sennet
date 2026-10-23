@@ -29,6 +29,7 @@ MODELS_TTL_S = 600
 # Codex messages can carry whole diffs and command output.
 STREAM_LIMIT = 32 * 1024 * 1024
 OUTPUT_TAIL = 2000
+DIFF_LIMIT = 20000
 
 APPROVAL_POLICY = {"ask": "untrusted", "auto": "on-request", "never": "never"}
 SANDBOX = {"read-only": "read-only", "workspace": "workspace-write", "full": "danger-full-access"}
@@ -314,7 +315,8 @@ class CodexSession:
             self.file_changes.pop(item["id"], None)
             return AgentEvent("file_change", {
                 "item_id": item["id"], "status": _item_status(item),
-                "changes": [{"path": c["path"], "kind": _change_kind(c["kind"])} for c in item.get("changes") or []]})
+                "changes": [{"path": c["path"], "kind": _change_kind(c["kind"]), "diff": (c.get("diff") or "")[:DIFF_LIMIT]}
+                            for c in item.get("changes") or []]})
         if method == "turn/plan/updated":
             return AgentEvent("plan", {"steps": [{"step": s["step"], "status": STEP_STATUS.get(s["status"], "pending")}
                                                  for s in params["plan"]]})
@@ -340,7 +342,7 @@ class CodexSession:
             changes = self.file_changes.get(params["itemId"], [])
             decision = await self.on_approval(ApprovalRequest(
                 kind="edit", paths=[c["path"] for c in changes], reason=params.get("reason"),
-                changes=[FileChange(c["path"], _change_kind(c["kind"]), c.get("diff", "")[:20000]) for c in changes],
+                changes=[FileChange(c["path"], _change_kind(c["kind"]), c.get("diff", "")[:DIFF_LIMIT]) for c in changes],
                 extra={"grant_root": params.get("grantRoot")}))
             return {"decision": COMMAND_DECISION[decision]}
         if method == "item/permissions/requestApproval":

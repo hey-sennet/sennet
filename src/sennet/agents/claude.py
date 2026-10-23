@@ -171,7 +171,8 @@ class ClaudeSession:
         self.in_turn = False
         self.interrupting = False       # the turn now ending was interrupted
         self.interrupted = False        # the process was sent SIGINT, and is ending
-        self.tools: dict[str, tuple[str, dict, bool]] = {}  # tool use id → name, input, whether the file existed
+        # tool use id → name, input, whether the file existed, and an edit's diff, worked out before it ran
+        self.tools: dict[str, tuple[str, dict, bool, str]] = {}
         self.declined: set[str] = set()
         self.background: list[dict] = []
         self.message_id = ""            # the assistant message streaming now
@@ -317,7 +318,8 @@ class ClaudeSession:
             elif block.get("type") == "tool_use":
                 name, data = block.get("name"), block.get("input") or {}
                 path = data.get("file_path") or data.get("notebook_path")
-                self.tools[block["id"]] = (name, data, bool(path) and Path(path).exists())
+                diff = file_change(name, data, self.cwd).diff if name in EDIT_TOOLS else ""
+                self.tools[block["id"]] = (name, data, bool(path) and Path(path).exists(), diff)
                 if name == "Bash":
                     events.append(AgentEvent("command_started", {"item_id": block["id"],
                                                                  "command": (data.get("command") or "").strip(),
@@ -328,7 +330,7 @@ class ClaudeSession:
         use_id = block.get("tool_use_id")
         if use_id not in self.tools:
             return []
-        name, data, existed = self.tools.pop(use_id)
+        name, data, existed, diff = self.tools.pop(use_id)
         output = _text(block.get("content"))
         status = "declined" if use_id in self.declined else "failed" if block.get("is_error") else "completed"
         self.declined.discard(use_id)
@@ -344,7 +346,7 @@ class ClaudeSession:
             path = data.get("file_path") or data.get("notebook_path") or ""
             return [AgentEvent("file_change", {
                 "item_id": use_id, "status": status,
-                "changes": [{"path": _shown_path(path, self.cwd), "kind": "update" if existed else "add"}]})]
+                "changes": [{"path": _shown_path(path, self.cwd), "kind": "update" if existed else "add", "diff": diff}]})]
         return []
 
     def _result(self, message: dict) -> list[AgentEvent]:
