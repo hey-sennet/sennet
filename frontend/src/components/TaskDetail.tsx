@@ -63,7 +63,12 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
         )}
         {streaming && <li><Markdown className="font-serif text-[16px] leading-[1.6] text-muted-foreground">{streaming}</Markdown></li>}
         {active && !streaming && !approvals.length && (
-          <li className="text-xs text-muted-foreground"><span className="animate-pulse">Working…</span></li>
+          <li role="status" aria-label="Working" className="flex h-4 items-center gap-1 text-agent">
+            {/* The stage's rising dots, small. */}
+            {[0, 1, 2].map((i) => (
+              <span key={i} className="animate-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />
+            ))}
+          </li>
         )}
         {approvals.map((approval) => <li key={approval.id}><ApprovalCard approval={approval} project={project} /></li>)}
         {detail.error && <li className="text-sm text-destructive">{detail.error}</li>}
@@ -132,7 +137,8 @@ function EventItem({ event }: { event: TaskEvent }) {
   if (kind === 'error') return <li className="text-xs text-warn">{data.message}{data.will_retry ? ' (retrying)' : ''}</li>
   if (kind === 'turn_completed') {
     const status = data.status as TurnStatus
-    return <li className="text-xs text-muted-foreground">{status === 'cancelled' ? 'Stopped' : `Turn ${status}`}{data.error ? `: ${data.error}` : ''}</li>
+    const said = status === 'cancelled' ? 'Stopped' : status === 'failed' ? "This didn't finish" : 'Ended'
+    return <li className={cn('text-xs', status === 'failed' ? 'text-warn' : 'text-muted-foreground')}>{said}{data.error ? `: ${data.error}` : ''}</li>
   }
   return null
 }

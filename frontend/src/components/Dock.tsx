@@ -31,7 +31,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
   const { speaking, conversation, stt, turnReady } = useVoice()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (typing) input.current?.focus()
@@ -50,6 +50,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
     try {
       await onSend(text.trim())
       setText('')
+      if (input.current) input.current.style.height = ''
       onTypingChange(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not send')
@@ -78,8 +79,8 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
           </button>
         )}
         <form
-          className={cn('flex h-11 items-center overflow-hidden rounded-[22px] border transition-[width,background-color,border-color] duration-600 ease-strata',
-            typing ? 'w-[min(100%,560px)] min-w-0 border-border bg-card' : 'w-11 shrink-0 border-transparent')}
+          className={cn('flex items-end overflow-hidden rounded-[22px] border transition-[width,background-color,border-color] duration-600 ease-strata',
+            typing ? 'min-h-11 w-[min(100%,560px)] min-w-0 border-border bg-card' : 'h-11 w-11 shrink-0 border-transparent')}
           onSubmit={(event) => {
             event.preventDefault()
             void send()
@@ -90,21 +91,32 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
             onClick={() => onTypingChange(!typing)}>
             <Keyboard />
           </button>
-          <input
+          <textarea
             ref={input}
             value={text}
+            rows={1}
             tabIndex={typing ? 0 : -1}
             aria-hidden={!typing}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value)
+              // Grows with what's typed, to about four lines, then scrolls.
+              event.target.style.height = ''
+              event.target.style.height = `${Math.min(event.target.scrollHeight, 104)}px`
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onTypingChange(false)
+              // Enter sends; Shift+Enter starts a new line.
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                void send()
+              }
             }}
             placeholder={placeholder}
-            className={cn('h-full min-w-0 flex-1 bg-transparent px-1 text-[15px] outline-none placeholder:text-muted-foreground',
+            className={cn('h-[42px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-[10px] text-[15px] leading-[22px] outline-none placeholder:text-muted-foreground',
               'transition-opacity delay-150 duration-300', typing ? 'opacity-100' : 'pointer-events-none opacity-0')}
           />
           <button type="submit" aria-label="Send" disabled={!typing || !text.trim() || busy || disabled}
-            className={cn('mr-1 grid size-[34px] shrink-0 place-items-center rounded-full bg-foreground text-background transition-[opacity,transform] delay-200 duration-450 ease-strata disabled:bg-foreground/40',
+            className={cn('mr-1 mb-[5px] grid size-[34px] shrink-0 place-items-center rounded-full bg-foreground text-background transition-[opacity,transform] delay-200 duration-450 ease-strata disabled:bg-foreground/40',
               typing ? 'opacity-100' : 'pointer-events-none scale-60 opacity-0')}>
             <ArrowUp className="size-4" />
           </button>
