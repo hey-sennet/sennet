@@ -43,6 +43,11 @@ Run `uv run pytest` to check. Details: https://github.com/example/repo/pull/12."
     ("Released 2026-10-22, v1.2-3.", "Released 2026-10-22, v1.2-3."),
     ("See ![diagram](x.png) <b>now</b>.", "See now."),
     ("```\nunterminated code", CODE_NOTE),
+    # Commit hashes, in backticks or bare; not words, numbers or ids with dashes
+    ("I committed the fix as `69f7042` on main.", "I committed the fix as a commit on main."),
+    ("Reverted 1300d9c and 66a27b5c0e9f1d2a3b4c5d6e7f80912a3b4c5d6e.", "Reverted a commit and a commit."),
+    ("The deadbeef build ran 1234567 times.", "The deadbeef build ran 1234567 times."),
+    ("Session 201c9aae-1df3-4047-bd74-da7cdbe92c68 resumed.", "Session 201c9aae-1df3-4047-bd74-da7cdbe92c68 resumed."),
     ("1. First\n2. Second", "First. Second."),
 ])
 def test_for_speech(markdown, spoken):

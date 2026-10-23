@@ -2,9 +2,10 @@
 
 Code blocks, tables, URLs and markdown are never narrated: blocks and tables
 become a short note that they are in the timeline, links keep their text, URLs
-become "a link", and file paths are read as their file name. Symbols are said as
-words ("$24" is "24 dollars", "~5%" is "about 5 percent"), and the ones with nothing to
-say, such as emoji and stray markdown, are dropped.
+become "a link", file paths are read as their file name, and a commit hash is "a
+commit". Symbols are said as words ("$24" is "24 dollars", "~5%" is "about 5
+percent"), and the ones with nothing to say, such as emoji and stray markdown, are
+dropped.
 """
 from __future__ import annotations
 
@@ -31,6 +32,8 @@ INLINE_CODE = re.compile(r"`([^`\n]+)`")
 HTML = re.compile(r"</?[a-zA-Z][^>]*>")
 PATH = re.compile(r"(?<![\w/.~-])(?:~|\.{1,2})?/?(?:[\w.@-]+/)+[\w.@-]+")
 WORDS_ONLY = re.compile(r"^[A-Za-z][\w -]{0,40}$")
+# A commit hash, as git prints it: 7 to 40 lowercase hex characters, with letters and digits both.
+COMMIT = re.compile(r"(?<![\w-])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}(?![\w-])")
 FILE_NAME = re.compile(r"^[\w@-]+(?:\.[\w-]+)+$")
 
 LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
@@ -91,6 +94,7 @@ def for_speech(markdown: str) -> str:
     text = INLINE_CODE.sub(lambda m: _inline_code(m.group(1)), text)
     text = HTML.sub("", text)
     text = PATH.sub(lambda m: _path(m.group()), text)
+    text = COMMIT.sub("a commit", text)
     text = _emphasis(text)
     return _sentences(_symbols(text))
 
@@ -122,6 +126,8 @@ def pause_after(piece: str) -> float:
 
 def _inline_code(code: str) -> str:
     code = code.strip()
+    if COMMIT.fullmatch(code):
+        return "a commit"
     if FILE_NAME.match(code) or "/" in code and PATH.fullmatch(code):
         return _path(code)
     if WORDS_ONLY.match(code) and len(code.split()) <= 4:

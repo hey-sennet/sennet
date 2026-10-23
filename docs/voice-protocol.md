@@ -224,9 +224,9 @@ The fixed flow from HLD §4.4:
   "cancel that") isn't dispatched. "Stop" stops speech; "cancel" interrupts the selected
   task, and fails with `no_target` when none is selected. Both end with outcome `stop`.
 - Each agent message is spoken as it arrives, on the session that dispatched the
-  request and on no other, split into clauses with a short first chunk (HLD §6.4).
-  Markdown, code blocks, inline code, URLs and file paths are stripped or replaced
-  with a short word ("a code block"). Symbols are said as words ("$24" is "24 dollars",
+  request and on no other, split into whole sentences (HLD §6.4). Markdown, code
+  blocks, inline code, URLs, file paths and commit hashes are stripped or replaced
+  with a short word ("a code block", "a commit"). Symbols are said as words ("$24" is "24 dollars",
   "£3.50" "3 pounds 50", "~5%" "about 5 percent", "->" "to"); emoji are dropped.
 - Agents are asked (developer instructions, `agents.base.SPOKEN_INSTRUCTIONS`) to start a
   long message with a version written to be heard, in `<spoken>` tags. The hub follows the
