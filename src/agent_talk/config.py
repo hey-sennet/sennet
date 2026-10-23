@@ -7,6 +7,7 @@ under one directory (used by tests and portable installs).
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -53,6 +54,15 @@ RETIRED = {"assistant", "summaries"}
 class ServerSettings:
     host: str = "127.0.0.1"
     port: int = 7710
+    # The address phones reach Agent Talk at, such as https://desktop.tailnet.ts.net, for pairing
+    # links. Setup fills it from Tailscale. Empty: the address the request came in on.
+    public_url: str = ""
+
+    @property
+    def local_url(self) -> str:
+        """Where this machine reaches the daemon: agents calling back, and pairing links opened here."""
+        host = {"0.0.0.0": "127.0.0.1", "localhost": "127.0.0.1", "::": "::1"}.get(self.host, self.host)
+        return f"http://{f'[{host}]' if ':' in host else host}:{self.port}"
 
 
 @dataclass
@@ -130,6 +140,9 @@ class Settings:
         if unknown := set(self.agents.commands) - set(registry.NAMES):
             raise ValueError(f"agents.commands has no agent called {', '.join(sorted(unknown))}; "
                              f"agents are {registry.NAMES}")
+        self.server.public_url = self.server.public_url.strip().rstrip("/")
+        if self.server.public_url and not re.fullmatch(r"https?://[^/\s]+(/\S*)?", self.server.public_url):
+            raise ValueError("server.public_url must be an http(s) address, such as https://desktop.tailnet.ts.net")
         if self.speech.device not in DEVICES:
             raise ValueError(f"speech.device must be one of {DEVICES}")
         if self.speech.threads < 1:

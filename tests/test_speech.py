@@ -190,7 +190,9 @@ def test_the_daemon_starts_without_models(settings, paths):
 
     from agent_talk.server import create_app
 
-    with TestClient(create_app(settings, paths)) as client:
+    from conftest import paired
+
+    with paired(TestClient(create_app(settings, paths))) as client:
         assert client.get("/api/state").status_code == 200
         speech = client.app.state.speech
         deadline = time.monotonic() + 10

@@ -3,6 +3,7 @@ import socket
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -10,12 +11,29 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
+from agent_talk import access
 from agent_talk.config import Paths, Settings
 from agent_talk.server import create_app
 
 FAKE_CODEX = Path(__file__).parent / "fake_codex.py"
 FAKE_CLAUDE = Path(__file__).parent / "fake_claude.py"
 HEADERS = {"X-Agent-Talk": "1"}
+
+
+def pair(client, db) -> dict:
+    """Pair a test client as a browser would, so it gets a device cookie."""
+    code = access.new_pairing(db, access.TERMINAL, 60).link_code
+    response = client.post("/api/pair", json={"code": code}, headers=HEADERS)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@contextmanager
+def paired(client: TestClient):
+    """Start a TestClient's app and pair the client."""
+    with client:
+        pair(client, client.app.state.db)
+        yield client
 
 
 @pytest.fixture
@@ -64,7 +82,8 @@ def live(settings, paths, codex_log, claude_log):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         settings.server.port = probe.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(create_app(settings, paths), host="127.0.0.1",
+    app = create_app(settings, paths)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1",
                                            port=settings.server.port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -72,6 +91,7 @@ def live(settings, paths, codex_log, claude_log):
     while not server.started and time.monotonic() < deadline:
         time.sleep(0.02)
     with httpx.Client(base_url=f"http://127.0.0.1:{settings.server.port}", headers=HEADERS) as client:
+        pair(client, app.state.db)
         yield client
     server.should_exit = True
     thread.join(10)
@@ -79,7 +99,7 @@ def live(settings, paths, codex_log, claude_log):
 
 @pytest.fixture
 def client(settings, paths, codex_log):
-    with TestClient(create_app(settings, paths), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths), headers=HEADERS)) as client:
         yield client
 
 

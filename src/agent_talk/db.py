@@ -1,4 +1,4 @@
-"""SQLite storage for projects, tasks, messages, events and approvals."""
+"""SQLite storage for projects, tasks, messages, events, approvals and paired devices."""
 from __future__ import annotations
 
 import json
@@ -72,12 +72,27 @@ CREATE TABLE IF NOT EXISTS approval_rules (
     created_at REAL NOT NULL,
     UNIQUE(project_id, kind, pattern)
 );
+CREATE TABLE IF NOT EXISTS devices (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,   -- SHA-256 of the device's token; the token itself is never stored
+    paired_by TEXT NOT NULL,           -- "the terminal", or the name of the device that showed the code
+    created_at REAL NOT NULL,
+    last_seen_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pairing_codes (
+    id INTEGER PRIMARY KEY,
+    link_hash TEXT NOT NULL UNIQUE,    -- SHA-256 of the code in a pairing link
+    typed_hash TEXT UNIQUE,            -- SHA-256 of the short code typed instead; either one redeems it
+    created_by TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
 
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Rows written before version 2 hold Codex's own words; these map them to the contract's.
 _V2_ACCESS = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
@@ -113,6 +128,7 @@ class Database:
                 self._to_v4()
             if version < 5:
                 self._to_v5()
+            # Version 6 only adds tables (devices, pairing_codes), which SCHEMA creates.
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
@@ -269,6 +285,45 @@ class Database:
 
     def remove_rule(self, rule_id: int):
         self.execute("DELETE FROM approval_rules WHERE id = ?", rule_id)
+
+    # Devices and pairing codes (access.py)
+
+    def add_pairing(self, link_hash: str, typed_hash: str | None, created_by: str, expires_at: float):
+        self.execute("DELETE FROM pairing_codes WHERE expires_at < ?", time.time())
+        self.execute("INSERT INTO pairing_codes (link_hash, typed_hash, created_by, expires_at) VALUES (?, ?, ?, ?)",
+                     link_hash, typed_hash, created_by, expires_at)
+
+    def take_pairing(self, code_hash: str) -> dict | None:
+        """The unexpired pairing code with this hash, in either form, deleted so it works once."""
+        with self.lock:
+            row = self.conn.execute(
+                "DELETE FROM pairing_codes WHERE (link_hash = ? OR typed_hash = ?) AND expires_at >= ? RETURNING *",
+                (code_hash, code_hash, time.time())).fetchone()
+        return dict(row) if row else None
+
+    def add_device(self, name: str, token_hash: str, paired_by: str) -> dict:
+        now = time.time()
+        device_id = self.execute(
+            "INSERT INTO devices (name, token_hash, paired_by, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+            name, token_hash, paired_by, now, now)
+        return self.device(device_id)
+
+    def device(self, device_id: int) -> dict | None:
+        return self.one("SELECT id, name, paired_by, created_at, last_seen_at FROM devices WHERE id = ?", device_id)
+
+    def device_by_token(self, token_hash: str) -> dict | None:
+        return self.one("SELECT id, name, paired_by, created_at, last_seen_at FROM devices WHERE token_hash = ?",
+                        token_hash)
+
+    def devices(self) -> list[dict]:
+        return self.query("SELECT id, name, paired_by, created_at, last_seen_at FROM devices ORDER BY created_at")
+
+    def update_device(self, device_id: int, **fields):
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        self.execute(f"UPDATE devices SET {assignments} WHERE id = ?", *fields.values(), device_id)
+
+    def remove_device(self, device_id: int):
+        self.execute("DELETE FROM devices WHERE id = ?", device_id)
 
     def recover(self):
         """After a restart: work that was in flight has an unknown outcome."""

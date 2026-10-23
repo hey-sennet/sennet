@@ -17,6 +17,7 @@ dependencies = [
     "espeakng-loader>=0.2.4",  # bundles espeak-ng, GPL-3.0
     "rich>=13",
     "questionary>=2",
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]

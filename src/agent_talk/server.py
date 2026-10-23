@@ -4,6 +4,12 @@ Commands are plain HTTP; live updates arrive over `/api/events`. State-changing
 requests must carry the `X-Agent-Talk` header: browsers cannot add custom headers
 to cross-site requests without CORS permission, which this server never grants.
 
+Everything under `/api/` needs a paired device's cookie (access.py), loopback
+included: behind a proxy on this machine every request comes from 127.0.0.1. Only
+`POST /api/pair`, which redeems a pairing code, is open, and it is throttled. A
+WebSocket from an unpaired device, or one revoked while it is open, is closed with
+code 4401. The app shell is served to anyone, so an unpaired browser can pair.
+
 `/mcp/<secret>` is for agent CLIs on this machine, not browsers: it answers only
 local requests without an Origin, and only a live agent session's secret
 (agents.callbacks).
@@ -17,17 +23,18 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
+import segno
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import projects
+from . import access, projects
 from .agents import registry
 from .agents.base import Agent
 from .agents.callbacks import CallbackServer
 from .approvals import Approvals
-from .config import Paths, ServerSettings, Settings
+from .config import Paths, Settings
 from .db import Database
 from .events import EventBus
 from .speech import Speech
@@ -38,6 +45,9 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).parent / "web"
 CSRF_HEADER = "x-agent-talk"
+UNPAIRED = 4401                 # WebSocket close code: pair this device, don't just reconnect
+SWEEP_S = 30                    # how often open sockets are checked for devices revoked elsewhere
+LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
 
 class ProjectIn(BaseModel):
@@ -74,6 +84,14 @@ class MessageIn(BaseModel):
     text: str
 
 
+class PairIn(BaseModel):
+    code: str
+
+
+class DeviceIn(BaseModel):
+    name: str
+
+
 class DecisionIn(BaseModel):
     decision: Literal["approve", "approve_always", "decline", "cancel"]
 
@@ -81,8 +99,24 @@ class DecisionIn(BaseModel):
 def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None = None,
                speech: Speech | None = None) -> FastAPI:
     """`agents` and `speech` default to the real ones; tests pass fakes."""
-    callbacks = CallbackServer(_local_url(settings.server))
+    callbacks = CallbackServer(settings.server.local_url)
     agents = agents if agents is not None else registry.build(settings.agents.commands, callbacks)
+    throttle = access.Throttle()
+    sockets: dict[int, set[WebSocket]] = {}  # device id → its open WebSockets
+
+    async def disconnect(device_id: int):
+        for websocket in list(sockets.pop(device_id, ())):
+            try:
+                await websocket.close(code=UNPAIRED)
+            except RuntimeError:
+                pass  # already closing
+
+    async def sweep(db: Database):
+        """Close the sockets of devices revoked from the terminal, which the daemon isn't told about."""
+        while True:
+            await asyncio.sleep(SWEEP_S)
+            for device_id in [d for d in sockets if db.device(d) is None]:
+                await disconnect(device_id)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -95,9 +129,11 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         app.state.voice = VoiceHub(app.state.speech, manager, bus)
         app.state.voice.start()
         await manager.start()
+        sweeping = asyncio.ensure_future(sweep(db))
         try:
             yield
         finally:
+            sweeping.cancel()
             if loading:
                 loading.cancel()
             await app.state.voice.close()
@@ -110,14 +146,91 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     app.state.callbacks = callbacks
 
     @app.middleware("http")
-    async def require_header(request: Request, call_next):
-        if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/"):
-            if request.headers.get(CSRF_HEADER) != "1":
-                return JSONResponse({"detail": f"missing {CSRF_HEADER} header"}, status_code=403)
-        return await call_next(request)
+    async def guard(request: Request, call_next):
+        if request.url.path.startswith("/api/"):
+            if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(CSRF_HEADER) != "1":
+                return _secured(JSONResponse({"detail": f"missing {CSRF_HEADER} header"}, status_code=403), request)
+            if request.url.path != "/api/pair":
+                device = access.device_for(request.app.state.db, request.cookies.get(access.COOKIE))
+                if device is None:
+                    return _secured(JSONResponse({"detail": "this device isn't paired"}, status_code=401), request)
+                request.state.device = device
+        return _secured(await call_next(request), request)
+
+    async def admit(websocket: WebSocket) -> dict | None:
+        """Accept a WebSocket from a paired device on this site; close any other."""
+        if not _same_origin(websocket):
+            await websocket.close(code=1008)
+            return None
+        device = access.device_for(websocket.app.state.db, websocket.cookies.get(access.COOKIE))
+        await websocket.accept()  # before closing, so the browser sees why
+        if device is None:
+            await websocket.close(code=UNPAIRED)
+            return None
+        sockets.setdefault(device["id"], set()).add(websocket)
+        return device
+
+    def release(websocket: WebSocket, device: dict):
+        if (open_ := sockets.get(device["id"])) is not None:
+            open_.discard(websocket)
+            if not open_:
+                del sockets[device["id"]]
 
     def db(request: Request) -> Database:
         return request.app.state.db
+
+    @app.post("/api/pair")
+    async def pair(body: PairIn, request: Request):
+        """Redeem a pairing code: this browser becomes a paired device, with its token in a cookie."""
+        if wait := throttle.wait():
+            raise HTTPException(429, "too many wrong codes; try again in a minute",
+                                headers={"Retry-After": str(int(wait) + 1)})
+        paired = access.redeem(db(request), body.code, request.headers.get("user-agent", ""))
+        if paired is None:
+            throttle.failed()
+            raise HTTPException(400, "that code didn't work: codes work once, and only for a few minutes")
+        device, token = paired
+        response = JSONResponse(device)
+        https = request.url.scheme == "https" or (request.headers.get("origin") or "").startswith("https://")
+        response.set_cookie(access.COOKIE, token, max_age=access.COOKIE_MAX_AGE_S, path="/", httponly=True,
+                            samesite="strict", secure=https)
+        return response
+
+    @app.get("/api/devices")
+    async def devices(request: Request):
+        current = request.state.device["id"]
+        return [{**device, "current": device["id"] == current} for device in db(request).devices()]
+
+    @app.post("/api/devices/pairing", status_code=201)
+    async def new_pairing(request: Request):
+        """A code for pairing another device, as a link (with its QR code) and a code to type."""
+        pairing = access.new_pairing(db(request), request.state.device["name"], access.DEVICE_TTL_S)
+        base = settings.server.public_url or str(request.base_url)
+        link = pairing.link(base)
+        return {"link": link, "code": pairing.typed_code, "expires_at": pairing.expires_at,
+                "qr": segno.make(link, error="m").svg_data_uri(dark="#000", light="#fff", border=2),
+                "local_only": request.url.hostname in LOOPBACK and not settings.server.public_url}
+
+    @app.patch("/api/devices/{device_id}")
+    async def rename_device(device_id: int, body: DeviceIn, request: Request):
+        if db(request).device(device_id) is None:
+            raise HTTPException(404, "no such device")
+        try:
+            return access.rename(db(request), device_id, body.name)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+
+    @app.delete("/api/devices/{device_id}", status_code=204)
+    async def revoke_device(device_id: int, request: Request):
+        """Unpair a device, closing its sockets; it has to pair again to get back in."""
+        if db(request).device(device_id) is None:
+            raise HTTPException(404, "no such device")
+        db(request).remove_device(device_id)
+        await disconnect(device_id)
+        response = Response(status_code=204)
+        if device_id == request.state.device["id"]:
+            response.delete_cookie(access.COOKIE, path="/")
+        return response
 
     @app.get("/api/state")
     async def state(request: Request):
@@ -240,10 +353,8 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     @app.websocket("/api/events")
     async def events(websocket: WebSocket):
-        if not _same_origin(websocket):
-            await websocket.close(code=1008)
+        if (device := await admit(websocket)) is None:
             return
-        await websocket.accept()
         bus: EventBus = websocket.app.state.bus
         subscriber = bus.subscribe()
 
@@ -266,13 +377,12 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                 job.cancel()
             await asyncio.gather(*jobs, return_exceptions=True)
             bus.unsubscribe(subscriber)
+            release(websocket, device)
 
     @app.websocket("/api/voice")
     async def voice(websocket: WebSocket):
-        if not _same_origin(websocket):
-            await websocket.close(code=1008)
+        if (device := await admit(websocket)) is None:
             return
-        await websocket.accept()
         hub: VoiceHub = websocket.app.state.voice
         session = VoiceSession(websocket, websocket.app.state.speech, hub)
         hub.add(session)
@@ -282,6 +392,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             pass
         finally:
             hub.remove(session)
+            release(websocket, device)
 
     @app.post("/mcp/{secret}", include_in_schema=False)
     async def mcp(secret: str, request: Request):
@@ -321,10 +432,17 @@ def _speech(settings: Settings, paths: Paths, speech: Speech | None) -> tuple[Sp
     return speech, asyncio.ensure_future(speech.load(paths.models, config.device, config.threads, config.voice))
 
 
-def _local_url(server: ServerSettings) -> str:
-    """Where agents on this machine reach the daemon."""
-    host = {"0.0.0.0": "127.0.0.1", "localhost": "127.0.0.1", "::": "::1"}.get(server.host, server.host)
-    return f"http://{f'[{host}]' if ':' in host else host}:{server.port}"
+def _secured(response: Response, request: Request) -> Response:
+    """Headers that keep the page to itself: agent output is shown as markdown, and a paired device's
+    cookie is a shell on this machine."""
+    host = request.headers.get("host", "")
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+        f"media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://{host} wss://{host}; "
+        "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 def _same_origin(websocket: WebSocket) -> bool:

@@ -1,4 +1,4 @@
-"""Command line: `agent-talk setup`, `serve`, `project …` and `doctor`."""
+"""Command line: `agent-talk setup`, `serve`, `pair`, `devices`, `project …` and `doctor`."""
 from __future__ import annotations
 
 import argparse
@@ -6,8 +6,9 @@ import asyncio
 import logging
 import shutil
 import sys
+import time
 
-from . import __version__, projects
+from . import __version__, access, projects
 from .agents import registry
 from .config import Paths, Settings
 from .db import Database
@@ -37,6 +38,13 @@ def main(argv: list[str] | None = None):
     remove = project_commands.add_parser("remove", help="unregister a project (files are not touched)")
     remove.add_argument("name")
 
+    commands.add_parser("pair", help="print a one-time link and code to pair a browser or phone")
+    devices = commands.add_parser("devices", help="list or revoke paired devices")
+    device_commands = devices.add_subparsers(dest="action")
+    device_commands.add_parser("list", help="list paired devices (the default)")
+    revoke = device_commands.add_parser("revoke", help="unpair a device; it must pair again to get back in")
+    revoke.add_argument("id", type=int, help="the device's number, from `agent-talk devices`")
+
     commands.add_parser("doctor", help="check agents and configuration")
 
     args = parser.parse_args(argv)
@@ -51,6 +59,10 @@ def main(argv: list[str] | None = None):
         sys.exit(guided.run(settings, paths, args.device, args.yes))
     elif args.command == "serve":
         serve_command(settings, paths, args)
+    elif args.command == "pair":
+        pair_command(settings, paths)
+    elif args.command == "devices":
+        devices_command(paths, args)
     elif args.command == "project":
         project_command(paths, args)
     elif args.command == "doctor":
@@ -66,12 +78,63 @@ def serve_command(settings: Settings, paths: Paths, args):
     host = settings.server.host = args.host or settings.server.host
     port = settings.server.port = args.port or settings.server.port  # agents call back on it
     if host not in ("127.0.0.1", "::1", "localhost"):
-        logging.warning("binding %s exposes Agent Talk beyond this machine; there is no login yet. "
-                        "Use `tailscale serve` with the default loopback address instead.", host)
+        logging.warning("binding %s serves Agent Talk without HTTPS, so browsers won't let it use the "
+                        "microphone. Use `tailscale serve` or a reverse proxy with the default loopback "
+                        "address instead.", host)
     if not WEB_DIR.is_dir():
         logging.warning("web client not built; only the API is available (see frontend/README.md)")
     print(f"Agent Talk on http://{host}:{port}", flush=True)
+    db = Database(paths.database)
+    try:
+        if not db.devices():  # first run: like Jupyter, print a way in
+            pairing = access.new_pairing(db, access.TERMINAL, access.TERMINAL_TTL_S)
+            print(f"No browser is paired yet. Open {pairing.link(settings.server.local_url)} "
+                  f"(works once, for {access.TERMINAL_TTL_S // 60} minutes), or run `agent-talk pair`.", flush=True)
+    finally:
+        db.close()
     uvicorn.run(create_app(settings, paths), host=host, port=port, log_level="warning")
+
+
+def pair_command(settings: Settings, paths: Paths):
+    import segno
+
+    db = Database(paths.database)
+    try:
+        pairing = access.new_pairing(db, access.TERMINAL, access.TERMINAL_TTL_S)
+    finally:
+        db.close()
+    public = settings.server.public_url
+    print(f"Pair a browser with Agent Talk. The code works once, for {access.TERMINAL_TTL_S // 60} minutes.\n")
+    print(f"  On this computer:  {pairing.link(settings.server.local_url)}")
+    if public:
+        print(f"  On your phone:     {pairing.link(public)}  (or scan the code below)")
+    print(f"  Or type the code:  {pairing.typed_code}")
+    if public:
+        print()
+        segno.make(pairing.link(public), error="m").terminal(compact=True)
+    else:
+        print("\nOn another device, open Agent Talk's address and type the code. To get a link and a QR code "
+              "for your phone, set server.public_url in the config, or run `agent-talk setup`.")
+
+
+def devices_command(paths: Paths, args):
+    db = Database(paths.database)
+    try:
+        if args.action == "revoke":
+            device = db.device(args.id)
+            if device is None:
+                sys.exit(f"no device {args.id}; `agent-talk devices` lists them")
+            db.remove_device(device["id"])
+            print(f"revoked {device['name']}; it has to pair again to get back in")
+            return
+        rows = db.devices()
+        if not rows:
+            print("no devices paired yet; pair one with `agent-talk pair`")
+        for device in rows:
+            seen = time.strftime("%Y-%m-%d %H:%M", time.localtime(device["last_seen_at"]))
+            print(f"{device['id']:>3}  {device['name']}  (paired by {device['paired_by']}, last seen {seen})")
+    finally:
+        db.close()
 
 
 def project_command(paths: Paths, args):

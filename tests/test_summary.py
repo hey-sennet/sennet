@@ -7,7 +7,7 @@ from agent_talk.speech import Speech
 from agent_talk.speech.fakes import FakeRecognizer, FakeVAD
 from agent_talk.voice import summary
 from agent_talk.voice.dispatch import Details, Request, parse
-from conftest import HEADERS, wait_for
+from conftest import HEADERS, wait_for, paired
 from test_voice import GatedSynthesizer, Voice
 
 REPLY = """I fixed the flaky test in `tests/test_tasks.py`: the fake agent now answers in a fixed order.
@@ -74,7 +74,7 @@ def speech():
 
 @pytest.fixture
 def client(settings, paths, codex_log, speech):
-    with TestClient(create_app(settings, paths, speech=speech), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths, speech=speech), headers=HEADERS)) as client:
         yield client
 
 

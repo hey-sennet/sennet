@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from agent_talk.agents.base import AgentEvent, check_event
 from agent_talk.db import Database
 from agent_talk.server import create_app
-from conftest import HEADERS, wait_for
+from conftest import HEADERS, wait_for, paired
 from scripted_agent import ScriptedAgent
 
 
@@ -19,7 +19,7 @@ def agent():
 @pytest.fixture
 def scripted(settings, paths, agent, tmp_path):
     (tmp_path / "repo").mkdir()
-    with TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS)) as client:
         client.post("/api/projects", json={"path": str(tmp_path / "repo")})
         yield client
 
@@ -76,7 +76,7 @@ def test_messages_sent_during_the_agents_turn_wait_for_it(scripted, agent):
 def test_the_process_stays_up_while_work_runs_and_closes_once_idle(settings, paths, agent, tmp_path):
     settings.tasks.idle_timeout_s = 0
     (tmp_path / "repo").mkdir()
-    with TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS)) as client:
         client.post("/api/projects", json={"path": str(tmp_path / "repo")})
         start(client)
         session = agent.sessions[0]

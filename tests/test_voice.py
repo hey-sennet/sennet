@@ -13,7 +13,7 @@ from agent_talk.speech import Speech
 from agent_talk.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
 from agent_talk.voice import frames
 from agent_talk.voice.session import VoiceSession
-from conftest import HEADERS, wait_for
+from conftest import HEADERS, wait_for, paired
 
 pytestmark = pytest.mark.timeout(20)
 
@@ -84,7 +84,7 @@ def speech():
 
 @pytest.fixture
 def client(settings, paths, codex_log, speech):
-    with TestClient(create_app(settings, paths, speech=speech), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths, speech=speech), headers=HEADERS)) as client:
         yield client
     speech.tts.gate.set()
     speech.close()
@@ -222,7 +222,7 @@ def test_two_devices_talk_at_once(client, project):
 
 def test_start_needs_speech_recognition(settings, paths, codex_log):
     speech = Speech.with_engines(None, None, FakeSynthesizer())
-    with TestClient(create_app(settings, paths, speech=speech), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths, speech=speech), headers=HEADERS)) as client:
         with client.websocket_connect("/api/voice") as ws:
             voice = Voice(ws)
             assert voice.ready["speech"]["stt"] == "unavailable"

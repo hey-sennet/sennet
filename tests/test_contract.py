@@ -17,7 +17,7 @@ from agent_talk.agents.codex import CodexAgent, CodexSession
 from agent_talk.config import Settings
 from agent_talk.db import SCHEMA_VERSION, Database
 from agent_talk.server import create_app
-from conftest import HEADERS, pending_approval, wait_for
+from conftest import HEADERS, pending_approval, wait_for, paired
 
 
 def finished(task):
@@ -91,7 +91,7 @@ class LimitedCodex(CodexAgent):
 
 def limited_client(settings, paths, **limits):
     agent = LimitedCodex(settings.agents.commands["codex"], **limits)
-    return TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS)
+    return paired(TestClient(create_app(settings, paths, agents={"codex": agent}), headers=HEADERS))
 
 
 def add_project(client, tmp_path):

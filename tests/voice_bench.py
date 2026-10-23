@@ -30,6 +30,7 @@ from agent_talk import setup
 from agent_talk.config import Paths, Settings
 from agent_talk.server import create_app
 from agent_talk.speech import Speech
+from conftest import paired
 
 COMMAND = "In backend, run the unit tests and tell me which ones failed."
 FAKE_CODEX = Path(__file__).with_name("fake_codex.py")
@@ -142,8 +143,8 @@ def bench(models: Path, device: str, runs: int, wav: Path | None = None, threads
         settings.agents.commands["codex"] = [sys.executable, str(FAKE_CODEX)]
         settings.speech.device = device
         try:
-            with TestClient(create_app(settings, Paths(home, home), speech=speech),
-                            headers={"X-Agent-Talk": "1"}) as client:
+            with paired(TestClient(create_app(settings, Paths(home, home), speech=speech),
+                                   headers={"X-Agent-Talk": "1"})) as client:
                 client.post("/api/projects", json={"path": str(home / "repo"), "name": "backend"})
                 return [run_once(client, audio, f"t{i}") for i in range(runs)]
         finally:

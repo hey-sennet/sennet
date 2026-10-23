@@ -1,6 +1,6 @@
 from agent_talk.config import Settings
 from agent_talk.db import Database
-from conftest import pending_approval, wait_for
+from conftest import pending_approval, wait_for, paired
 
 
 def done(status="completed"):
@@ -41,7 +41,7 @@ def test_follow_up_resumes_the_thread_after_idle_close(settings, paths, codex_lo
 
     settings.tasks.idle_timeout_s = 0
     (tmp_path / "repo").mkdir()
-    with TestClient(create_app(settings, paths), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths), headers=HEADERS)) as client:
         project = client.post("/api/projects", json={"path": str(tmp_path / "repo")}).json()
         task = client.post("/api/tasks", json={"project_id": project["id"], "text": "one"}).json()
         wait_for(client, task["id"], done())
@@ -149,7 +149,7 @@ def test_global_concurrency_limit(settings, paths, tmp_path, codex_log):
     from conftest import HEADERS
 
     settings.tasks.max_concurrent = 1
-    with TestClient(create_app(settings, paths), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths), headers=HEADERS)) as client:
         ids = []
         for name in ("a", "b"):
             (tmp_path / name).mkdir()
@@ -214,7 +214,7 @@ def test_shutdown_does_not_start_queued_tasks(settings, paths, codex_log, tmp_pa
     from conftest import HEADERS
 
     (tmp_path / "repo").mkdir()
-    with TestClient(create_app(settings, paths), headers=HEADERS) as client:
+    with paired(TestClient(create_app(settings, paths), headers=HEADERS)) as client:
         project = client.post("/api/projects", json={"path": str(tmp_path / "repo")}).json()
         running = client.post("/api/tasks", json={"project_id": project["id"], "text": "hang"}).json()
         wait_for(client, running["id"], lambda t: t["messages"][0]["state"] == "sent")

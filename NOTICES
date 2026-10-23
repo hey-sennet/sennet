@@ -47,6 +47,9 @@ Speech
 Setup
   Rich (MIT), questionary (MIT) and prompt_toolkit (BSD-3-Clause) draw `agent-talk setup`.
 
+Pairing
+  segno (BSD-3-Clause) draws the QR codes for pairing a device.
+
 -------------------------------------------------------------------------------
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
