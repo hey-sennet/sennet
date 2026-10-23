@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { refreshAgents, useAgents } from '@/lib/agents'
-import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type State } from '@/lib/api'
+import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
+import { Devices } from './Devices'
 import { ModelPicker } from './ModelPicker'
 
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
@@ -31,12 +32,13 @@ async function attempt(action: () => Promise<unknown>, failure: string) {
   }
 }
 
-export function SettingsDialog({ open, onOpenChange, projects, rules, settings }: {
+export function SettingsDialog({ open, onOpenChange, projects, rules, settings, subscribe }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   projects: Project[]
   rules: Rule[]
   settings: State['settings'] | null
+  subscribe: (listener: (event: ServerEvent) => void) => () => void
 }) {
   const agents = useAgents()
 
@@ -49,7 +51,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Projects, approvals and agents on this computer.</DialogDescription>
+          <DialogDescription>Projects, approvals, agents and paired devices on this computer.</DialogDescription>
         </DialogHeader>
 
         <Section title="Agents">
@@ -88,6 +90,10 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings }
               </Button>
             </div>
           ))}
+        </Section>
+
+        <Section title="Devices" hint="Browsers paired with Agent Talk. Unpair any you no longer use.">
+          <Devices subscribe={subscribe} />
         </Section>
       </DialogContent>
     </Dialog>

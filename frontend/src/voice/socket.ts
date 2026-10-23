@@ -1,6 +1,8 @@
 // The /api/voice socket (docs/voice-protocol.md): JSON controls and messages, binary audio.
 // Reconnects by itself; each new connection is a new session, starting at generation 0.
 
+import { markUnpaired, UNPAIRED } from '@/lib/pairing'
+
 export type SpeechStatus = 'ready' | 'loading' | 'unavailable'
 export type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking'
 
@@ -84,9 +86,10 @@ export class VoiceSocket {
       const message = JSON.parse(event.data) as VoiceMessage
       for (const listener of this.listeners) listener(message)
     }
-    socket.onclose = () => {
+    socket.onclose = ({ code }) => {
       this.onOpenChange(false)
       if (this.closed) return
+      if (code === UNPAIRED) return markUnpaired() // pairing reloads the page, and with it this socket
       const delay = Math.min(10_000, 500 * 2 ** this.retry++)
       setTimeout(() => this.connect(), delay)
     }

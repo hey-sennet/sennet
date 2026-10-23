@@ -7,6 +7,9 @@ const port = 7799
 // The server is the built Python app with a scripted fake Codex and fake speech, which hears
 // HEARD whenever there is sound; `npm test` builds the client first.
 const HEARD = 'add a health check' // tests/voice.spec.ts expects this
+// A paired device's token (tests/e2e_server.py); every browser starts with it as its cookie, except
+// where a test pairs a browser of its own.
+export const TOKEN = 'e2e-device-token'
 
 // Chromium's fake microphone plays this file: a tone that swells four times a second, loud
 // enough for the fake voice detector and varied enough to pass noise suppression.
@@ -33,6 +36,11 @@ export default defineConfig({
       args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${micFile}`],
     },
     permissions: ['microphone'],
+    storageState: {
+      cookies: [{ name: 'agent_talk_device', value: TOKEN, domain: '127.0.0.1', path: '/', expires: -1,
+        httpOnly: true, secure: false, sameSite: 'Strict' }],
+      origins: [],
+    },
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
@@ -40,7 +48,7 @@ export default defineConfig({
   ],
   workers: 1,
   webServer: {
-    command: `cd .. && AGENT_TALK_FAKE_SPEECH='${HEARD}' uv run python tests/e2e_server.py ${port} .e2e-home`,
+    command: `cd .. && AGENT_TALK_FAKE_SPEECH='${HEARD}' AGENT_TALK_E2E_TOKEN=${TOKEN} uv run python tests/e2e_server.py ${port} .e2e-home`,
     url: `http://127.0.0.1:${port}/api/state`,
     reuseExistingServer: false,
   },

@@ -190,6 +190,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             throttle.failed()
             raise HTTPException(400, "that code didn't work: codes work once, and only for a few minutes")
         device, token = paired
+        await request.app.state.bus.publish({"type": "devices", "paired": device})
         response = JSONResponse(device)
         https = request.url.scheme == "https" or (request.headers.get("origin") or "").startswith("https://")
         response.set_cookie(access.COOKIE, token, max_age=access.COOKIE_MAX_AGE_S, path="/", httponly=True,
@@ -216,9 +217,11 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         if db(request).device(device_id) is None:
             raise HTTPException(404, "no such device")
         try:
-            return access.rename(db(request), device_id, body.name)
+            device = access.rename(db(request), device_id, body.name)
         except ValueError as error:
             raise HTTPException(400, str(error))
+        await request.app.state.bus.publish({"type": "devices", "paired": None})
+        return device
 
     @app.delete("/api/devices/{device_id}", status_code=204)
     async def revoke_device(device_id: int, request: Request):
@@ -227,6 +230,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             raise HTTPException(404, "no such device")
         db(request).remove_device(device_id)
         await disconnect(device_id)
+        await request.app.state.bus.publish({"type": "devices", "paired": None})
         response = Response(status_code=204)
         if device_id == request.state.device["id"]:
             response.delete_cookie(access.COOKIE, path="/")

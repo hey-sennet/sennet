@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Approval, type Project, type Rule, type ServerEvent, type State, type Task, type TaskDetail } from './api'
+import { markUnpaired, UNPAIRED } from './pairing'
 
 export type Connection = 'connecting' | 'live' | 'reconnecting'
 
@@ -55,8 +56,9 @@ export function useLiveState() {
         setLive((state) => apply(state, event))
         listeners.current.forEach((listener) => listener(event))
       }
-      socket.onclose = () => {
+      socket.onclose = ({ code }) => {
         if (stopped) return
+        if (code === UNPAIRED) return markUnpaired()
         setConnection('reconnecting')
         retry = setTimeout(connect, Math.min(10000, 500 * 2 ** attempt++))
       }

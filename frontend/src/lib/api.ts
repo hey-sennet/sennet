@@ -139,6 +139,25 @@ export interface AgentStatus {
   models: ModelOption[]
 }
 
+// A paired browser (src/agent_talk/access.py).
+export interface Device {
+  id: number
+  name: string
+  paired_by: string // "the terminal", or the name of the device that showed the code
+  created_at: number
+  last_seen_at: number
+  current: boolean // the device asking
+}
+
+/** A code another device can pair with: a link (and its QR code) or a code to type. */
+export interface Pairing {
+  link: string
+  code: string
+  expires_at: number
+  qr: string // an SVG data URI
+  local_only: boolean // the link only works on this computer: no public address is set
+}
+
 export type ServerEvent =
   | { type: 'task'; task: Task }
   | { type: 'message'; task_id: number; message: Message }
@@ -148,8 +167,15 @@ export type ServerEvent =
   | { type: 'project'; project: Project }
   | { type: 'project_removed'; project_id: number }
   | { type: 'rules'; rules: Rule[] }
+  | { type: 'devices'; paired: Omit<Device, 'current'> | null }
 
 export class ApiError extends Error {}
+
+// This browser isn't paired, or was unpaired: the app shows the pairing screen (lib/pairing.ts).
+let onUnpaired: () => void = () => {}
+export function whenUnpaired(handler: () => void) {
+  onUnpaired = handler
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
@@ -157,6 +183,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: { 'Content-Type': 'application/json', 'X-Agent-Talk': '1' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  if (response.status === 401 && path !== '/api/pair') onUnpaired()
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -186,4 +213,9 @@ export const api = {
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
   removeRule: (id: number) => request<void>('DELETE', `/api/rules/${id}`),
+  pair: (code: string) => request<Device>('POST', '/api/pair', { code }),
+  devices: () => request<Device[]>('GET', '/api/devices'),
+  newPairing: () => request<Pairing>('POST', '/api/devices/pairing'),
+  renameDevice: (id: number, name: string) => request<Device>('PATCH', `/api/devices/${id}`, { name }),
+  revokeDevice: (id: number) => request<void>('DELETE', `/api/devices/${id}`),
 }

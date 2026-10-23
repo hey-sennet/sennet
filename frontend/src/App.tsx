@@ -299,7 +299,8 @@ export default function App() {
         </>
       )}
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings}
+        subscribe={live.subscribe} />
       <Toaster position="top-center" />
     </div>
   )
