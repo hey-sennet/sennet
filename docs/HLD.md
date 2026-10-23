@@ -447,7 +447,9 @@ automatically.
    (`agent-talk pair`, a pairing screen, devices in Settings), every request checked for a
    paired device, the phone address filled from Tailscale, and a hosting guide for
    Tailscale, Caddy and nginx ([hosting.md](hosting.md)).
-7. **M6 — Packaging.** `setup`, `doctor`, service install, NOTICES, release CI.
+7. **M6 — Packaging.** Breakdown in [m6-packaging.md](m6-packaging.md). The user
+   service, setup's last steps, upgrade and data removal, notices in the wheel and the
+   app, and release CI to PyPI.
 8. **M7 — Conversation sessions.** Open mic, barge-in, echo-cancellation testing.
 
 ## 12. Open questions
