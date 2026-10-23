@@ -43,7 +43,7 @@ NAMES = {"cpu": "CPU", "cuda": "GPU (CUDA)"}
 REPLY_TIME = {"cpu": "~1.4 s", "cuda": "~0.2 s"}
 DELAY_NOTE = ("Voice delay: from letting go of the talk button to hearing a short spoken answer, "
               "on top of the agent's own time.")
-SELF_TEST = "Sennet is ready to listen."
+SELF_TEST = "Your agents are ready to listen."   # no "Sennet": speech recognition hears "senate"
 
 MORE = "more"
 RESUME = "SENNET_SETUP_RESUME_SERVICE"   # set across setup's re-exec when it stopped the service
