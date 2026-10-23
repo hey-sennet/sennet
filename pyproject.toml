@@ -4,6 +4,7 @@ version = "0.1.0.dev0"
 description = "Talk to your coding agents: a self-hosted voice interface for Codex, Claude Code and Gemini CLI"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICES"]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -46,6 +47,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_talk"]
 # The built web client is not in git; include it when present.
+artifacts = ["src/agent_talk/web/**"]
+
+[tool.hatch.build.targets.sdist]
+# The package, its tests and the client's source; not the spikes (their models and caches are gigabytes).
+include = ["/src/agent_talk", "/tests", "/frontend", "/LICENSE", "/NOTICES", "/README.md"]
+exclude = ["frontend/node_modules", "frontend/test-results", "frontend/playwright-report", "**/__pycache__"]
 artifacts = ["src/agent_talk/web/**"]
 
 [tool.pytest.ini_options]

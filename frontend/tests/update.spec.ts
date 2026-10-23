@@ -23,6 +23,10 @@ test('a page offers to reload when the server comes back newer', async ({ page }
   await expect(page.getByTitle('Connected')).toBeVisible()
   await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByRole('dialog')).toContainText(`Agent Talk ${version}`)
+  for (const [name, file] of [['Notices', '/notices.txt'], ['licenses', '/licenses.txt']]) {
+    await expect(page.getByRole('link', { name, exact: true })).toHaveAttribute('href', file)
+    expect((await page.request.get(file)).status()).toBe(200)
+  }
   await page.keyboard.press('Escape')
   await expect(page.getByText('Agent Talk was updated')).toHaveCount(0)
 

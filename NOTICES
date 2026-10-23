@@ -4,11 +4,12 @@ Copyright 2026 The Agent Talk authors
 Agent Talk is licensed under the Apache License, Version 2.0 (see LICENSE). Third-party
 speech components are listed under "Speech" below. The built web client bundles the
 third-party fonts below, each under the SIL Open Font License, Version 1.1, whose
-text follows the list.
+text follows the list. Every npm package in the built client, the fonts included, is
+listed with its license text in licenses.txt beside it, which Settings → About links to.
 
-Instrument Serif
-  Copyright 2022 The Instrument Serif Project Authors (https://github.com/Instrument/instrument-serif)
-  Packaged by Fontsource as @fontsource/instrument-serif. License: SIL OFL 1.1.
+Newsreader
+  Copyright 2020 The Newsreader Project Authors (https://github.com/productiontype/Newsreader)
+  Packaged by Fontsource as @fontsource-variable/newsreader. License: SIL OFL 1.1.
 
 Inter
   Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)

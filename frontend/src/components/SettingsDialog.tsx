@@ -104,11 +104,18 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
 }
 
 function About({ version }: { version: string | null }) {
+  const link = 'underline underline-offset-2 hover:text-foreground'
   return (
     <Section title="About">
       <p className="text-sm">
         Agent Talk {version ?? ''}
         <span className="text-muted-foreground"> · free and open source under the Apache License 2.0</span>
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Speech recognition uses NVIDIA's Parakeet TDT 0.6B v2 (CC-BY-4.0), and speech is spoken by Kokoro-82M
+        (Apache-2.0) through espeak-ng and phonemizer (GPL-3.0). <a className={link} href="/notices.txt" target="_blank"
+          rel="noreferrer">Notices</a> lists every model and component with its license, and <a className={link}
+          href="/licenses.txt" target="_blank" rel="noreferrer">licenses</a> the packages in this app.
       </p>
     </Section>
   )
