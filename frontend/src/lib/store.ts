@@ -113,6 +113,22 @@ function apply(state: Live, event: ServerEvent): Live {
 
 /** Full detail for one task, kept current from live events, including streamed text.
  * Fetched again after a reconnect (`reconnects` changes), since events sent while offline are lost. */
+/** A task's live event applied to its detail. An event `held` while the snapshot loaded may be
+ *  older than the snapshot, so it only adds what the snapshot lacks and never rolls it back. */
+export function applyEvent(detail: TaskDetail, event: ServerEvent, held = false): TaskDetail {
+  switch (event.type) {
+    case 'task':
+      return held && event.task.updated_at < detail.updated_at ? detail : { ...detail, ...event.task }
+    case 'message':
+      return held && detail.messages.some((m) => m.id === event.message.id) ? detail
+        : { ...detail, messages: upsert(detail.messages, event.message) }
+    case 'event':
+      return detail.events.some((e) => e.id === event.event.id) ? detail : { ...detail, events: [...detail.events, event.event] }
+    default:
+      return detail
+  }
+}
+
 export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeof useLiveState>['subscribe'],
                               reconnects: number) {
   const [detail, setDetail] = useState<TaskDetail | null>(null)
@@ -123,23 +139,20 @@ export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeo
     setStreaming({})
     if (taskId === null) return
     let current = true
-    api.task(taskId).then((task) => current && setDetail(task)).catch(() => current && setDetail(null))
+    // Events that arrive while the snapshot loads are held, then applied to it: a fast reply can
+    // be stored after the snapshot was read and still reach this page before the snapshot does.
+    let held: ServerEvent[] | null = []
+    api.task(taskId).then((task) => {
+      if (!current) return
+      const early = held ?? []
+      held = null
+      setDetail(early.reduce((detail, event) => applyEvent(detail, event, true), task))
+    }).catch(() => current && setDetail(null))
     const unsubscribe = subscribe((event) => {
       if ('task_id' in event && event.task_id !== taskId) return
       if (event.type === 'task' && event.task.id !== taskId) return
-      setDetail((detail) => {
-        if (!detail) return detail
-        switch (event.type) {
-          case 'task':
-            return { ...detail, ...event.task }
-          case 'message':
-            return { ...detail, messages: upsert(detail.messages, event.message) }
-          case 'event':
-            return { ...detail, events: [...detail.events, event.event] }
-          default:
-            return detail
-        }
-      })
+      if (held) held.push(event)
+      else setDetail((detail) => (detail ? applyEvent(detail, event) : detail))
       if (event.type === 'delta') {
         setStreaming((s) => ({ ...s, [event.item_id]: (s[event.item_id] ?? '') + event.delta }))
       } else if (event.type === 'message' && event.message.role === 'agent') {
