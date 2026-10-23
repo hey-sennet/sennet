@@ -82,6 +82,12 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   await expect(dialog).toBeHidden()
 
   await page.getByLabel('Project').selectOption({ label: name })
+  // The next task's model, chosen from the dock before it starts.
+  await page.getByRole('button', { name: /^Model: Default/ }).click()
+  let menu = page.getByRole('dialog', { name: `Model for a new task in ${name}` })
+  await menu.getByRole('radio', { name: 'Haiku' }).click()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
   await page.getByRole('button', { name: 'Type instead' }).click()
   const composer = page.getByPlaceholder(`Ask claude to do something in ${name}`)
   await composer.fill('bg:make build')
@@ -89,17 +95,21 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   const stage = page.getByRole('main')
   await stage.getByRole('button', { name: 'Approve', exact: true }).click()
   await expect(stage.getByText('The background command make build finished.')).toBeVisible()
+
+  // The task kept the choice; changing it applies from the task's next message.
+  await page.getByRole('button', { name: 'Model: Haiku' }).click()
+  menu = page.getByRole('dialog', { name: 'Model for this task' })
+  await expect(menu.getByRole('radio', { name: 'Haiku' })).toHaveAttribute('aria-checked', 'true')
+  await menu.getByRole('radio', { name: 'Sonnet' }).click()
+  await menu.getByRole('radio', { name: 'high', exact: true }).click()
+  await expect(menu.getByRole('radio', { name: 'high', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('button', { name: 'Model: Sonnet, high effort' })).toBeVisible()
+  await page.screenshot({ path: `test-results/${info.project.name}-model.png` })
+  await page.keyboard.press('Escape')
+
   const timeline = await openTask(page, 'bg:make build')
   await expect(timeline.getByText('Started it in the background.')).toBeVisible()
   await expect(timeline.getByText('The agent picked this up again')).toBeVisible()
-
-  // The task's model, from its next message: Claude restarts on the same conversation.
-  await expect(timeline.getByLabel('Model')).toHaveValue('')
-  await timeline.getByLabel('Model').selectOption({ label: 'Sonnet' })
-  await expect(timeline.getByLabel('Model')).toHaveValue('sonnet')
-  await timeline.getByLabel('Effort').selectOption('high')
-  await expect(timeline.getByLabel('Effort')).toHaveValue('high')
-  await page.screenshot({ path: `test-results/${info.project.name}-model.png` })
 })
 
 /** The selected task's timeline: picked from the opened rail into the drawer on desktop; on phones the

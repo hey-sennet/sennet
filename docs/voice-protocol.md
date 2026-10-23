@@ -78,7 +78,7 @@ JSON text frames.
 
 | Message | Meaning |
 | --- | --- |
-| `{"type": "start", "turn": "t7", "task_id": 12, "project_id": 3}` | The talk control was pressed. Audio frames follow. `task_id` is the selected task, or null to start a new task in `project_id`. Stops any speech on this session (§7). |
+| `{"type": "start", "turn": "t7", "task_id": 12, "project_id": 3}` | The talk control was pressed. Audio frames follow. `task_id` is the selected task, or null to start a new task in `project_id`, optionally on its own `model` and `effort` (strings or null; they don't apply to a project named aloud). Stops any speech on this session (§7). |
 | `{"type": "end", "turn": "t7"}` | Released. The server runs the final pass. |
 | `{"type": "cancel", "turn": "t7"}` | Discard the turn (slid off the button, or held too briefly). No final pass. |
 | `{"type": "stop"}` | Stop speaking. Audio only; agent work carries on (HLD §6.4). |

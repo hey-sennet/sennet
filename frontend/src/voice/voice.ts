@@ -2,6 +2,7 @@
 // to /api/voice while a turn is open, and releases the microphone after a quiet minute.
 // Replies play through `playback`, dropping any generation older than the floor (§7).
 // React subscribes to the snapshot; Strata reads `source` and `playback.source` each frame.
+import type { ModelChoice } from '@/lib/api'
 import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
@@ -14,7 +15,8 @@ const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session 
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
 const CHIME_S = 1.4 // approval-chime.mp3
 
-export type Target = { task_id: number } | { project_id: number } | Record<string, never>
+/** The selected task, or the project a new task starts in, on its own model if chosen. */
+export type Target = { task_id: number } | ({ project_id: number } & Partial<ModelChoice>) | Record<string, never>
 
 /** The words under the disc: yours while you talk, the agent's as it speaks them. */
 export interface Words {

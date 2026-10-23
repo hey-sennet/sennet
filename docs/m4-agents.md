@@ -216,8 +216,11 @@ outright: Codex's listed default with its default effort, `--model default` for 
 On a new conversation "Default" passes nothing, leaving the user's own CLI settings in
 charge.
 
-The client shows the picker under the task's status ("From your next message" while it
-works) and as each project's default in Settings. Not yet by voice.
+The client puts a model button beside the dock's keyboard. Its popover sets the selected
+task's model ("From your next message" while it works) or, with no task selected, the
+model for the next task started in the header's project, typed or spoken: `POST
+/api/tasks` and the voice `start` take `model` and `effort`. Settings sets each project's
+default. Not yet by voice.
 
 Checked on the real CLIs: a Claude task switched from haiku to sonnet on the same
 session, and a Codex task from `gpt-6.1-sol`/low to `gpt-6-luna`/high between turns,

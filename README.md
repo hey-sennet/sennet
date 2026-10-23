@@ -29,7 +29,8 @@ uv run agent-talk serve                         # http://127.0.0.1:7710
 
 Agents run on this computer as you, in the project directory. Pick each project's agent
 in Settings or with `--agent`, and its default model and effort in Settings; a task can
-change its own model and effort from its header, from the next message. By default the agent asks before running anything
+have its own, from the model button beside the keyboard: chosen before a task starts, or
+for the selected task from its next message. By default the agent asks before running anything
 outside its trusted set, and you approve or decline in the app or by voice. "Always" remembers a command (e.g. `npm test`) for that project;
 destructive commands such as `git push` or `rm` are always asked. Change the policy per
 project in Settings, or the default in `config.toml`:

@@ -116,6 +116,12 @@ export interface Capabilities {
   live_model_change: boolean
 }
 
+/** A task's own model and effort; null for either follows the project. */
+export interface ModelChoice {
+  model: string | null
+  effort: string | null
+}
+
 export interface ModelOption {
   id: string
   title: string
@@ -167,7 +173,8 @@ export const api = {
   state: () => request<State>('GET', '/api/state'),
   agents: () => request<Record<string, AgentStatus>>('GET', '/api/agents'),
   task: (id: number) => request<TaskDetail>('GET', `/api/tasks/${id}`),
-  createTask: (project_id: number, text: string) => request<Task>('POST', '/api/tasks', { project_id, text }),
+  createTask: (project_id: number, text: string, choice?: ModelChoice) =>
+    request<Task>('POST', '/api/tasks', { project_id, text, ...choice }),
   followUp: (id: number, text: string) => request<Task>('POST', `/api/tasks/${id}/messages`, { text }),
   cancel: (id: number) => request<Task>('POST', `/api/tasks/${id}/cancel`),
   decide: (id: number, decision: Decision) => request<Approval>('POST', `/api/approvals/${id}`, { decision }),

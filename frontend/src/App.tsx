@@ -7,7 +7,8 @@ import { SettingsDialog } from '@/components/SettingsDialog'
 import { Stage } from '@/components/Stage'
 import { TaskDetail } from '@/components/TaskDetail'
 import { TaskList } from '@/components/TaskList'
-import { api } from '@/lib/api'
+import { useAgents } from '@/lib/agents'
+import { api, type ModelChoice } from '@/lib/api'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { voice, type Target } from '@/voice/voice'
@@ -47,7 +48,12 @@ export default function App() {
   const task = live.tasks.find((t) => t.id === selected)
   const project = task ? live.projects.find((p) => p.id === task.project_id) : homeProject
   const { detail, streaming } = useTaskDetail(selected, live.subscribe)
-  const target: Target = selected !== null ? { task_id: selected } : homeProject ? { project_id: homeProject.id } : {}
+  const agents = useAgents()
+  // The next task's model, chosen before it starts; it belongs to the project it was chosen in.
+  const [draft, setDraft] = useState<ModelChoice & { project_id: number | null }>({ project_id: null, model: null, effort: null })
+  const nextChoice: ModelChoice = draft.project_id === homeProject?.id ? draft : { model: null, effort: null }
+  const target: Target = selected !== null ? { task_id: selected }
+    : homeProject ? { project_id: homeProject.id, ...nextChoice } : {}
 
   // A spoken request starts a task, which becomes the one to follow up on, as a typed one does.
   const selectedRef = useRef(selected)
@@ -60,6 +66,7 @@ export default function App() {
     const offFinal = v.socket.on((message) => {
       if (message.type === 'final' && message.outcome === 'dispatched' && selectedRef.current === null && message.task_id) {
         setSelected(message.task_id)
+        setDraft({ project_id: null, model: null, effort: null })
       }
     })
     return () => {
@@ -109,6 +116,27 @@ export default function App() {
     setSelected(null)
     setPanelOpen(false)
   }
+
+  // The model glyph's menu: the selected task's own choice, or the next task's. The project's
+  // choice is the default, while the project still uses the task's agent.
+  const modelAgent = task?.agent ?? homeProject?.agent
+  const inherited = project && project.agent === modelAgent
+    ? { model: project.model, effort: project.effort, from: `${project.name}'s default` } : undefined
+  const modelMenu = modelAgent ? {
+    agent: agents?.[modelAgent],
+    ...(task ? { model: task.model, effort: task.effort } : nextChoice),
+    inherited,
+    heading: task ? 'Model for this task' : `Model for a new task in ${homeProject?.name}`,
+    note: task && ['running', 'awaiting_approval', 'background'].includes(task.status) ? 'From your next message' : undefined,
+    onChange: async (model: string | null, effort: string | null) => {
+      if (!task) return setDraft({ project_id: homeProject?.id ?? null, model, effort })
+      try {
+        await api.chooseModel(task.id, model, effort)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not change the model')
+      }
+    },
+  } : undefined
 
   const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
   const timeline = detail && (
@@ -196,8 +224,12 @@ export default function App() {
         placeholder={task ? 'Follow up on this task' : homeProject ? `Ask ${homeProject.agent} to do something in ${homeProject.name}` : 'Add a project first'}
         onSend={async (text) => {
           if (selected !== null) await api.followUp(selected, text)
-          else if (homeProject) setSelected((await api.createTask(homeProject.id, text)).id)
+          else if (homeProject) {
+            setSelected((await api.createTask(homeProject.id, text, nextChoice)).id)
+            setDraft({ project_id: null, model: null, effort: null })
+          }
         }}
+        model={modelMenu}
         activeTasks={activeTasks}
         needsYou={live.approvals.length > 0}
         onOpenTasks={desktop ? undefined : () => setSheet(selected !== null ? 'task' : 'list')}

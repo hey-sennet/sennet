@@ -20,7 +20,7 @@ export type VoiceMessage =
   | { type: 'voice_error'; turn: string | null; code: string; message: string }
 
 export type Control =
-  | { type: 'start'; turn: string; task_id?: number | null; project_id?: number | null }
+  | { type: 'start'; turn: string; task_id?: number | null; project_id?: number | null; model?: string | null; effort?: string | null }
   | { type: 'end' | 'cancel'; turn: string }
   | { type: 'stop' }
 
