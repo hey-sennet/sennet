@@ -1,3 +1,5 @@
+import time
+
 from sennet.config import Settings
 from sennet.db import Database
 from conftest import pending_approval, wait_for, paired
@@ -49,6 +51,60 @@ def test_follow_up_resumes_the_thread_after_idle_close(settings, paths, codex_lo
         wait_for(client, task["id"], lambda t: done()(t) and len(t["messages"]) == 4)
     assert len(codex_log("initialize")) == 2
     assert codex_log("thread/resume")[0]["params"]["threadId"] == "thread-1"
+
+
+def until(predicate, timeout: float = 10):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.02)
+
+
+def test_a_new_task_takes_over_the_spare_started_early(client, project, codex_log):
+    assert client.post("/api/prewarm", json={"project_id": project["id"]}).status_code == 204
+    until(lambda: codex_log("thread/start"))
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hello"}).json()
+    task = wait_for(client, task["id"], done())
+    assert task["messages"][-1]["text"] == "You said: hello"
+    assert len(codex_log("initialize")) == len(codex_log("thread/start")) == 1
+    assert task["resume_token"] == "thread-1"
+
+
+def test_prewarming_twice_starts_one_spare(client, project, codex_log):
+    client.post("/api/prewarm", json={"project_id": project["id"]})
+    client.post("/api/prewarm", json={"project_id": project["id"]})
+    until(lambda: codex_log("thread/start"))
+    time.sleep(0.2)
+    assert len(codex_log("initialize")) == 1
+
+
+def test_a_spare_for_another_model_is_not_taken(client, project, codex_log):
+    client.post("/api/prewarm", json={"project_id": project["id"]})
+    until(lambda: codex_log("thread/start"))
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi", "model": "gpt-deep"})
+    assert task.status_code == 201, task.text
+    wait_for(client, task.json()["id"], done())
+    assert len(codex_log("thread/start")) == 2
+
+
+def test_a_follow_up_resumes_early_after_idle_close(settings, paths, codex_log, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from sennet.server import create_app
+    from conftest import HEADERS
+
+    settings.tasks.idle_timeout_s = 0
+    (tmp_path / "repo").mkdir()
+    with paired(TestClient(create_app(settings, paths), headers=HEADERS)) as client:
+        project = client.post("/api/projects", json={"path": str(tmp_path / "repo")}).json()
+        task = client.post("/api/tasks", json={"project_id": project["id"], "text": "one"}).json()
+        wait_for(client, task["id"], done())
+        until(lambda: client.app.state.tasks.runners[task["id"]].session is None)  # closed when idle
+        client.post("/api/prewarm", json={"task_id": task["id"]})
+        until(lambda: codex_log("thread/resume"))
+        client.post(f"/api/tasks/{task['id']}/messages", json={"text": "two"})
+        wait_for(client, task["id"], lambda t: done()(t) and len(t["messages"]) == 4)
+    assert len(codex_log("thread/resume")) == 1
 
 
 def test_command_approval_approve(client, project):

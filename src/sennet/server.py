@@ -89,6 +89,13 @@ class MessageIn(BaseModel):
     text: str
 
 
+class PrewarmIn(BaseModel):
+    task_id: int | None = None
+    project_id: int | None = None
+    model: str | None = None
+    effort: str | None = None
+
+
 class PairIn(BaseModel):
     code: str
 
@@ -345,6 +352,12 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             return await request.app.state.tasks.follow_up(task_id, body.text)
         except TaskError as error:
             raise HTTPException(404 if "no such" in str(error) else 400, str(error))
+
+    @app.post("/api/prewarm", status_code=204)
+    async def prewarm(body: PrewarmIn, request: Request):
+        """A message is likely coming (someone started typing): start the agent early."""
+        request.app.state.tasks.prewarm(body.task_id, body.project_id, body.model, body.effort)
+        return Response(status_code=204)
 
     @app.post("/api/tasks/{task_id}/cancel")
     async def cancel_task(task_id: int, request: Request):

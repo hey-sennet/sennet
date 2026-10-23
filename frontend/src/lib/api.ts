@@ -205,6 +205,9 @@ export const api = {
     request<Task>('POST', '/api/tasks', { project_id, text, ...choice }),
   followUp: (id: number, text: string) => request<Task>('POST', `/api/tasks/${id}/messages`, { text }),
   cancel: (id: number) => request<Task>('POST', `/api/tasks/${id}/cancel`),
+  /** A message is likely coming: the server starts the agent early. */
+  prewarm: (target: { task_id?: number; project_id?: number } & Partial<ModelChoice>) =>
+    request<void>('POST', '/api/prewarm', target),
   decide: (id: number, decision: Decision) => request<Approval>('POST', `/api/approvals/${id}`, { decision }),
   addProject: (body: { path: string; name?: string; aliases: string[]; agent?: string }) =>
     request<Project>('POST', '/api/projects', body),

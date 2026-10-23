@@ -351,6 +351,8 @@ class VoiceSession:
         self.turn = turn
         self.open_turns.add(turn)
         self.floor.clear()
+        # Saying and transcribing a request takes longer than starting an agent: start it now.
+        self.hub.tasks.prewarm(turn.task_id, turn.project_id, turn.model, turn.effort)
         if announce:
             await self.send(type="turn", turn=turn.id)
         await self._set_state("listening", turn.id)

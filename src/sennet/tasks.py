@@ -7,6 +7,13 @@ runs per project (two agents editing one working tree conflict), and at most
 a turn so follow-ups start instantly; after that the conversation is resumed from
 its resume token, when the agent can resume.
 
+A process can also start before its message arrives (`prewarm`): when someone starts talking
+or typing to a task or project, since saying and transcribing a request takes longer than
+an agent takes to start. A follow-up warms the task's own session; a new task warms a spare
+session for its project, which the task takes over if it matches. Unused, either closes
+after `PREWARM_IDLE_S`. And when an interrupt ends an agent's process (Claude's ends on
+SIGINT), the session is resumed at once, since a correction usually follows.
+
 An agent with `background_turns` may leave work running when its turn ends: the
 task is then `background`, its process stays up (the idle timer waits for the work
 to end), and follow-ups run as usual. When the work is done the agent may start a
@@ -31,6 +38,7 @@ log = logging.getLogger(__name__)
 
 ACTIVE = ("running", "awaiting_approval")
 INTERRUPT_GRACE_S = 10
+PREWARM_IDLE_S = 120    # a process started for a message that never came
 
 
 @dataclass
@@ -43,6 +51,16 @@ class Runner:
     cancelling: bool = False
     background: list = field(default_factory=list)  # the agent's work still running after its turn
     choice: tuple[str | None, str | None] = (None, None)  # the session's model and effort
+    opening: asyncio.Lock = field(default_factory=asyncio.Lock)  # one session start at a time
+
+
+@dataclass
+class Spare:
+    """A session started for a new task in a project, before the task exists."""
+    key: tuple                              # agent, policy and model it was started with
+    ready: asyncio.Task                     # the start; its result is the session
+    task_id: int | None = None              # the task that took it over
+    timer: asyncio.TimerHandle | None = None
 
 
 class TaskError(Exception):
@@ -57,6 +75,9 @@ class TaskManager:
         self.approvals = approvals
         self.publish = publish
         self.runners: dict[int, Runner] = {}
+        self.spares: dict[int, Spare] = {}      # by project id
+        self.warming: set[asyncio.Task] = set()
+        self.closing: set[asyncio.Task] = set()     # idle closes under way, which shutdown waits for
         self.stopping = False
 
     async def start(self):
@@ -71,8 +92,11 @@ class TaskManager:
             if runner.job:
                 runner.job.cancel()
         await asyncio.gather(*(r.job for r in self.runners.values() if r.job), return_exceptions=True)
+        for job in list(self.warming):
+            job.cancel()
+        await asyncio.gather(*self.warming, *self.closing, return_exceptions=True)
         await asyncio.gather(*(r.session.close() for r in self.runners.values() if r.session),
-                             return_exceptions=True)
+                             *(self._close_spare(p) for p in list(self.spares)), return_exceptions=True)
 
     # Public operations
 
@@ -149,6 +173,17 @@ class TaskManager:
         await self._publish_task(task_id)
         return self.db.task(task_id)
 
+    def prewarm(self, task_id: int | None = None, project_id: int | None = None, model: str | None = None,
+                effort: str | None = None):
+        """A message for this task, or a new task in this project, is likely on its way: start the
+        agent now so it is ready when the message arrives. Best effort, and never waited on."""
+        if self.stopping or (task_id is None and project_id is None):
+            return
+        job = asyncio.ensure_future(self._prewarm_task(task_id) if task_id is not None
+                                    else self._prewarm_spare(project_id, model, effort))
+        self.warming.add(job)
+        job.add_done_callback(self.warming.discard)
+
     def snapshot(self, task_id: int) -> dict | None:
         task = self.db.task(task_id)
         if task is None:
@@ -213,6 +248,11 @@ class TaskManager:
             await self._publish_task(task_id)
             self._arm_idle_close(task_id)
             self._schedule()
+            task = self.db.task(task_id)
+            agent = self.agents.get(task["agent"])
+            if runner.session and not runner.session.alive and task["status"] == "cancelled" and \
+                    agent and agent.capabilities.resume:
+                self.prewarm(task_id)  # the interrupt ended the process, and a correction usually follows
 
     async def _end_turn(self, task_id: int, message_id: int | None = None) -> str:
         """Wait for the turn to end, and record how it did."""
@@ -226,7 +266,11 @@ class TaskManager:
         return status
 
     async def _ensure_session(self, task_id: int):
-        runner = self.runners[task_id]
+        runner = self.runners.setdefault(task_id, Runner())
+        async with runner.opening:  # a prewarm may be starting it already
+            await self._open_session(task_id, runner)
+
+    async def _open_session(self, task_id: int, runner: Runner):
         task = self.db.task(task_id)
         project = self.db.project(task["project_id"])
         agent = self._agent(task)
@@ -241,6 +285,20 @@ class TaskManager:
             if runner.background:
                 return  # restarting would end the work; the change waits for it
         await self._close_session(task_id)  # what is left of one that ended, or used another model
+        path, policy = self._policy(agent, project, choice)
+        if task["resume_token"] is None and (session := await self._take_spare(task_id, agent, policy)):
+            runner.session = session
+        else:
+            # Without resume, a new process starts a new conversation; the old one can't be continued.
+            token = task["resume_token"] if agent.capabilities.resume else None
+            runner.session = await agent.open(path, token, policy,
+                                              lambda event: self._on_event(task_id, event),
+                                              lambda request: self._on_approval(task_id, request))
+        runner.choice = choice
+        if runner.session.resume_token != task["resume_token"]:
+            self.db.update_task(task_id, resume_token=runner.session.resume_token)
+
+    def _policy(self, agent: Agent, project: dict, choice: tuple[str | None, str | None]) -> tuple[Path, TurnPolicy]:
         path = Path(project["path"])
         if not path.is_dir():
             raise TaskError(f"project directory {path} does not exist")
@@ -252,14 +310,113 @@ class TaskManager:
             raise TaskError(f"{agent.name} doesn't support the {policy.mode!r} approval mode")
         if policy.access not in capabilities.access_levels:
             raise TaskError(f"{agent.name} doesn't support {policy.access!r} access")
-        # Without resume, a new process starts a new conversation; the old one can't be continued.
-        token = task["resume_token"] if capabilities.resume else None
-        runner.session = await agent.open(path, token, policy,
-                                          lambda event: self._on_event(task_id, event),
-                                          lambda request: self._on_approval(task_id, request))
-        runner.choice = choice
-        if runner.session.resume_token != task["resume_token"]:
-            self.db.update_task(task_id, resume_token=runner.session.resume_token)
+        return path, policy
+
+    # Prewarming
+
+    async def _prewarm_task(self, task_id: int):
+        """Start the task's session for a follow-up, unless it has one or is about to run."""
+        task = self.db.task(task_id)
+        runner = self.runners.get(task_id)
+        if task is None or task["status"] in (*ACTIVE, "queued") or (runner and runner.session and runner.session.alive):
+            return
+        try:
+            await self._ensure_session(task_id)
+        except Exception as error:
+            log.info("task %s: couldn't start the agent early: %s", task_id, error)
+            return
+        if self.db.task(task_id)["status"] not in (*ACTIVE, "queued"):
+            log.debug("task %s: agent started early", task_id)
+            self._arm_idle_close(task_id, PREWARM_IDLE_S)
+
+    async def _prewarm_spare(self, project_id: int, model: str | None, effort: str | None):
+        """Start a session for a new task in the project, unless a matching one is up or starting."""
+        project = self.db.project(project_id)
+        if project is None or (agent := self.agents.get(project["agent"])) is None:
+            return
+        choice = _choice({"agent": project["agent"], "model": model, "effort": effort}, project)
+        try:
+            path, policy = self._policy(agent, project, choice)
+        except TaskError:
+            return
+        key = (project["agent"], policy)
+        spare = self.spares.get(project_id)
+        if spare and spare.key == key and not (spare.ready.done() and not self._spare_alive(spare)):
+            self._arm_spare_close(project_id, spare)
+            return
+        if spare:
+            await self._close_spare(project_id)
+        spare = Spare(key, asyncio.ensure_future(agent.open(path, None, policy,
+                                                             lambda event: self._spare_event(spare, event),
+                                                             lambda request: self._spare_approval(spare, request))))
+        self.spares[project_id] = spare
+        try:
+            await asyncio.shield(spare.ready)
+        except Exception as error:
+            log.info("project %s: couldn't start a spare agent: %s", project_id, error)
+            if self.spares.get(project_id) is spare:
+                del self.spares[project_id]
+            return
+        if self.spares.get(project_id) is spare:
+            log.debug("project %s: spare agent started", project_id)
+            self._arm_spare_close(project_id, spare)
+
+    async def _take_spare(self, task_id: int, agent: Agent, policy: TurnPolicy) -> AgentSession | None:
+        """The project's spare session for this new task, if it was started the same way."""
+        project_id = self.db.task(task_id)["project_id"]
+        spare = self.spares.get(project_id)
+        if spare is None or spare.key != (agent.name, policy):
+            return None
+        del self.spares[project_id]
+        if spare.timer:
+            spare.timer.cancel()
+        try:
+            session = await spare.ready
+        except Exception:
+            return None
+        if not session.alive:
+            await session.close()
+            return None
+        spare.task_id = task_id
+        log.debug("task %s: took over the project's spare agent", task_id)
+        return session
+
+    def _spare_alive(self, spare: Spare) -> bool:
+        return spare.ready.done() and not spare.ready.cancelled() and spare.ready.exception() is None \
+            and spare.ready.result().alive
+
+    def _arm_spare_close(self, project_id: int, spare: Spare):
+        if spare.timer:
+            spare.timer.cancel()
+        spare.timer = asyncio.get_running_loop().call_later(
+            PREWARM_IDLE_S, lambda: self._closing(self._close_spare(project_id, spare)))
+
+    def _closing(self, coroutine):
+        job = asyncio.ensure_future(coroutine)
+        self.closing.add(job)
+        job.add_done_callback(self.closing.discard)
+
+    async def _close_spare(self, project_id: int, only: Spare | None = None):
+        spare = self.spares.get(project_id)
+        if spare is None or (only is not None and spare is not only):
+            return
+        del self.spares[project_id]
+        if spare.timer:
+            spare.timer.cancel()
+        try:
+            session = await spare.ready
+        except Exception:
+            return
+        await session.close()
+
+    async def _spare_event(self, spare: Spare, event: AgentEvent):
+        if spare.task_id is not None:
+            await self._on_event(spare.task_id, event)
+
+    async def _spare_approval(self, spare: Spare, request: ApprovalRequest) -> Decision:
+        if spare.task_id is None:
+            return "cancel"  # nothing was asked of it yet
+        return await self._on_approval(spare.task_id, request)
 
     def _agent(self, task: dict) -> Agent:
         agent = self.agents.get(task["agent"])
@@ -267,7 +424,7 @@ class TaskManager:
             raise TaskError(f"agent {task['agent']!r} is not available")
         return agent
 
-    def _arm_idle_close(self, task_id: int):
+    def _arm_idle_close(self, task_id: int, timeout: float | None = None):
         """Close the agent's process once it has been idle a while; never while its work runs."""
         runner = self.runners.get(task_id)
         if runner and runner.idle_timer:
@@ -275,8 +432,8 @@ class TaskManager:
             runner.idle_timer = None
         if runner and runner.session and not runner.background and self.db.task(task_id)["status"] not in ACTIVE:
             loop = asyncio.get_running_loop()
-            runner.idle_timer = loop.call_later(self.settings.tasks.idle_timeout_s,
-                                                lambda: asyncio.ensure_future(self._close_session(task_id)))
+            runner.idle_timer = loop.call_later(timeout if timeout is not None else self.settings.tasks.idle_timeout_s,
+                                                lambda: self._closing(self._close_session(task_id)))
 
     async def _close_session(self, task_id: int):
         runner = self.runners.get(task_id)

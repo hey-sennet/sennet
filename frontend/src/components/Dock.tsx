@@ -1,6 +1,7 @@
 import { type ComponentProps, useEffect, useRef, useState } from 'react'
 import { ArrowUp, AudioLines, Keyboard, ListTodo, Square } from 'lucide-react'
 import { toast } from 'sonner'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useVoice } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
@@ -33,6 +34,13 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
   useEffect(() => {
     if (typing) input.current?.focus()
   }, [typing])
+
+  // Typing a request takes longer than starting an agent: start it as the type bar opens.
+  const targetKey = JSON.stringify(target)
+  useEffect(() => {
+    if (typing && Object.keys(target).length) api.prewarm(target).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per target, not per render
+  }, [typing, targetKey])
 
   const send = async () => {
     if (!text.trim() || busy || disabled) return

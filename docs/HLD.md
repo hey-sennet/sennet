@@ -164,6 +164,14 @@ become the single adapter path. Decide after the Codex adapter works natively.
 - Global limit on concurrent agent processes (configurable, default 3).
 - Shared local inference (STT, TTS) is one instance each, with priority
   STT > TTS. Agent processes are never blocked by speech work.
+- Agent processes start before their message where one is likely coming: when a voice
+  turn begins or the type bar opens. A follow-up warms the task's own session; a new task
+  warms one spare session per project, which the task takes over if it was started with
+  the same agent, policy and model. Unused, either closes after two minutes. When an
+  interrupt ends the agent's process (Claude Code's ends on SIGINT), the session is
+  resumed at once. A new process costs 1.3–1.9 s before the first words, and saying a
+  request takes longer than that (`spikes/latency`). The concurrency limit counts running
+  tasks, not these idle processes.
 
 ### 4.4 Approvals
 

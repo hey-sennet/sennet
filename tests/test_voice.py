@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -141,6 +142,21 @@ def test_a_turn_starts_a_task_in_the_project(client, voice, project):
     task = wait_for(client, final["task_id"], lambda t: t["messages"])
     assert task["messages"][0]["text"] == "run the tests in backend"
     assert client.app.state.voice.owner(final["task_id"]) is session(client)
+
+
+def test_the_agent_starts_while_the_request_is_still_being_said(client, voice, project, codex_log):
+    voice.send(type="start", turn="t1", project_id=project["id"])
+    assert voice.next("voice_state")["state"] == "listening"
+    deadline = time.monotonic() + 10
+    while not codex_log("thread/start"):
+        assert time.monotonic() < deadline, "the agent wasn't started early"
+        time.sleep(0.02)
+    for _ in range(50):
+        voice.ws.send_bytes(SPEECH_FRAME)
+    voice.send(type="end", turn="t1")
+    final = voice.next("final")
+    wait_for(client, final["task_id"], lambda t: t["status"] == "completed")
+    assert len(codex_log("thread/start")) == 1  # the task took over the process started early
 
 
 def test_a_turn_follows_up_on_the_selected_task(client, voice, project):

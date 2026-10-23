@@ -4,6 +4,7 @@ Messages are shaped like the spike's transcripts (spikes/claude). The whole adap
 runs against tests/fake_claude.py in the contract tests.
 """
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -282,11 +283,16 @@ def test_cancelling_interrupts_and_the_next_message_resumes(live, tmp_path, clau
     wait_for(live, started["id"], lambda t: any(e["kind"] == "command_started" for e in t["events"]))
     live.post(f"/api/tasks/{started['id']}/cancel")
     cancelled = wait_for(live, started["id"], settled("cancelled"))
+    # SIGINT ended the process; the session is resumed straight away, before any follow-up.
+    deadline = time.monotonic() + 10
+    while len(claude_log("argv")) < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    second = claude_log("argv")[1]
+    assert second[second.index("--resume") + 1] == cancelled["resume_token"]
     live.post(f"/api/tasks/{started['id']}/messages", json={"text": "still there?"})
     done = wait_for(live, started["id"], settled())
     assert done["messages"][-1]["text"] == "You said: still there?"
-    second = claude_log("argv")[1]
-    assert second[second.index("--resume") + 1] == cancelled["resume_token"]
+    assert len(claude_log("argv")) == 2  # the follow-up used the resumed process
 
 
 def test_access_and_mode_reach_claude(live, tmp_path, claude_log):
