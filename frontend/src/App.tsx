@@ -9,6 +9,7 @@ import { TaskDetail } from '@/components/TaskDetail'
 import { TaskList } from '@/components/TaskList'
 import { useAgents } from '@/lib/agents'
 import { api, type ModelChoice } from '@/lib/api'
+import { approvalsHere, useMine } from '@/lib/mine'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { voice, type Target } from '@/voice/voice'
@@ -38,6 +39,7 @@ export default function App() {
   const live = useLiveState()
   const desktop = useDesktop()
   const [selected, setSelected] = useState<number | null>(null)
+  const [mine, remember] = useMine()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [homeProjectId, setHomeProjectId] = useState<number | null>(null)
   const [typing, setTyping] = useState(false)
@@ -73,6 +75,7 @@ export default function App() {
     const v = voice()
     const offError = v.onError((message) => toast.error(message))
     const offFinal = v.socket.on((message) => {
+      if (message.type === 'final' && message.outcome === 'dispatched' && message.task_id) remember(message.task_id)
       if (message.type === 'final' && message.outcome === 'dispatched' && selectedRef.current === null && message.task_id) {
         setSelected(message.task_id)
         setDraft({ project_id: null, model: null, effort: null })
@@ -94,6 +97,8 @@ export default function App() {
   }, [live.tasks, live.connection, selected])
 
   const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
+  // The stage asks only about this device's tasks; another device may be following the rest.
+  const { here, elsewhere } = approvalsHere(live.approvals, selected, mine)
 
   // The drawer follows the newest output however it grows, unless you've scrolled up to read
   // something earlier; a new message, or another task, brings it back to the bottom.
@@ -217,11 +222,13 @@ export default function App() {
         project={project}
         task={task}
         detail={detail}
-        approvals={live.approvals}
+        approvals={here}
+        elsewhere={elsewhere}
         tasks={live.tasks}
         projects={live.projects}
         compact={typing}
         onClearTask={newTask}
+        onSelectTask={setSelected}
         onAddProject={() => setSettingsOpen(true)}
         className="lg:col-start-2 lg:row-start-2"
       />
@@ -232,9 +239,13 @@ export default function App() {
         disabled={!project}
         placeholder={task ? 'Follow up on this task' : homeProject ? `Ask ${homeProject.agent} to do something in ${homeProject.name}` : 'Add a project first'}
         onSend={async (text) => {
-          if (selected !== null) await api.followUp(selected, text)
-          else if (homeProject) {
-            setSelected((await api.createTask(homeProject.id, text, nextChoice)).id)
+          if (selected !== null) {
+            await api.followUp(selected, text)
+            remember(selected)
+          } else if (homeProject) {
+            const created = await api.createTask(homeProject.id, text, nextChoice)
+            remember(created.id)
+            setSelected(created.id)
             setDraft({ project_id: null, model: null, effort: null })
           }
         }}

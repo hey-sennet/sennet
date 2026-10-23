@@ -192,9 +192,12 @@ The fixed flow from HLD §4.4:
   only the card shows. The card and the voice are both live; whichever answers first
   wins, and the other side follows the `approval` event on `/api/events`.
 - The question isn't spoken. The client plays a short chime (a low singing bowl, tapped
-  twice) as the approval's card shows, on any device, over any speech still playing
-  (which dips under it), and again for each approval after it; the card says what the
-  agent wants to do.
+  twice) as the approval's card shows, over any speech still playing (which dips under
+  it), and again for each approval after it; the card says what the agent wants to do.
+- The card and chime show on a device for its selected task's approvals, or, with no
+  task selected, for the tasks that device started or followed up (kept in the browser).
+  Other devices show a quiet "Another task needs you" line instead, with no chime, which
+  selects the task so it can be answered there too.
 - The question takes its place among replies like speech: after anything already queued,
   and never during a turn. When its turn comes the server sends `asking`, and from then
   the session's next turn answers it instead of going to a task. A turn open before then

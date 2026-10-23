@@ -20,16 +20,18 @@ const voiceSources = { user: voice().source, agent: voice().playback.source }
  * goes to the selected task, or starts a new one in `project`. Beneath it, in order: what is
  * being said, an approval waiting on you, then the selected task's progress or last reply.
  */
-export function Stage({ target, project, task, detail, approvals, tasks, projects, compact, onClearTask, onAddProject, className }: {
+export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, onClearTask, onSelectTask, onAddProject, className }: {
   target: Target
   project?: Project
   task?: Task
   detail: TaskDetail | null
-  approvals: Approval[]
+  approvals: Approval[] // the ones this device asks about: its selected task's, or the tasks it started
+  elsewhere: Approval[] // waiting on tasks another device may be following
   tasks: Task[]
   projects: Project[]
   compact: boolean // typing: the disc steps back, as it does for an approval
   onClearTask: () => void
+  onSelectTask: (id: number) => void // makes it the one this device asks about
   onAddProject: () => void
   className?: string
 }) {
@@ -123,6 +125,14 @@ export function Stage({ target, project, task, detail, approvals, tasks, project
           )}
         </p>
         <div className="min-h-[4.5em] font-serif text-[clamp(26px,6vw,34px)]">{body}</div>
+        {!approval && elsewhere[0] && (
+          // Quiet, with no chime: the device following that task asks. This one can still answer.
+          <button className="mt-3 inline-flex items-center gap-1.5 text-[13px] text-warn hover:underline"
+            onClick={() => onSelectTask(elsewhere[0].task_id)}>
+            <span className="size-1.5 rounded-full bg-warn" />
+            {elsewhere.length > 1 ? `${elsewhere.length} other approvals need you` : `Another task needs you${projectOf(elsewhere[0].task_id) ? ` in ${projectOf(elsewhere[0].task_id)!.name}` : ''}`}
+          </button>
+        )}
       </div>
     </main>
   )

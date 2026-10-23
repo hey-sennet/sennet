@@ -62,6 +62,41 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   expect(external).toEqual([])
 })
 
+test('an approval is asked on the device that started its task; another sees a quiet line', async ({ page, browser }, info) => {
+  const name = `elsewhere-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  expect((await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })).ok()).toBe(true)
+  const other = await browser.newContext({ ...info.project.use })
+  const phone = await other.newPage()
+  const chimes: string[] = []
+  phone.on('request', (request) => {
+    if (/approval-chime/.test(request.url())) chimes.push(request.url())
+  })
+  await phone.goto('/')
+  await expect(phone.getByTitle('Connected')).toBeVisible()
+
+  await page.goto('/')
+  await page.getByLabel('Project').selectOption({ label: name })
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
+  await composer.fill('run:npm test')
+  await composer.press('Enter')
+  await expect(page.getByRole('main').getByText(`${name} wants to run a command`)).toBeVisible()
+
+  // The other device didn't start it: no card and no chime, just a line that opens the task.
+  const line = phone.getByRole('main').getByRole('button', { name: /Another task needs you|other approvals need you/ })
+  await expect(line).toBeVisible()
+  await expect(phone.getByRole('main').getByText(`${name} wants to run a command`)).toHaveCount(0)
+  expect(chimes).toEqual([])
+  await line.click() // selects the task here, so it asks here too, and can be answered
+  const stage = phone.getByRole('main')
+  await expect(stage.getByText(`${name} wants to run a command`)).toBeVisible()
+  await stage.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(page.getByRole('main').getByText('Ran it.')).toBeVisible()
+  await other.close()
+})
+
 test('add a Claude Code project, and it reports work it left running', async ({ page }, info) => {
   const name = `claude-${info.project.name}`
   const directory = path.join(home, name)
