@@ -13,7 +13,9 @@ import { OpusDownlink, OpusUplink, opusSupport, parseOpusFrame } from './opus'
 import { Playback, parseFrame } from './playback'
 import { VoiceSocket, type Codec, type SpeechStatus, type VoiceMessage, type VoiceState } from './socket'
 
-const RELEASE_MIC_AFTER_MS = 60_000
+// An open mic with echo cancellation puts a phone in call mode, quieter and duller, so it closes
+// soon after a turn: long enough for the last frame to be sent, and before the reply plays.
+const RELEASE_MIC_AFTER_MS = 1_000
 const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session is quiet
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
 const CHIME_S = 1.4 // approval-chime.mp3
