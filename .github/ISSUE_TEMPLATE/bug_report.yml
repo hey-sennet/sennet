@@ -1,0 +1,45 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. For a security problem, don't open an issue: see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      placeholder: |
+        1. Select the project...
+        2. Say "..."
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `sennet doctor`
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      placeholder: Claude Code 2.1.309, or codex-cli 0.161.0
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      placeholder: Chrome 141 on Android, Firefox on the same Linux machine
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: From `sennet service logs`, if it shows anything. Look it over first; it can contain your project paths and what you asked the agents.
+      render: text

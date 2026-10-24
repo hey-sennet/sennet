@@ -47,6 +47,44 @@ gives the computer an HTTPS address on it. Nothing is exposed to the internet.
 
 `sennet doctor` checks each of these.
 
+To set it up by hand instead, or after the fact:
+
+```sh
+tailscale status                   # this computer is on the tailnet
+tailscale serve --bg 7710          # pass its HTTPS address on to Sennet
+tailscale serve status             # shows https://<machine>.<tailnet>.ts.net → 127.0.0.1:7710
+```
+
+then put that address in `config.toml` as `server.public_url` (see Caddy below), and run
+`sennet service restart` and `sennet pair`.
+
+On the phone, open the address in Chrome (Android) or Safari (iOS). Add it to the home
+screen to open Sennet like an app. Safari hasn't been tested with conversations yet;
+push-to-talk is the safer choice there.
+
+### When the phone can't reach Sennet
+
+- **The page doesn't load.** Check the phone is on the tailnet: the Tailscale app is on
+  and signed in to the same account or tailnet as the computer. Then check
+  `tailscale serve status` on the computer still lists port 7710, and
+  `sennet service status` says Sennet answers on it.
+- **A certificate error, or `tailscale serve` waits forever.** HTTPS certificates aren't
+  turned on for the tailnet. Turn on MagicDNS and HTTPS in the admin console's DNS page,
+  then run `tailscale serve --bg 7710` again. The first load of a new address can take a
+  few seconds while the certificate is issued.
+- **"Access denied" from `tailscale serve`** (Linux). Run
+  `sudo tailscale set --operator=$USER` once, then try again.
+- **It loads, but asks to pair.** Every browser pairs once. Run `sennet pair` and scan
+  the QR code, or type the code. If the QR code is missing, `server.public_url` isn't
+  set.
+- **It loads, but the mic doesn't work.** The address must be `https://`; browsers
+  block the microphone on plain `http://` everywhere but `localhost`. Check the site's
+  microphone permission in the browser's settings.
+- **Voice stops when the phone locks or you switch apps.** Mobile browsers cut a
+  background page's microphone. Keep Sennet in front while you talk.
+- **It worked, then stopped after you logged out** (Linux). The service stops at logout
+  unless you run `loginctl enable-linger`.
+
 ## Caddy
 
 Caddy gets a certificate for your domain by itself, passes WebSockets through, and keeps

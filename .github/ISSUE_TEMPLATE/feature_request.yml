@@ -1,0 +1,19 @@
+name: Idea or feature
+description: Suggest something Sennet could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you'd like to do
+      description: What you're trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work
+  - type: markdown
+    attributes:
+      value: |
+        Some things are settled: agents on your own subscription, local speech, and no model guessing where a request goes. See "What Sennet is, and isn't" in CONTRIBUTING.md, and docs/roadmap.md for what's already planned.

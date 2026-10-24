@@ -30,8 +30,9 @@ results, in a version the agent writes to be heard.
   choose when a GPU or Apple Silicon is available.
 
 Scope for v1: Linux and macOS, English only, push-to-talk and open-mic conversations
-(§6.5), phone and desktop browsers over HTTPS (Tailscale recommended, any reverse proxy
-works). Deferred: wake word, Windows, native mobile apps, other languages.
+(§6.5), an optional wake word heard in the browser, phone and desktop browsers over HTTPS
+(Tailscale recommended, any reverse proxy works), Codex and Claude Code. Deferred: Gemini
+CLI, Windows, native mobile apps, other languages ([roadmap](roadmap.md)).
 
 ## 2. Architecture
 

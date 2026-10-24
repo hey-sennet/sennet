@@ -1,11 +1,23 @@
 [project]
 name = "sennet"
 dynamic = ["version"]   # from src/sennet/__init__.py
-description = "Talk to your coding agents: a self-hosted voice interface for Codex, Claude Code and Gemini CLI"
+description = "Talk to your coding agents: a self-hosted voice interface for Codex and Claude Code"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICES"]
 requires-python = ">=3.12"
+authors = [{ name = "The Sennet contributors" }]
+keywords = ["voice", "coding agents", "codex", "claude code", "speech recognition", "self-hosted"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -20,6 +32,12 @@ dependencies = [
     "questionary>=2",
     "segno>=1.6",
 ]
+
+[project.urls]
+Homepage = "https://github.com/hey-sennet/sennet"
+Documentation = "https://github.com/hey-sennet/sennet/tree/main/docs"
+Issues = "https://github.com/hey-sennet/sennet/issues"
+Changelog = "https://github.com/hey-sennet/sennet/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 cpu = ["onnxruntime>=1.20,!=1.24.1,!=1.25.*,!=1.26.0"]

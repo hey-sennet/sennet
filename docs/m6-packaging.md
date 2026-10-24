@@ -237,8 +237,9 @@ newest Python it could (3.14, against `>=3.12`), and the speech stack worked on 
   it. Nothing holds the name until the first real publish. Still to do before release:
   a USPTO and UK IPO search for SENNET in classes 9 and 42, and a domain (sennet.com,
   .dev, .io and .app are taken; getsennet.com looked free).
-- **The repository.** There's no remote yet; CI and trusted publishing need the GitHub
-  repository it will live in (the `sennet` user is taken; `sennet-dev` was free).
+- **The repository.** It will be `github.com/hey-sennet/sennet`, under a GitHub
+  organization (the `sennet` user is taken). Not created yet; CI and trusted publishing
+  need it.
 - **Linger by default?** Off by default is safer, but a desktop that is left logged out
   is a common case for "talk to my machine from my phone".
 - **macOS speech.** The `cpu` extra's onnxruntime includes CoreML on macOS, but no tier

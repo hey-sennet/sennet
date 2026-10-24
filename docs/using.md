@@ -1,0 +1,121 @@
+# Using Sennet
+
+## The screen
+
+The disc in the middle shows who's talking: cream lines move with your voice, blue with
+the agent's, and amber when an approval is waiting. Your words appear under it as you
+speak, and the agent's as it replies.
+
+The label above your words says where they'll go: a new task in the selected project, or
+a follow-up to the selected task. Beside it is the model the agent will use; tap it to
+pick another model or effort, for the next new task or for the selected task's next
+message.
+
+The dock along the bottom has, from left to right:
+
+- **New task** (`N`): the next request starts a new task instead of following up.
+- **Wake word**, when one is set up: listen for it.
+- **Conversation**: open the mic, so you can just talk.
+- **Type instead** (`/`): a keyboard, for when you can't talk.
+- **Tasks**: every task, with its status, timeline, commands and file changes.
+
+## Projects and tasks
+
+A request goes to a **project**: a directory with an agent and a name you can say. Add
+projects with `sennet project add` or in Settings. Each request starts a **task**, which
+keeps its conversation with the agent, so follow-ups pick up where it left off. A project
+runs one task at a time, and later requests to it queue. Up to three tasks run at once
+across projects (`tasks.max_concurrent`).
+
+To aim a request:
+
+- **Select** a project or task on screen, then talk. With a task selected, what you say
+  is a follow-up to it.
+- **Name the project first**, with a comma or colon after it: "In backend, add a health
+  check." or "API: why is the login test failing?" Sennet sends the rest, word for word.
+  Without the comma or colon it's an ordinary request, so "API docs need updating" isn't
+  sent to a project called API.
+
+Nothing guesses where a request should go. If there's no project selected or named,
+Sennet says so instead of picking one.
+
+## Talking
+
+**Push to talk.** Hold the disc (or, with it focused, the space bar) while you speak, and let go to send.
+Slide off the disc before letting go to throw the turn away.
+
+**Conversations.** Tap the conversation button and just talk; Sennet decides when you've
+finished from your words and pauses, not from silence alone. Speaking over a reply stops
+it, and what you said is sent. A lone word, or "wait" or "hang on", only stops the reply.
+A conversation closes after five minutes with nobody talking. Holding the disc during a
+conversation keeps the turn open, through pauses, until you let go.
+
+**The wake word.** If you chose one in setup, tap the wake word button and Sennet
+listens for the phrase in the browser. Saying it opens a conversation, which closes
+again after 10 seconds of quiet. Nothing leaves the browser until the phrase is heard.
+
+Use headphones or a quiet room for conversations. Sennet cancels its own echo, but a loud
+speaker next to the mic can still cut a reply short.
+
+## What you hear
+
+The agent is asked to say what it's going to do, give short updates as it works, and
+start a long reply with a version written to be heard. That version is what's read out;
+the full reply is in the timeline. Code, paths and links are left out of speech, and
+symbols are said as words.
+
+## Approvals
+
+What an agent may do without asking depends on the project's **approval mode** and
+**access**, both set in Settings (or as defaults in [config.toml](configuration.md)).
+
+| Mode | What happens |
+| --- | --- |
+| Ask first (`ask`, the default) | The agent asks before running anything outside its trusted set. |
+| Auto within its access (`auto`) | It works freely within its access and asks only to go beyond it. |
+| Never ask (`never`) | Nothing is asked. Anything that needs more access fails. |
+| Classifier decides (`classifier`) | Claude Code only. Its own safety classifier allows or blocks each action. It isn't a sandbox, so it can reach outside the project. |
+
+Access is **read only**, **this project** (the agent may edit the project directory, the
+default) or **full**. Codex enforces it with its own sandbox. Claude Code's sandbox
+doesn't run everywhere, so Sennet uses its permission modes instead, which is stricter in
+two cases: with `auto` it asks before commands that aren't read-only, and with `never`
+it can't run them at all.
+
+When the agent asks, a chime plays and a card shows what it wants to do. Answer on the
+card or by voice:
+
+- "yes", "yeah", "okay", "go ahead": approve
+- "no", "nope", "don't": decline
+- "always": approve, and remember it for the project (say, `npm test`)
+- "cancel": stop the task
+
+Something hard to undo, like `git push` or `rm`, is always asked, even if you said
+"always" before, and after "yes" Sennet asks you to say "confirm". Remembered approvals
+are listed in Settings, where you can forget them.
+
+Claude Code loads your own settings, but not a project's `.claude/settings.json` hooks
+or `.mcp.json` servers, which would run without asking. Turn them on per project in
+Settings, for projects you trust.
+
+## Voice commands
+
+These are acted on by Sennet itself, never sent to an agent, when they're all you say:
+
+| Say | What it does |
+| --- | --- |
+| "stop", "stop speaking", "be quiet" | Stops speech. |
+| "cancel", "cancel that" | Interrupts the selected task. |
+| "read me the details", "details", "read it all" | Reads the last reply in full. |
+| a project's name on its own | Nothing; name it with your request ("in backend, …"). |
+
+## Background work
+
+When Claude Code leaves a command running in the background, the task shows "Working in
+the background". When the command ends, a chime plays and the agent's report is read out.
+
+## More than one device
+
+Pair as many browsers as you like. A reply is spoken only on the device that asked.
+Approvals show with a chime on the device that started the task; other devices show a
+quiet "Another task needs you" line, which you can tap to answer there instead.
