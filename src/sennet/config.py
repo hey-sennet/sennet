@@ -81,6 +81,7 @@ class ApprovalSettings:
     # ask: the agent asks before anything outside its trusted set; you answer.
     # auto: the agent works freely within its access level and asks only to go beyond it.
     # never: nothing is asked; anything beyond the access level fails.
+    # classifier: the agent's own safety classifier decides each action (Claude Code only).
     mode: str = "ask"
     # read-only, workspace (may edit the project directory) or full.
     access: str = "workspace"

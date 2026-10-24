@@ -4,7 +4,7 @@
 // background: the turn is over, but work the agent started goes on (it may report it in a turn of its own).
 export type TaskStatus = 'queued' | 'running' | 'awaiting_approval' | 'background' | 'completed' | 'failed' | 'cancelled' | 'unknown'
 export type Decision = 'approve' | 'approve_always' | 'decline' | 'cancel'
-export type ApprovalMode = 'ask' | 'auto' | 'never'
+export type ApprovalMode = 'ask' | 'auto' | 'never' | 'classifier'
 export type Access = 'read-only' | 'workspace' | 'full'
 export type TurnStatus = 'completed' | 'cancelled' | 'failed'
 export type ItemStatus = 'running' | 'completed' | 'failed' | 'declined'
@@ -228,7 +228,7 @@ export const api = {
     request<Project>('POST', '/api/projects', body),
   chooseModel: (id: number, model: string | null, effort: string | null) =>
     request<Task>('PATCH', `/api/tasks/${id}`, { model, effort }),
-  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'project_config' | 'model' | 'effort'>>) =>
+  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'access' | 'project_config' | 'model' | 'effort'>>) =>
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
   directories: (path?: string) =>

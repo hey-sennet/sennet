@@ -156,6 +156,9 @@ def test_api_retries_are_errors_that_retry():
     ("never", "workspace", "dontAsk", []),
     ("never", "read-only", "dontAsk", ["Edit", "Write", "NotebookEdit"]),
     ("never", "full", "bypassPermissions", []),
+    ("classifier", "workspace", "auto", []),
+    ("classifier", "read-only", "auto", ["Edit", "Write", "NotebookEdit"]),
+    ("classifier", "full", "auto", []),
 ])
 def test_policy_maps_to_permission_modes(mode, access, expected_mode, extra):
     args = permission_args(TurnPolicy(mode, access), CWD)

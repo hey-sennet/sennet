@@ -110,7 +110,7 @@ outside an adapter sees a provider's words:
 | Command and file change status | `running`, `completed`, `failed`, `declined` |
 | File change kind | `add`, `delete`, `update`, `move` |
 | Plan step status | `pending`, `active`, `done` |
-| Approval mode | `ask`, `auto`, `never` (§4.4) |
+| Approval mode | `ask`, `auto`, `never`, `classifier` (§4.4) |
 | Access level | `read-only`, `workspace` (edit the project directory), `full` |
 | Approval request | `command` (the command as typed, unwrapped, and whether it only reads), `edit` (paths and changes), `tool` (any other tool, by name, with a short input), `access` (network or paths beyond the access level) |
 
@@ -183,6 +183,7 @@ Approval requests from any task go through one policy engine:
 | `auto` | The agent works freely within its access level and asks only to go beyond it. Codex: `on-request`. |
 | `allow-always` rules | Remembered decisions, e.g. "always allow `npm test` in backend". Created by saying "approve always" / tapping "Always". Scoped to project + command prefix or tool/file pattern. Viewable and revocable in Settings. |
 | `never` | Full auto. Maps to the agent's own non-interactive mode (e.g. Codex `approval_policy = never`). Anything beyond the access level fails. Clearly marked in UI. |
+| `classifier` | Nothing asked up front: the agent's own safety classifier allows or blocks each action. Claude Code: `--permission-mode auto`. Not a sandbox, so it can reach past `workspace`; read-only still holds. Codex has no such mode. |
 
 Policy is set globally, then per project, then per agent. Each request is classified
 as read / edit / execute / network / destructive (`rm`, `git push`, force flags…, and

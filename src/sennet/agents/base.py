@@ -29,7 +29,9 @@ TurnStarter = Literal["user", "agent"]
 #   ask:   asks before anything outside the agent's own trusted set
 #   auto:  works freely within its access level, asks only to go beyond it
 #   never: never asks; anything beyond its access level fails
-ApprovalMode = Literal["ask", "auto", "never"]
+#   classifier: the agent's own safety classifier allows or blocks each action, nothing asked
+#               up front (Claude Code's auto mode); not a sandbox, so it can reach past `workspace`
+ApprovalMode = Literal["ask", "auto", "never", "classifier"]
 # What the agent may touch: read-only, edit the project directory, or anything.
 Access = Literal["read-only", "workspace", "full"]
 APPROVAL_MODES: tuple[str, ...] = get_args(ApprovalMode)

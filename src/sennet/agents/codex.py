@@ -360,8 +360,10 @@ class CodexAgent:
     title = "Codex"
     default_command = ["codex", "app-server"]
     # Interrupts, resumes threads, and asks mid-turn in every mode. Its work ends with its turn.
+    # It has no classifier to hand approvals to.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
-                                approval_modes=APPROVAL_MODES, access_levels=ACCESS_LEVELS,
+                                approval_modes=tuple(m for m in APPROVAL_MODES if m != "classifier"),
+                                access_levels=ACCESS_LEVELS,
                                 background_turns=False, project_config=False, live_model_change=True)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):

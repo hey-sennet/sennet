@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { refreshAgents, useAgents } from '@/lib/agents'
-import { api, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
+import { api, type Access, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Devices } from './Devices'
 import { FolderBrowser } from './FolderBrowser'
@@ -16,12 +16,27 @@ const MODES: { value: ApprovalMode | ''; label: string }[] = [
   { value: 'ask', label: 'Ask first' },
   { value: 'auto', label: 'Auto within its access' },
   { value: 'never', label: 'Never ask' },
+  { value: 'classifier', label: 'Classifier decides' },
 ]
 
 const MODE_HELP: Record<ApprovalMode, string> = {
   ask: 'The agent asks before running anything outside its trusted set.',
   auto: 'The agent works freely within its access level and asks only to go beyond it.',
   never: 'Nothing is asked. Actions that need more access fail instead.',
+  classifier: 'Nothing is asked up front: the agent\'s own safety classifier allows or blocks each action. It isn\'t a sandbox, so it can reach outside the project.',
+}
+
+const ACCESS: { value: Access | ''; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: 'read-only', label: 'Read only' },
+  { value: 'workspace', label: 'This project' },
+  { value: 'full', label: 'Full access' },
+]
+
+const ACCESS_HELP: Record<Access, string> = {
+  'read-only': 'The agent may read, but not change files.',
+  workspace: 'The agent may change files in this project.',
+  full: 'The agent may do anything you can.',
 }
 
 // The main screen's shapes: pills for controls, rounded cards for rows.
@@ -86,7 +101,8 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
         <Section title="Projects" hint="The spoken name and aliases are how you'll pick a project by voice." order={2}>
           <div className="flex flex-col gap-2">
             {projects.map((project) => (
-              <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'} agents={agents} />
+              <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'}
+                defaultAccess={settings?.approvals.access ?? 'workspace'} agents={agents} />
             ))}
             {!projects.length && <p className="text-sm text-muted-foreground">No projects yet.</p>}
           </div>
@@ -157,15 +173,18 @@ function Section({ title, hint, order, children }: { title: string; hint?: strin
   )
 }
 
-function ProjectRow({ project, defaultMode, agents }: {
+function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
   project: Project
   defaultMode: ApprovalMode
+  defaultAccess: Access
   agents: Record<string, AgentStatus> | null  // unknown until they load
 }) {
   const capabilities = agents?.[project.agent]?.capabilities
   const supported = capabilities?.approval_modes
   const mode = project.approval_mode ?? defaultMode
+  const access = project.access ?? defaultAccess
   const unsupported = (value: ApprovalMode | '') => !!supported && !supported.includes(value || defaultMode)
+  const noAccess = (value: Access | '') => !!capabilities && !capabilities.access_levels.includes(value || defaultAccess)
   return (
     <div className={cn(card, 'px-4 py-3.5')}>
       <div className="flex items-start justify-between gap-3">
@@ -215,6 +234,26 @@ function ProjectRow({ project, defaultMode, agents }: {
         <span className="basis-full">{MODE_HELP[mode]}</span>
         {unsupported(project.approval_mode ?? '') && (
           <span className="basis-full text-warn">{project.agent} doesn't support this mode, so its tasks won't start.</span>
+        )}
+      </label>
+      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        Access
+        <select
+          className={field}
+          value={project.access ?? ''}
+          onChange={(event) => attempt(() => api.updateProject(project.id, { access: (event.target.value || null) as Access | null }),
+            'Could not update the project')}
+        >
+          {ACCESS.map((a) => (
+            <option key={a.value} value={a.value} disabled={noAccess(a.value)}>
+              {a.value === '' ? `Default (${ACCESS.find((x) => x.value === defaultAccess)?.label})` : a.label}
+              {noAccess(a.value) ? ` (not supported by ${project.agent})` : ''}
+            </option>
+          ))}
+        </select>
+        <span className="basis-full">{ACCESS_HELP[access]}</span>
+        {access === 'full' && (mode === 'auto' || mode === 'never') && (
+          <span className="basis-full text-warn">Nothing is checked: the agent runs any command and edits any file without asking.</span>
         )}
       </label>
       {(capabilities?.project_config || project.project_config) && (

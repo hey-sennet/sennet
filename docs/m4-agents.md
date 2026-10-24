@@ -125,7 +125,10 @@ rule takes `//`, and a bare `Edit` rule allows edits anywhere):
 | `ask` | `default`, edit tools denied | `default` | `default` |
 | `auto` | `default`, edit tools denied | `acceptEdits` | `bypassPermissions` |
 | `never` | `dontAsk`, edit tools denied | `dontAsk`, `Edit(//<project>/**)` allowed | `bypassPermissions` |
+| `classifier` | `auto`, edit tools denied | `auto` | `auto` |
 
+`classifier` is Claude Code's auto mode: its own classifier allows or blocks each action, so
+it isn't confined to the project the way `workspace` is elsewhere. Codex has no such mode.
 `never` also passes `--permission-prompts none`. Two combinations are stricter than
 Codex's: `auto` + `workspace` asks before commands that aren't read-only (Codex runs
 them in its sandbox), and `never` + `workspace` can't run them at all. The adapter

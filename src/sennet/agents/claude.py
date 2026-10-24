@@ -64,8 +64,12 @@ def permission_args(policy: TurnPolicy, cwd: Path) -> list[str]:
 
     Claude's bash sandbox would map `workspace` exactly, but it doesn't run everywhere
     (nested user namespaces), so access is enforced with modes and path-scoped rules.
+    `classifier` is Claude's auto mode at every access level: its classifier, not Sennet, judges
+    each action, and only read-only still holds as a rule.
     """
-    if policy.access == "full":
+    if policy.mode == "classifier":
+        mode = "auto"
+    elif policy.access == "full":
         mode = "default" if policy.mode == "ask" else "bypassPermissions"
     elif policy.mode == "never":
         mode = "dontAsk"
