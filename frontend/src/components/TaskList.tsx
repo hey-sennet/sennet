@@ -24,13 +24,14 @@ export function relativeTime(seconds: number): string {
  * finished task is deleted with the trash button its row shows on hover, or on a touch screen
  * by swiping its row left.
  */
-export function TaskList({ tasks, projects, approvals, agents, selected, more, onSelect, onShowMore, onFound }: {
+export function TaskList({ tasks, projects, approvals, agents, selected, more, unheard, onSelect, onShowMore, onFound }: {
   tasks: Task[]
   projects: Project[]
   approvals: Approval[]
   agents: Record<string, AgentStatus> | null
   selected: number | null
   more: boolean // older finished tasks to page through
+  unheard?: ReadonlySet<number> // tasks with a reply that wasn't spoken, being off screen
   onSelect: (id: number) => void
   onShowMore: () => Promise<void>
   onFound: (tasks: Task[]) => void // a task opened from search, which the list may not have yet
@@ -81,7 +82,10 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, o
         }}>
         <StatusDot status={status} className="mt-[7px] size-[7px]" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm leading-snug">{task.title}</p>
+          <p className="flex items-center gap-2 text-sm leading-snug">
+            <span className="truncate">{task.title}</span>
+            {unheard?.has(task.id) && <span role="img" aria-label="New reply" className="size-1.5 shrink-0 rounded-full bg-agent" />}
+          </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {names.get(task.project_id) ?? 'Removed project'} · {STATUS_LABELS[status].toLowerCase()} · {relativeTime(task.updated_at)}
           </p>

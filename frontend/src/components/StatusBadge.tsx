@@ -2,12 +2,13 @@ import type { TaskStatus } from '@/lib/api'
 import { STATUS_LABELS } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
-// Strata's palette: cream while working, amber when it needs you, quiet once settled.
+// Strata's palette: blue while working, as the stage says "Working", amber when it needs you,
+// quiet once settled.
 const TONES: Record<TaskStatus, string> = {
   queued: 'text-muted-foreground',
-  running: 'text-foreground',
+  running: 'text-agent',
   awaiting_approval: 'text-warn',
-  background: 'text-foreground',
+  background: 'text-agent',
   completed: 'text-muted-foreground',
   failed: 'text-destructive',
   cancelled: 'text-muted-foreground',

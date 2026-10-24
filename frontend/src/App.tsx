@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type UIEvent } from 'react'
 import { ChevronLeft, ChevronRight, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -6,7 +6,7 @@ import { Dock } from '@/components/Dock'
 import { ProjectMenu } from '@/components/ProjectMenu'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Stage } from '@/components/Stage'
-import { TaskDetail } from '@/components/TaskDetail'
+import { StopTask, TaskDetail } from '@/components/TaskDetail'
 import { TaskList } from '@/components/TaskList'
 import { useAgents } from '@/lib/agents'
 import { api, type ModelChoice } from '@/lib/api'
@@ -73,14 +73,29 @@ export default function App() {
   useEffect(() => {
     selectedRef.current = selected
   }, [selected])
+  // Tasks with a reply that wasn't spoken, being about a task not on screen. Opening one clears it.
+  const [unheard, setUnheard] = useState<ReadonlySet<number>>(() => new Set())
+  if (selected !== null && unheard.has(selected)) {
+    const next = new Set(unheard)
+    next.delete(selected)
+    setUnheard(next)
+  }
+  const replyElsewhere = live.tasks.some((t) => unheard.has(t.id))
   useEffect(() => {
     const v = voice()
     const offError = v.onError((message) => toast.error(message))
     const offFinal = v.socket.on((message) => {
       if (message.type === 'final' && message.outcome === 'dispatched' && message.task_id) remember(message.task_id)
-      if (message.type === 'final' && message.outcome === 'dispatched' && selectedRef.current === null && message.task_id) {
+      // The task spoken to, or whose approval was answered by voice, is the one on screen, whose
+      // replies are spoken (the server takes it so too).
+      if (message.type === 'final' && (message.outcome === 'dispatched' || (message.outcome === 'approval' && message.decision))
+        && message.task_id && selectedRef.current !== message.task_id) {
+        if (selectedRef.current === null) setDraft({ project_id: null, model: null, effort: null })
         setSelected(message.task_id)
-        setDraft({ project_id: null, model: null, effort: null })
+      }
+      if (message.type === 'unheard' && message.task_id !== selectedRef.current) {
+        const id = message.task_id
+        setUnheard((current) => (current.has(id) ? current : new Set(current).add(id)))
       }
     })
     return () => {
@@ -116,8 +131,9 @@ export default function App() {
   // The stage asks only about this device's tasks; another device may be following the rest.
   const { here, elsewhere } = approvalsHere(live.approvals, selected, mine)
 
-  // The drawer follows the newest output however it grows, unless you've scrolled up to read
-  // something earlier; a new message, or another task, brings it back to the bottom.
+  // The drawer, or on a phone the sheet's task, opens at the newest output and follows it however
+  // it grows, unless you've scrolled up to read something earlier; a new message, or another
+  // task, brings it back to the bottom.
   const panelRef = useRef<HTMLDivElement>(null)
   const panelContentRef = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -126,16 +142,24 @@ export default function App() {
     const el = panelRef.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }
+  const trackPanel = (event: UIEvent<HTMLDivElement>) => {
+    // Only scrolling up lets go: output landing before this event fires leaves a gap below too.
+    const el = event.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) pinned.current = true
+    else if (el.scrollTop < panelTop.current) pinned.current = false
+    panelTop.current = el.scrollTop
+  }
+  const hasDetail = detail !== null
   useLayoutEffect(() => {
     pinned.current = true
     followPanel()
-  }, [selected, detail?.messages.length])
+  }, [selected, detail?.messages.length, sheet, hasDetail])
   useEffect(() => {
     if (!panelContentRef.current) return
     const observer = new ResizeObserver(followPanel)
     observer.observe(panelContentRef.current)
     return () => observer.disconnect()
-  }, [desktop])
+  }, [desktop, sheet, hasDetail])
 
   // Keys on a keyboard: N for a new task, / to type, Escape to close what's open. Not while
   // typing in a field or a dialog is up, and never with a modifier held.
@@ -159,14 +183,19 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const openTask = (id: number) => {
+  // Moving yourself, not by talking, leaves the last words behind with the task they were about.
+  const select = (id: number | null) => {
+    if (id !== selectedRef.current) voice().leave(id)
     setSelected(id)
+  }
+  const openTask = (id: number) => {
+    select(id)
     if (desktop) setPanelOpen(true)
     else setSheet('task')
   }
   const newTask = () => {
     if (task) setHomeProjectId(task.project_id) // the header showed the task's project: start there
-    setSelected(null)
+    select(null)
     setPanelOpen(false)
   }
   useEffect(() => {
@@ -201,7 +230,7 @@ export default function App() {
 
   const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
   const timeline = detail && (
-    <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals}
+    <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals} stop={desktop}
       project={live.projects.find((p) => p.id === detail.project_id)} />
   )
 
@@ -219,7 +248,7 @@ export default function App() {
           {live.projects.length > 0 && homeProject && (
             <ProjectMenu projects={live.projects} current={project ?? homeProject} agents={agents} onChange={(id) => {
               setHomeProjectId(id)
-              setSelected(null)
+              select(null)
             }} />
           )}
           <ConnectionDot connection={live.connection} />
@@ -233,15 +262,17 @@ export default function App() {
         <aside aria-label="Tasks" className="relative col-start-1 row-span-2 row-start-2 mb-6 min-h-0">
           <button
             className="absolute top-1/2 -right-10 z-10 -mt-8 flex h-16 w-7 flex-col items-center justify-center gap-1 rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
-            aria-label={railOpen ? 'Hide tasks' : `Show tasks${activeTasks ? `, ${activeTasks} active` : ''}${live.approvals.length ? `, ${live.approvals.length} need${live.approvals.length === 1 ? 's' : ''} you` : ''}`}
+            aria-label={railOpen ? 'Hide tasks' : `Show tasks${activeTasks ? `, ${activeTasks} active` : ''}${live.approvals.length ? `, ${live.approvals.length} need${live.approvals.length === 1 ? 's' : ''} you` : ''}${replyElsewhere ? ', a new reply' : ''}`}
             title={railOpen ? 'Hide tasks' : 'Show tasks'} aria-expanded={railOpen}
             onClick={() => setRailOpen(!railOpen)}
           >
-            {/* Closed, it says what the phone's tasks glyph does: how many are working, and whether one needs you. */}
+            {/* Closed, it says what the phone's tasks glyph does: how many are working, and whether one needs you
+                or has a reply you didn't hear. */}
             {!railOpen && activeTasks > 0 && <span className="text-[11px] leading-none font-medium tabular-nums">{activeTasks}</span>}
             <ChevronRight className={cn('size-3.5 transition-transform duration-600 ease-strata', railOpen && 'rotate-180')} />
-            {!railOpen && live.approvals.length > 0 && (
-              <span className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-background bg-warn" />
+            {!railOpen && (live.approvals.length > 0 || replyElsewhere) && (
+              <span className={cn('absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-background',
+                live.approvals.length > 0 ? 'bg-warn' : 'bg-agent')} />
             )}
           </button>
           <div className={cn('absolute inset-y-0 right-0 flex w-[280px] flex-col pr-4 pl-6 transition-opacity duration-400 ease-strata',
@@ -254,7 +285,7 @@ export default function App() {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto opacity-90">
               <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} agents={agents} selected={selected}
-                more={live.more_tasks} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
+                more={live.more_tasks} unheard={unheard} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
             </div>
 
           </div>
@@ -273,7 +304,7 @@ export default function App() {
         compact={typing}
         model={modelMenu}
         limit={limit}
-        onSelectTask={setSelected}
+        onSelectTask={select}
         onAddProject={() => setSettingsOpen(true)}
         className="lg:col-start-2 lg:row-start-2"
       />
@@ -298,6 +329,7 @@ export default function App() {
         onNewTask={selected !== null ? newTask : undefined}
         activeTasks={activeTasks}
         needsYou={live.approvals.length > 0}
+        replyElsewhere={replyElsewhere}
         onOpenTasks={desktop ? undefined : () => setSheet(selected !== null ? 'task' : 'list')}
         className="lg:col-start-2 lg:row-start-3"
       />
@@ -314,14 +346,7 @@ export default function App() {
           {/* The padding keeps the scrollbar clear of the rounded corners. */}
           <div className={cn('h-full w-[min(400px,34vw)] overflow-hidden rounded-[26px] border bg-card py-5 transition-opacity duration-400 ease-strata',
             panelOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} inert={!panelOpen}>
-            <div ref={panelRef} className="h-full overflow-y-auto overscroll-contain px-6 py-1"
-              onScroll={(event) => {
-                // Only scrolling up lets go: output landing before this event fires leaves a gap below too.
-                const el = event.currentTarget
-                if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) pinned.current = true
-                else if (el.scrollTop < panelTop.current) pinned.current = false
-                panelTop.current = el.scrollTop
-              }}>
+            <div ref={panelRef} className="h-full overflow-y-auto overscroll-contain px-6 py-1" onScroll={trackPanel}>
               <div ref={panelContentRef}>
                 {timeline ?? <p className="text-sm text-muted-foreground">Pick a task from the list to see what it did.</p>}
               </div>
@@ -337,21 +362,29 @@ export default function App() {
           <section
             aria-label="Tasks"
             inert={sheet === 'closed'}
-            className={cn('fixed inset-x-2 bottom-2 z-30 max-h-[86dvh] overflow-y-auto rounded-[26px] border bg-card/95 px-[18px] pt-2.5 pb-[18px] backdrop-blur-xl',
+            className={cn('fixed inset-x-2 bottom-2 z-30 flex max-h-[86dvh] flex-col overflow-hidden rounded-[26px] border bg-card/95 pt-2.5 backdrop-blur-xl',
               'transition-transform duration-650 ease-strata', sheet === 'closed' ? 'translate-y-[110%]' : 'translate-y-0')}
           >
-            <button className="mx-auto mb-1.5 block h-4 w-12" aria-label="Close" onClick={() => setSheet('closed')}>
-              <span className="mx-auto block h-1 w-9 rounded-full bg-foreground/15" />
-            </button>
+            {/* Out of the scroll, so the task's actions are there however far down you are. */}
+            <div className="shrink-0 px-[18px]">
+              <button className="mx-auto mb-1.5 block h-4 w-12" aria-label="Close" onClick={() => setSheet('closed')}>
+                <span className="mx-auto block h-1 w-9 rounded-full bg-foreground/15" />
+              </button>
+              {sheet === 'task' && detail && (
+                <div className="mt-1 mb-2 flex h-8 items-center justify-between">
+                  <button className="-ml-1 inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setSheet('list')}>
+                    <ChevronLeft className="size-3.5" /> Tasks
+                  </button>
+                  <StopTask detail={detail} className="-mr-2.5" />
+                </div>
+              )}
+            </div>
             {sheet === 'task' && timeline ? (
-              <div className="pt-1">
-                <button className="mb-3.5 -ml-1 inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setSheet('list')}>
-                  <ChevronLeft className="size-3.5" /> Tasks
-                </button>
-                {timeline}
+              <div ref={panelRef} className="min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-1.5 pb-[18px]" onScroll={trackPanel}>
+                <div ref={panelContentRef}>{timeline}</div>
               </div>
             ) : (
-              <>
+              <div className="min-h-0 overflow-y-auto overscroll-contain px-[18px] pb-[18px]">
                 <div className="mb-1 flex items-center justify-between">
                   <p className="eyebrow pl-3 text-muted-foreground">Tasks</p>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => { newTask(); setSheet('closed') }}>
@@ -359,8 +392,8 @@ export default function App() {
                   </Button>
                 </div>
                 <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} agents={agents} selected={selected}
-                more={live.more_tasks} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
-              </>
+                more={live.more_tasks} unheard={unheard} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
+              </div>
             )}
           </section>
         </>

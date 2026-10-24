@@ -106,6 +106,7 @@ def session(client) -> VoiceSession:
 
 def speak(client, *segments, task_id=None):
     voice_session = session(client)
+    voice_session.selected = task_id  # on screen: only its replies are spoken
     client.portal.call(lambda: voice_session.speak(list(segments), task_id=task_id))
 
 
@@ -399,6 +400,37 @@ def test_a_reply_is_spoken_with_tagged_frames(client, voice, speech):
     assert {(kind, generation) for kind, _, generation, _ in decoded} == {(frames.AUDIO, 0)}
     assert [segment for _, segment, _, _ in decoded] == [0, 0, 0, 1, 1, 1]
     assert sum(len(samples) for _, _, _, samples in decoded) == int(24000 * 0.6)
+
+
+def test_a_reply_about_a_task_not_on_screen_is_not_spoken(client, voice, speech):
+    speech.tts.gate.set()
+    voice.send(type="target", task_id=7)
+    voice_session = session(client)
+    client.portal.call(lambda: voice_session.speak(["From the other task."], task_id=8))
+    client.portal.call(lambda: voice_session.speak(["From this one."], task_id=7))
+    assert voice.next("unheard") == {"type": "unheard", "task_id": 8}
+    speech_message = voice.next("speech")
+    assert (speech_message["reply"], speech_message["text"]) == (2, "From this one.")
+
+
+def test_a_reply_asked_for_is_spoken_whichever_task_is_on_screen(client, voice, speech):
+    speech.tts.gate.set()
+    voice.send(type="target", task_id=7)
+    voice_session = session(client)
+    client.portal.call(lambda: voice_session.speak(["The details."], task_id=8, asked=True))
+    assert voice.next("speech")["text"] == "The details."
+
+
+def test_moving_to_another_task_stops_its_reply_at_the_next_sentence(client, voice, speech):
+    voice.send(type="target", task_id=7)
+    voice_session = session(client)
+    client.portal.call(lambda: voice_session.speak(["One.", "Two."], task_id=7))
+    assert voice.next("speech")["segment"] == 0  # the second sentence is held meanwhile
+    voice.send(type="target", task_id=9)
+    voice.send(type="ping")  # answered after the target is taken
+    voice.next("voice_error")
+    speech.tts.gate.set()
+    assert voice.next("unheard") == {"type": "unheard", "task_id": 7}
 
 
 def voice_log(caplog, level=logging.INFO):

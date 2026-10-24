@@ -71,6 +71,7 @@ class Reply:
     approval_id: int | None = None  # set on an approval question, which is never dropped
     cancelled: bool = False         # the approval was answered elsewhere
     cue: bool = False               # the client chimes before it: nothing was asked for
+    asked: bool = False             # asked for here ("read me the details"): said whichever task is on screen
     # Its trace, for the line logged when it ends (`_finished`).
     queued_at: float = field(default_factory=time.monotonic)
     waited: float = 0.0             # for an open turn to close
@@ -119,6 +120,7 @@ class VoiceSession:
         self.floor = asyncio.Event()  # set while no turn is open; speech waits for it
         self.floor.set()
         self.conversation: Conversation | None = None
+        self.selected: int | None = None  # the task on this device's screen: only its replies are spoken
         self.replies_made = 0
         self.sending = False          # a reply's segments are going out
         self.last_sent: tuple[int, int] | None = None  # (reply, segment) last sent, until the client drains it
@@ -221,8 +223,10 @@ class VoiceSession:
             log.info("voice %s: the device's audio is %s%s", self.id[:4], message.get("state"),
                      " (page hidden)" if message.get("hidden") else "")
         elif kind == "target":
-            if self.conversation is not None and (target := await self._target(message)) is not None:
-                self.conversation.retarget(target)
+            if (target := await self._target(message)) is not None:
+                self.selected = target["task_id"]
+                if self.conversation is not None:
+                    self.conversation.retarget(target)
         else:
             await self.error("bad_message", f"unknown message type {kind!r}")
 
@@ -315,6 +319,7 @@ class VoiceSession:
             return
         if (target := await self._target(message, turn_id)) is None:
             return
+        self.selected = target["task_id"]
         if self.conversation is not None:
             await self.interrupt()  # talking stops any speech (voice-protocol §7)
             await self.conversation.hold(turn_id, target)
@@ -335,6 +340,7 @@ class VoiceSession:
     async def _open_conversation(self, message: dict):
         if (target := await self._target(message)) is None:
             return
+        self.selected = target["task_id"]
         if self.conversation is not None:
             self.conversation.retarget(target)
             await self.send(type="mic", open=True)
@@ -497,9 +503,10 @@ class VoiceSession:
     # Speech out
 
     def speak(self, segments: list[str], task_id: int | None = None, approval_id: int | None = None,
-              cue: bool = False, streaming: bool = False) -> Reply | None:
+              cue: bool = False, streaming: bool = False, asked: bool = False) -> Reply | None:
         """Queue a reply, spoken once no turn is open, after any reply before it. With `cue`, the
-        client chimes first. A `streaming` reply takes more segments (`Reply.append`) until closed."""
+        client chimes first. A `streaming` reply takes more segments (`Reply.append`) until closed.
+        A reply about a task that isn't on screen isn't spoken (`_elsewhere`), unless it was `asked`."""
         segments = [s for s in segments if s.strip()]
         if not segments:
             return None
@@ -508,7 +515,7 @@ class VoiceSession:
                   task_id, len(segments), "" if len(segments) == 1 else "s", " so far" if streaming else "",
                   " ".join(segments))
         reply = Reply(self.replies_made, segments, self.generation, task_id, approval_id, cue=cue,
-                      streaming=streaming)
+                      streaming=streaming, asked=asked)
         self.replies.put_nowait(reply)
         return reply
 
@@ -572,6 +579,9 @@ class VoiceSession:
             elif reply.generation != self.generation:
                 log.debug("voice %s: reply %d dropped, queued before a stop or a turn", self.id[:4], reply.id)
                 continue  # queued before a stop or a new turn
+            if self._elsewhere(reply):
+                await self._unheard(reply)
+                continue
             if not reply.segments:
                 self.asking.started = True  # nothing to say: from here the next turn answers it
                 self.asking.asked_at = time.monotonic()
@@ -599,6 +609,17 @@ class VoiceSession:
                 self.settle_timer = asyncio.get_running_loop().call_later(
                     max(delay, 0) + 0.05, lambda: asyncio.ensure_future(self._settle()))
             await self._settle()
+
+    def _elsewhere(self, reply: Reply) -> bool:
+        """A reply about a task other than the one on screen: not spoken. Approvals are still asked."""
+        return (reply.task_id is not None and reply.task_id != self.selected
+                and reply.approval_id is None and not reply.asked)
+
+    async def _unheard(self, reply: Reply):
+        """Tell the client there's a reply it didn't hear, so it can mark the task."""
+        log.info("voice %s: reply %d (task %s) not spoken: task %s is on screen", self.id[:4], reply.id,
+                 reply.task_id, self.selected)
+        await self.send(type="unheard", task_id=reply.task_id)
 
     async def _more(self, reply: Reply, index: int) -> bool:
         """Whether segment `index` is there to play, waiting for it while the reply is streaming."""
@@ -638,6 +659,9 @@ class VoiceSession:
                 # Synthesize one segment ahead of what is being sent, and no further.
                 upcoming = synthesize(reply.segments[index + 1]) if index + 1 < len(reply.segments) else None
                 if self.generation != generation or reply.cancelled:
+                    return
+                if self._elsewhere(reply):  # its task was left mid-reply
+                    await self._unheard(reply)
                     return
                 if upcoming is not None and (pause := pause_after(text)):
                     audio = np.concatenate([audio, np.zeros(int(pause * tts.rate), audio.dtype)])

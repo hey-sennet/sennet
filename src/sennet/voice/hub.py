@@ -161,6 +161,7 @@ class VoiceHub:
                                 turn.id)
             return {"outcome": "failed"}
         self.owners[task["id"]] = session
+        session.selected = task["id"]  # the task just spoken to is the one on screen (App selects it)
         message = self.tasks.db.one("SELECT id FROM task_messages WHERE task_id = ? AND role = 'user' "
                                     "ORDER BY id DESC LIMIT 1", task["id"])
         self.requests[message["id"]] = session
@@ -176,7 +177,7 @@ class VoiceHub:
         if message is None:
             await session.error("no_target", "there's no reply to read yet; choose a task first", turn.id)
             return {"outcome": "failed"}
-        session.speak(clauses(for_speech(without_spoken(message["text"]))), task_id=task_id)
+        session.speak(clauses(for_speech(without_spoken(message["text"]))), task_id=task_id, asked=True)
         return {"outcome": "details", "task_id": task_id}
 
     async def _answer(self, session: VoiceSession, current: Asking, text: str) -> dict:
@@ -214,10 +215,13 @@ class VoiceHub:
             # Answered on the card while this turn was being transcribed.
             session.withdraw(approval["id"])
             return {"outcome": "approval", "approval_id": approval["id"], "decision": None}
+        # Answered by voice, its task is the one on screen: what it says next is heard (App selects it).
+        session.selected = approval["task_id"]
         # The acknowledgement goes first; withdrawing queues the next question, if any.
-        session.speak(asking.acknowledge(decision, current.project), task_id=approval["task_id"])
+        session.speak(asking.acknowledge(decision, current.project), task_id=approval["task_id"], asked=True)
         session.withdraw(approval["id"])
-        return {"outcome": "approval", "approval_id": approval["id"], "decision": decision}
+        return {"outcome": "approval", "approval_id": approval["id"], "decision": decision,
+                "task_id": approval["task_id"]}
 
     async def _dispatch(self, turn: Turn, text: str, named_project: int | None) -> dict | None:
         """A named project wins over the selection, unless the selected task is in it. The turn's

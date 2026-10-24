@@ -69,6 +69,10 @@ conversation keeps the turn open, through pauses, until you let go.
 listens for the phrase in the browser. Saying it opens a conversation, which closes
 again after 10 seconds of quiet. Nothing leaves the browser until the phrase is heard.
 
+Only the task on screen is spoken. A reply on any other task is kept quiet, and a blue
+dot on the task, and on the tasks button, shows there's something to read; it clears when
+you open the task. The task you just spoke to is the one on screen.
+
 Use headphones or a quiet room for conversations. Sennet cancels its own echo, but a loud
 speaker next to the mic can still cut a reply short.
 
@@ -141,7 +145,8 @@ Each task shows the tokens it has used, in and out, beside its project.
 ## Background work
 
 When Claude Code leaves a command running in the background, the task shows "Working in
-the background". When the command ends, a chime plays and the agent's report is read out.
+the background". When the command ends, a chime plays and the agent's report is read out, if that task is
+on screen; otherwise the task gets its blue dot.
 
 ## More than one device
 

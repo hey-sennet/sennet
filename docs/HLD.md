@@ -126,7 +126,7 @@ report it (`turn_started` with `by: "agent"`). The task is `background` meanwhil
 follow-ups run as usual, the process isn't closed for idleness, and cancelling stops
 it, which ends the work. The agent's own turn runs like any other, messages queued
 during it go after it, and its reply is spoken on the task's owner after the approval
-chime. Background work doesn't survive a restart.
+chime, if the task is on its screen (voice-protocol §9). Background work doesn't survive a restart.
 
 Each adapter lists its models and their reasoning efforts (`models()`). A project sets
 a default model and effort, a task may override them, and a change applies from the

@@ -73,6 +73,8 @@ export class Voice {
   // Each reply's segment texts, by the server's reply id. Frames belong to the latest `speech`
   // message: the server sends a segment's `speech` and then its frames, in order, on one socket.
   private readonly replyText = new Map<number, string[]>()
+  private readonly replyTask = new Map<number, number | null>() // what each reply is about
+  private playingTask: number | null = null // the task of the reply last started
   private heard: { reply: number; segment: number } | null = null
   private lastStarted: { reply: number; segment: number } | null = null // reported in `drained`
   private wordsTimer: ReturnType<typeof setTimeout> | null = null
@@ -81,7 +83,7 @@ export class Voice {
     speaking: false, state: 'idle', words: null, wakePhrase: null, wake: 'off',
   }
   private detector: WakeDetector | null = null
-  private wakeTarget: Target = {}
+  private selection: Target = {} // what is on screen: the wake word opens a conversation with it
   private woken = false // the open conversation is the wake word's: it closes once things go quiet
   private wakeTimer: ReturnType<typeof setTimeout> | null = null
   private wakeLock: WakeLockSentinel | null = null
@@ -182,7 +184,7 @@ export class Voice {
    */
   async listenForWake(target: Target) {
     if (this.snapshot.wake !== 'off') return
-    this.wakeTarget = target
+    this.selection = target
     this.playback.unlock() // replies to what's said after the wake word play without a tap
     if (this.snapshot.stt !== 'ready' || !this.snapshot.turnReady) {
       this.fail(this.snapshot.connected ? 'The wake word needs speech recognition and turn detection. Run `sennet setup`.'
@@ -227,7 +229,7 @@ export class Voice {
   private woke() {
     if (this.snapshot.wake !== 'on' || this.snapshot.conversation || this.turn || this.ending) return
     if (this.snapshot.speaking) this.stop() // as talking over a reply would
-    if (this.beginConversation(this.wakeTarget)) this.woken = true
+    if (this.beginConversation(this.selection)) this.woken = true
   }
 
   closeConversation() {
@@ -236,10 +238,11 @@ export class Voice {
     this.endConversation()
   }
 
-  /** The selection changed: the next turn of an open conversation goes there. */
+  /** The selection changed: only its task's replies are spoken here, and the next turn of an
+   *  open conversation goes there. */
   retarget(target: Target) {
-    this.wakeTarget = target
-    if (this.snapshot.conversation) this.socket.send({ type: 'target', ...target })
+    this.selection = target
+    this.socket.send({ type: 'target', ...target })
   }
 
   /** Start a turn. Talking interrupts any speech (the server stops it on `start`). */
@@ -298,6 +301,15 @@ export class Voice {
     this.socket.send({ type: 'cancel', turn: this.turn })
     this.dropStream()
     this.endTurn()
+  }
+
+  /** You moved to another task (`to`) or a new one (null): the words under the disc were about
+   *  the one you left, so they go, unless you are still saying them. */
+  leave(to: number | null) {
+    if (!this.snapshot.listening && this.snapshot.words) this.update({ words: null })
+    // The server says no more about a task once it isn't on screen, but what it already sent is
+    // here, queued to play: stop it, unless it is about the task being opened.
+    if (this.snapshot.speaking && this.playingTask !== to) this.stop()
   }
 
   /** Stop speaking. Agent work carries on. */
@@ -443,6 +455,7 @@ export class Voice {
       this.replyText.clear() // reply ids start again with the session
       this.heard = this.lastStarted = null
       this.outputRate = message.output.rate
+      this.socket.send({ type: 'target', ...this.selection }) // the new session's task on screen
       this.useCodecs({ uplink: 'pcm_s16le', downlink: 'pcm_s16le' })
       void this.negotiate(message.codecs ?? [])
     }
@@ -488,7 +501,10 @@ export class Voice {
         this.playback.resume()
         this.fail('Your phone paused Sennet\'s audio. Tap the screen to hear the reply.')
       }
-      if (message.segment === 0) this.replyText.set(message.reply, [])
+      if (message.segment === 0) {
+        this.replyText.set(message.reply, [])
+        this.replyTask.set(message.reply, message.task_id)
+      }
       this.replyText.get(message.reply)?.push(message.text)
       this.heard = { reply: message.reply, segment: message.segment }
     }
@@ -523,6 +539,8 @@ export class Voice {
   /** A segment started playing: its reply so far is said, the segments queued behind it are not yet. */
   private spoken(reply: number, segment: number) {
     for (const old of this.replyText.keys()) if (old < reply) this.replyText.delete(old)
+    for (const old of this.replyTask.keys()) if (old < reply) this.replyTask.delete(old)
+    this.playingTask = this.replyTask.get(reply) ?? null
     const segments = this.replyText.get(reply) ?? []
     this.update({ words: { speaker: 'agent', committed: segments.slice(0, segment + 1).join(' '),
       provisional: segments.slice(segment + 1).join(' ') } })

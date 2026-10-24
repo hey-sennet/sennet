@@ -13,7 +13,7 @@ const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border bord
  * server has a model), the conversation glyph and a keyboard glyph that grows into a type bar; on the right stop while a reply plays,
  * and on phones the tasks glyph that opens the sheet.
  */
-export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, target, onNewTask, activeTasks, needsYou, onOpenTasks, className }: {
+export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, target, onNewTask, activeTasks, needsYou, replyElsewhere, onOpenTasks, className }: {
   typing: boolean
   onTypingChange: (typing: boolean) => void
   placeholder: string
@@ -23,6 +23,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
   onNewTask?: () => void // set while following up a task: what's said next starts a new one instead
   activeTasks: number
   needsYou: boolean
+  replyElsewhere: boolean // a task not on screen has a reply that wasn't spoken
   onOpenTasks?: () => void
   className?: string
 }) {
@@ -144,7 +145,9 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
           <button type="button" className={cn(glyph, 'relative', typing && 'pointer-events-none absolute right-5 opacity-0')}
             aria-label="Tasks" title="Tasks" onClick={onOpenTasks}>
             {activeTasks ? <span className="text-[13px] font-medium tabular-nums">{activeTasks}</span> : <ListTodo />}
-            {needsYou && <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-background bg-warn" />}
+            {(needsYou || replyElsewhere) && (
+              <span className={cn('absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-background', needsYou ? 'bg-warn' : 'bg-agent')} />
+            )}
           </button>
         )}
       </div>

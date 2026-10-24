@@ -41,6 +41,34 @@ test('hold to talk starts a task from what was said', async ({ page }, info) => 
   await expect(stage.getByText('Following up')).toBeVisible()
 })
 
+test('a new task starts blank, without the words sent to the last one', async ({ page }, info) => {
+  const name = `voice-blank-${info.project.name}`
+  await addProject(page, name)
+  await page.goto('/')
+  await chooseProject(page, name)
+  // A task that keeps working, so the words said to it linger while it does.
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
+  await composer.fill('hang')
+  await composer.press('Enter')
+  const stage = page.getByRole('main')
+  await expect(stage.getByRole('button', { name: 'Stop task' })).toBeVisible()
+
+  const talk = page.getByRole('button', { name: 'Hold to talk' })
+  await talk.hover()
+  await page.mouse.down()
+  await expect(page.locator('[data-speaker="user"]', { hasText: HEARD })).toBeVisible()
+  await page.mouse.up()
+  await expect(page.locator('[data-speaker="user"]')).toHaveCount(0) // sent: the task's progress shows
+
+  await page.getByTitle('New task (N)', { exact: true }).click()
+  await expect(stage.getByText('New task', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-speaker="user"]')).toHaveCount(0)
+  for (const task of (await (await page.request.get('/api/state')).json()).tasks) {
+    if (task.title === 'hang') await page.request.post(`/api/tasks/${task.id}/cancel`, { headers: { 'X-Sennet': '1' } })
+  }
+})
+
 test('tap to start and tap again to send a follow-up', async ({ page }, info) => {
   const name = `voice-tap-${info.project.name}`
   await addProject(page, name)

@@ -94,3 +94,25 @@ describe('words under the disc', () => {
   })
 })
 
+
+describe('leaving a task', () => {
+  function playing(taskId: number) {
+    const { voice, played } = voiceWithPlayback()
+    server({ type: 'speech', reply: 1, generation: 0, segment: 0, text: 'A long reply.', task_id: taskId, approval_id: null })
+    audio(0)
+    played.mock.calls[0][2]() // its first audio starts playing
+    voice.playback.onPlayingChange(true)
+    return voice
+  }
+  const stops = () => FakeSocket.last.sent.filter((m) => typeof m === 'string' && JSON.parse(m).type === 'stop').length
+
+  it('silences what was already sent about the task left', () => {
+    playing(1).leave(null)
+    expect(stops()).toBe(1)
+  })
+
+  it('lets a reply about the task being opened play on', () => {
+    playing(2).leave(2)
+    expect(stops()).toBe(0)
+  })
+})

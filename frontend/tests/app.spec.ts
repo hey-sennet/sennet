@@ -143,6 +143,34 @@ test('the list starts with the latest finished tasks and shows more on asking', 
   await expect(earlier.getByText(texts[0], { exact: true })).toBeVisible()
 })
 
+test('on a phone, a long task opens at its latest, with the way back and its stop button in reach', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'the tasks sheet is the phone\'s')
+  const name = `long-${info.project.name}`
+  await finishedTasks(page, name, ['long 0'])
+  const headers = { 'X-Sennet': '1' }
+  const task = (await (await page.request.get('/api/state')).json()).tasks.find((t: { title: string }) => t.title === 'long 0')
+  for (let i = 1; i <= 15; i++) {
+    await page.request.post(`/api/tasks/${task.id}/messages`, { data: { text: `long ${i}` }, headers })
+    await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).status).toBe('completed')
+  }
+  await page.request.post(`/api/tasks/${task.id}/messages`, { data: { text: 'hang' }, headers }) // still working
+  await page.goto('/')
+  const sheet = await openList(page)
+  await sheet.getByText('long 0', { exact: true }).click()
+  await expect(sheet.getByText('You said: long 15')).toBeInViewport()
+  await expect(sheet.getByText('You said: long 0')).not.toBeInViewport()
+  const stop = sheet.getByRole('button', { name: 'Stop task' })
+  await expect(stop).toBeInViewport()
+  await sheet.getByText('You said: long 0').scrollIntoViewIfNeeded()
+  await expect(stop).toBeInViewport()
+  await stop.click()
+  await expect(stop).toHaveCount(0)
+  const back = sheet.getByRole('button', { name: 'Tasks', exact: true })
+  await expect(back).toBeInViewport()
+  await back.click()
+  await expect(sheet.getByRole('searchbox', { name: 'Search tasks' })).toBeVisible()
+})
+
 test('search finds a task by what was said in it, typos and all', async ({ page }, info) => {
   const word = `quokka${info.project.name}`
   await finishedTasks(page, `search-${info.project.name}`, [`feed the ${word} at noon`, 'something else'])

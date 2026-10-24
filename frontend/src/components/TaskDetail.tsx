@@ -18,11 +18,12 @@ const VISIBLE_EVENTS = new Set(['command_finished', 'file_change', 'plan', 'erro
  * A task's timeline (design/README.md): your request in a bubble, then commands with their results,
  * files edited and the agent's reply set for reading. The task's own approvals sit at the end.
  */
-export function TaskDetail({ detail, streaming, project, approvals }: {
+export function TaskDetail({ detail, streaming, project, approvals, stop = true }: {
   detail: Detail
   streaming: string
   project?: Project
   approvals: Approval[]
+  stop?: boolean // false where the stop button is pinned above the timeline instead (the phone's sheet)
 }) {
   const active = detail.status === 'running' || detail.status === 'awaiting_approval'
 
@@ -37,14 +38,6 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
     return [...messages, ...events].sort((a, b) => a.at - b.at)
   }, [detail.messages, detail.events])
 
-  const cancel = async () => {
-    try {
-      await api.cancel(detail.id)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not cancel')
-    }
-  }
-
   return (
     <div>
       <p className="text-xs text-muted-foreground">
@@ -58,11 +51,7 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
       <h2 className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
       <div className="mt-2.5 flex items-center justify-between gap-3">
         <StatusBadge status={detail.status} />
-        {(active || detail.status === 'queued' || detail.status === 'background') && (
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={cancel}>
-            <Square className="fill-current" /> Stop task
-          </Button>
-        )}
+        {stop && <StopTask detail={detail} />}
       </div>
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
@@ -82,6 +71,23 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
         {detail.error && <li className="text-sm text-destructive">{detail.error}</li>}
       </ol>
     </div>
+  )
+}
+
+/** Stops a task that is working, queued or in the background; nothing for a finished one. */
+export function StopTask({ detail, className }: { detail: Detail; className?: string }) {
+  if (!['running', 'awaiting_approval', 'queued', 'background'].includes(detail.status)) return null
+  const cancel = async () => {
+    try {
+      await api.cancel(detail.id)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not cancel')
+    }
+  }
+  return (
+    <Button variant="ghost" size="sm" className={cn('text-muted-foreground', className)} onClick={cancel}>
+      <Square className="fill-current" /> Stop task
+    </Button>
   )
 }
 

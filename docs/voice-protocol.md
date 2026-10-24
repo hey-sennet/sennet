@@ -144,8 +144,8 @@ ignored.
 `final.outcome` is one of:
 
 - `dispatched`: sent to `task_id` (a follow-up, or the task created for `project_id`).
-- `approval`: taken as the answer to the approval being asked (§8). `approval_id` replaces
-  `task_id`, and `decision` is `approve`, `approve_always`, `decline` or `cancel`, or null
+- `approval`: taken as the answer to the approval being asked (§8). `approval_id` says
+  which, `task_id` is its task (which becomes the one on screen, §9), and `decision` is `approve`, `approve_always`, `decline` or `cancel`, or null
   when the card answered first while the turn was being transcribed.
 - `reprompt`: an approval was being asked and the words weren't a clear answer, or
   "always" can't apply. The question is put again. `confirm: true` when a destructive
@@ -227,7 +227,13 @@ The fixed flow from HLD §4.4:
   "cancel that") isn't dispatched. "Stop" stops speech; "cancel" interrupts the selected
   task, and fails with `no_target` when none is selected. Both end with outcome `stop`.
 - Each agent message is spoken as it arrives, on the session that dispatched the
-  request and on no other, split into whole sentences (HLD §6.4). Markdown, code
+  request and on no other, split into whole sentences (HLD §6.4).
+- Only the task on screen is heard. A reply about any other task isn't spoken, and the
+  session sends `unheard` instead, so the client can mark the task. The task on screen is
+  the one `target`, `start` or `open_mic` last named; dispatching a request, or answering
+  an approval by voice, makes its task the one on screen (the client selects it too).
+  Moving to another task stops its reply at the next sentence. Approval questions, their
+  acknowledgements and "read me the details" are said whatever is on screen. Markdown, code
   blocks, inline code, URLs, file paths and commit hashes are stripped or replaced
   with a short word ("a code block", "a commit"). Symbols are said as words ("$24" is "24 dollars",
   "£3.50" "3 pounds 50", "~5%" "about 5 percent", "->" "to"); emoji are dropped.
@@ -283,7 +289,8 @@ works as before when no conversation is open.
 | Message | Direction | Meaning |
 | --- | --- | --- |
 | `{"type": "open_mic", "task_id": 12, "project_id": 3, "model": null, "effort": null}` | client → server | Open a conversation for this target. Fails with `turn_unavailable` without end-of-turn detection, or `busy` during a push-to-talk turn. Opening it again changes the target. |
-| `{"type": "target", …}` | client → server | The selection changed: the same fields as `open_mic`, for the next turn. |
+| `{"type": "target", …}` | client → server | The selection changed: the same fields as `open_mic`. Sent on every change and on `ready`, conversation or not: it is the task on screen, whose replies are spoken (§9), and an open conversation's next turn goes there. |
+| `{"type": "unheard", "task_id": 12}` | server → client | A reply about this task wasn't spoken, as it isn't on screen (§9). |
 | `{"type": "close_mic"}` | client → server | Close it. A turn still being heard is dropped; one being transcribed finishes. |
 | `{"type": "mic", "open": true}` | server → client | Opened, or `"open": false` with `reason` `closed`, `idle` (five minutes with nobody talking, Sennet included) or `error` (listening failed; the client says so). |
 | `{"type": "turn", "turn": "s3"}` | server → client | The server opened a turn. Captions, `voice_state` and `final` follow as for any turn. `"manual": true` when it is the user's press holding it (below). |

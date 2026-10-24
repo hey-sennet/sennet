@@ -17,6 +17,7 @@ export type VoiceMessage =
   | { type: 'speech'; reply: number; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null
       cue?: boolean }
   | { type: 'asking'; approval_id: number }
+  | { type: 'unheard'; task_id: number } // a reply about a task not on screen, not spoken
   | { type: 'speech_end'; reply: number; generation: number }
   | { type: 'stopped'; generation: number }
   | { type: 'barge_in'; generation: number }
@@ -30,7 +31,7 @@ export type Control =
   | ({ type: 'start'; turn: string } & TargetFields)
   | { type: 'end' | 'cancel'; turn: string }
   | { type: 'stop' }
-  | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation (docs/voice-protocol.md §12)
+  | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation, and the task on screen (docs/voice-protocol.md §9, §12)
   | { type: 'close_mic' }
   | { type: 'codecs'; uplink: Codec; downlink: Codec } // §3: PCM unless the client asks for Opus
   | { type: 'played' | 'drained'; reply: number; segment: number } // §4: began playing; ran out after it
