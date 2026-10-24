@@ -13,7 +13,7 @@ from sennet.server import create_app
 from sennet.speech import Speech
 from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeVAD
 from sennet.voice import conversation
-from conftest import HEADERS, paired, pending_approval, wait_for
+from conftest import HEADERS, paired, wait_for
 from test_voice import SPEECH_FRAME, Voice, client, nothing_spoken, session, speak, speech, voice  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.timeout(20)
@@ -219,21 +219,20 @@ def test_stop_over_a_reply_stops_it(client, voice, speech, project):
     speech.stt.transcript = "Stop."
     sound(voice, 0.4)
     quiet(voice, 1.0)
-    assert voice.next("final")["outcome"] == "stop"
+    assert voice.next("final")["outcome"] == "interrupted"
 
 
-def test_sennets_own_voice_is_not_taken_for_a_command(client, voice, speech, project, monkeypatch):
+def test_sennets_own_voice_is_not_sent(client, voice, speech, project):
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
     wait_for(client, task["id"], lambda t: t["status"] == "completed")
-    cancelled = []
-    monkeypatch.setattr(client.app.state.tasks, "cancel", lambda task_id: cancelled.append(task_id))
     open_mic(voice, task_id=task["id"])
     reply_playing(client, voice, "Should I cancel that and start again from the top?")
     speech.stt.transcript = "cancel that"  # what the microphone picked up of the reply
     sound(voice, 0.4)
     quiet(voice, 1.0)
     assert voice.next("final")["outcome"] == "empty"
-    assert cancelled == []
+    messages = client.get(f"/api/tasks/{task['id']}").json()["messages"]
+    assert [m["text"] for m in messages if m["role"] == "user"] == ["add a test"]
 
 
 def test_a_barge_in_hushes_the_rest_of_the_agents_turn(client, voice, speech, project):
@@ -243,7 +242,7 @@ def test_a_barge_in_hushes_the_rest_of_the_agents_turn(client, voice, speech, pr
     speech.stt.transcript = "Stop."
     sound(voice, 0.4)
     quiet(voice, 1.0)
-    assert voice.next("final")["outcome"] == "stop"
+    assert voice.next("final")["outcome"] == "interrupted"
     wait_for(client, final["task_id"], lambda t: t["status"] == "completed")
     assert nothing_spoken(voice)  # "Here is what I found." is in the timeline, not said
 
@@ -272,33 +271,7 @@ def test_after_a_barge_in_the_next_turn_is_heard_as_usual(client, voice, speech,
     assert say(voice, speech, "run the tests in backend first")["outcome"] == "dispatched"
 
 
-# Approvals
 
-def ask_to_run(voice, speech):
-    assert say(voice, speech, "run:npm test")["outcome"] == "dispatched"
-    return voice.next("asking")
-
-
-def test_an_approval_is_answered_by_voice_soon_after_its_chime(client, voice, speech, project):
-    open_mic(voice, project_id=project["id"])
-    approval_id = ask_to_run(voice, speech)["approval_id"]
-    final = say(voice, speech, "Yes.")
-    assert (final["outcome"], final["decision"]) == ("approval", "approve")
-    assert client.app.state.db.approval(approval_id)["decided_by"] == "voice"
-
-
-def test_a_yes_long_after_the_chime_asks_again_first(client, voice, speech, project, monkeypatch):
-    monkeypatch.setattr(conversation, "ASK_WINDOW_S", 0.0)
-    open_mic(voice, project_id=project["id"])
-    approval_id = ask_to_run(voice, speech)["approval_id"]
-    time.sleep(0.01)
-    final = say(voice, speech, "Yes.")
-    assert (final["outcome"], final["approval_id"]) == ("reprompt", approval_id)
-    assert voice.next("asking")["approval_id"] == approval_id  # chimed again
-    assert pending_approval(client)["id"] == approval_id
-
-
-# Real models
 
 @pytest.mark.models
 @pytest.mark.timeout(240)
@@ -361,6 +334,6 @@ def test_talking_over_a_reply_stops_it_on_the_real_models(settings, paths, codex
                     time.sleep(0.02)
                 seen = voice.until("final")
         assert any(m["type"] == "barge_in" for m in seen)
-        assert seen[-1]["outcome"] == "stop"
+        assert seen[-1]["outcome"] == "interrupted"
     finally:
         speech.close()

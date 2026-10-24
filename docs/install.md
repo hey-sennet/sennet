@@ -48,16 +48,15 @@ It goes through:
 
 ## Add a project
 
-A project is a directory an agent works in, with a name you can say:
+A project is a directory an agent works in, with a name:
 
 ```sh
-sennet project add ~/code/my-app --name app --alias frontend --agent claude
+sennet project add ~/code/my-app --name app --agent claude
 sennet project list
 sennet project remove app          # unregisters it; your files are not touched
 ```
 
-`--name` defaults to the directory's name. Add `--alias` as often as you like, for other
-names to call it by. `--agent` is `codex` (the default) or `claude`. You can also add
+`--name` defaults to the directory's name. `--agent` is `codex` (the default) or `claude`. You can also add
 projects, and change their agent, model and approval mode, in the app's Settings.
 
 ## Pair a device

@@ -10,8 +10,7 @@
 
 Sennet is a free, open source, self-hosted voice interface for coding agents. Speak a
 request from your phone or desktop, let Codex or Claude Code work on your own computer
-under your existing subscription, approve what it wants to do by voice, and hear what it
-did.
+under your existing subscription, approve what it wants to do, and hear what it did.
 
 - **Your agents, your subscription.** Sennet drives the official agent CLIs under your
   own login. It never holds API keys or calls a provider itself.
@@ -20,7 +19,7 @@ did.
 - **Talk like a conversation.** Push to talk, or open the mic and just talk: interrupt
   a reply by speaking over it, or start with a wake word.
 - **You stay in charge.** The agent asks before running anything outside its trusted
-  set; answer "yes", "no" or "always" out loud or with a tap.
+  set, with a chime and a card you answer with a tap.
 - **From anywhere.** Pair your phone once and reach Sennet over
   [Tailscale](https://tailscale.com) or any HTTPS reverse proxy.
 

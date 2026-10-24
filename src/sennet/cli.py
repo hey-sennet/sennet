@@ -45,8 +45,7 @@ def main(argv: list[str] | None = None):
     project_commands = project.add_subparsers(dest="action", required=True)
     add = project_commands.add_parser("add", help="register a directory")
     add.add_argument("path")
-    add.add_argument("--name", help="spoken name (default: directory name)")
-    add.add_argument("--alias", action="append", default=[], help="another name to call it by (repeatable)")
+    add.add_argument("--name", help="its name in Sennet (default: directory name)")
     add.add_argument("--agent", default=registry.DEFAULT, choices=registry.NAMES)
     project_commands.add_parser("list", help="list projects")
     remove = project_commands.add_parser("remove", help="unregister a project (files are not touched)")
@@ -253,15 +252,14 @@ def project_command(paths: Paths, args):
     db = Database(paths.database)
     try:
         if args.action == "add":
-            project = projects.add(db, args.path, args.name, args.alias, args.agent)
+            project = projects.add(db, args.path, args.name, args.agent)
             print(f"added {project['name']} → {project['path']}")
         elif args.action == "list":
             rows = db.projects()
             if not rows:
                 print("no projects yet; add one with `sennet project add PATH`")
             for project in rows:
-                aliases = f" (also: {', '.join(project['aliases'])})" if project["aliases"] else ""
-                print(f"{project['id']:>3}  {project['name']}{aliases}  [{project['agent']}]  {project['path']}")
+                print(f"{project['id']:>3}  {project['name']}  [{project['agent']}]  {project['path']}")
         elif args.action == "remove":
             project = projects.find(db, args.name)
             if project is None:

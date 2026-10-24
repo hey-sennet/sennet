@@ -99,7 +99,7 @@ def test_a_typo_still_finds_the_task(client, project):
 
 def test_an_older_database_gets_its_tasks_indexed(paths):
     db = Database(paths.database)
-    project = db.add_project("app", "/tmp/app", [], "codex")
+    project = db.add_project("app", "/tmp/app", "codex")
     task_id = db.add_task(project["id"], "codex", "Deploy the website")
     db.add_message(task_id, "agent", "Done, it is live.", "done")
     db.conn.executescript("DROP TABLE search_messages; DROP TABLE search_titles; PRAGMA user_version = 7;")

@@ -222,6 +222,7 @@ def test_a_database_from_before_pairing_gains_the_tables(paths):
     db = Database(paths.database)
     assert db.devices() == []
     assert db.conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert "aliases" not in [row[1] for row in db.conn.execute("PRAGMA table_info(projects)")]
     db.close()
 
 

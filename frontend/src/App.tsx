@@ -88,10 +88,8 @@ export default function App() {
     const offError = v.onError((message) => toast.error(message))
     const offFinal = v.socket.on((message) => {
       if (message.type === 'final' && message.outcome === 'dispatched' && message.task_id) remember(message.task_id)
-      // The task spoken to, or whose approval was answered by voice, is the one on screen, whose
-      // replies are spoken (the server takes it so too).
-      if (message.type === 'final' && (message.outcome === 'dispatched' || (message.outcome === 'approval' && message.decision))
-        && message.task_id && selectedRef.current !== message.task_id) {
+      // The task spoken to is the one on screen, whose replies are spoken (the server takes it so too).
+      if (message.type === 'final' && message.outcome === 'dispatched' && message.task_id && selectedRef.current !== message.task_id) {
         if (selectedRef.current === null) setDraft({ project_id: null, model: null, effort: null })
         setSelected(message.task_id)
       }

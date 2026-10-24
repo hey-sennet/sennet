@@ -1,22 +1,21 @@
 """The daemon's voice sessions, where their transcripts go, and their replies.
 
-A task is owned by the session that last dispatched to it: that session, and no
-other, asks its approvals. A reply is spoken on the session whose request it
-answers: the hub follows each spoken request's message from `sent` to `done`
-on the event bus and speaks each agent message in between as it arrives, so a
-preamble ("I'll move it to Trash") is heard before the approval it leads to.
+A task is owned by the session that last dispatched to it. A reply is spoken on
+the session whose request it answers: the hub follows each spoken request's
+message from `sent` to `done` on the event bus and speaks each agent message in
+between as it arrives, so a preamble ("I'll move it to Trash") is heard as soon as
+it is written. Approvals are answered on their card, never by voice.
 
 A long message starts with the agent's own version to be heard, in <spoken> tags
 (agents.base.SPOKEN_INSTRUCTIONS). The hub follows the message as it streams and
 speaks that version a sentence at a time as each is written, as one reply that
 stays open until the closing tag, so the voice starts before the rest is written.
 A long message without one is cut to its opening sentences (`summary.shorten`).
-Speech still being prepared for a task holds back its later messages, approval
-questions and failure, so they are heard in order. "Read me the details" reads
-the last reply in full, without its spoken version.
+Speech still being prepared for a task holds back its later messages and
+failure, so they are heard in order.
 
 A turn the agent starts itself (it finished work it left running) has no request:
-its reply is spoken on the task's owner, if connected, after the approval chime,
+its reply is spoken on the task's owner, if connected, after a chime,
 since it can come minutes after anything was said.
 
 A turn that stops at a usage limit says which limit and when it resets, in Sennet's
@@ -34,11 +33,9 @@ from ..events import EventBus
 from ..speech import Speech
 from ..tasks import TaskError, TaskManager
 from ..usage import Warnings, limit_warning
-from . import asking
 from . import summary
-from .dispatch import Cancel, Details, Stop, parse
-from .session import Asking, Reply, Turn, VoiceSession
-from .speakable import clauses, for_speech, spoken_part, without_spoken
+from .session import Reply, Turn, VoiceSession
+from .speakable import clauses, for_speech, spoken_part
 
 OPENING_TAG = "<spoken>"
 # The end of a sentence, once the next one has begun (as speakable.clauses splits them).
@@ -92,7 +89,6 @@ class VoiceHub:
         self.streams: dict[int, dict[str, str | None]] = {}  # task id → message item → text so far, None once read
         self.early: dict[int, list[str]] = {}          # task id → spoken versions said before their message ended
         self.live: dict[int, Live] = {}                # task id → its spoken version being said as it streams
-        self.heard: dict[VoiceSession, int] = {}       # session → the task it last heard a reply from
         self.warnings = Warnings()
         self.watcher: asyncio.Task | None = None
         speech.listeners.add(self._speech_changed)
@@ -111,7 +107,6 @@ class VoiceHub:
             del self.requests[message_id]
         for task_id in [t for t, pending in self.turns.items() if pending.session is session]:
             del self.turns[task_id]
-        self.heard.pop(session, None)
 
     def status(self) -> dict:
         """What `ready` and `speech_status` report."""
@@ -122,7 +117,7 @@ class VoiceHub:
 
     def hush(self, session: VoiceSession, task_id: int | None):
         """The user talked over this task's reply: say nothing more from its current turn. Its
-        messages are still in the timeline, and "read me the details" reads the last one."""
+        messages are still in the timeline."""
         pending = self.turns.get(task_id)
         if pending is not None and pending.session is session:
             pending.hushed = True
@@ -131,34 +126,13 @@ class VoiceHub:
         """Act on a final transcript. Returns the `final` message's outcome fields."""
         if not text.strip():
             return {"outcome": "empty"}
-        if session.asking and session.asking.started:
-            return await self._answer(session, session.asking, text)
-        command = parse(text, self.tasks.db.projects())
-        if isinstance(command, Stop):
-            await session.interrupt()
-            return {"outcome": "stop"}
-        if isinstance(command, Cancel):
-            if turn.task_id is None:
-                await session.error("no_target", "choose the task to cancel first", turn.id)
-                return {"outcome": "failed"}
-            try:
-                await self.tasks.cancel(turn.task_id)
-            except TaskError as error:
-                await session.error("dispatch_failed", str(error), turn.id)
-                return {"outcome": "failed"}
-            return {"outcome": "stop", "task_id": turn.task_id}
-        if isinstance(command, Details):
-            return await self._details(session, turn)
-        if not command.text:
-            return {"outcome": "empty"}  # only a project name was said
         try:
-            task = await self._dispatch(turn, command.text, command.project_id)
+            task = await self._dispatch(turn, text.strip())
         except TaskError as error:
             await session.error("dispatch_failed", str(error), turn.id)
             return {"outcome": "failed"}
         if task is None:
-            await session.error("no_target", "choose a task or a project first, or start with a project's name",
-                                turn.id)
+            await session.error("no_target", "choose a task or a project first", turn.id)
             return {"outcome": "failed"}
         self.owners[task["id"]] = session
         session.selected = task["id"]  # the task just spoken to is the one on screen (App selects it)
@@ -167,72 +141,9 @@ class VoiceHub:
         self.requests[message["id"]] = session
         return {"outcome": "dispatched", "task_id": task["id"]}
 
-    async def _details(self, session: VoiceSession, turn: Turn) -> dict:
-        """The selected task's last reply, or else the last one heard here, read in full."""
-        task_id = turn.task_id if turn.task_id is not None else self.heard.get(session)
-        message = None
-        if task_id is not None:
-            message = self.tasks.db.one("SELECT text FROM task_messages WHERE task_id = ? AND role = 'agent' "
-                                        "ORDER BY id DESC LIMIT 1", task_id)
-        if message is None:
-            await session.error("no_target", "there's no reply to read yet; choose a task first", turn.id)
-            return {"outcome": "failed"}
-        session.speak(clauses(for_speech(without_spoken(message["text"]))), task_id=task_id, asked=True)
-        return {"outcome": "details", "task_id": task_id}
-
-    async def _answer(self, session: VoiceSession, current: Asking, text: str) -> dict:
-        """The turn after an approval question answers it (voice-protocol §8)."""
-        approval = current.approval
-        reprompt = {"outcome": "reprompt", "approval_id": approval["id"]}
-        if isinstance(parse(text, []), Stop):
-            await session.interrupt()  # stops the question; it still waits for an answer
-            return {"outcome": "stop"}
-        word = asking.answer(text)
-        if current.confirming:
-            decision = {"confirm": "approve", "decline": "decline", "cancel": "cancel"}.get(word)
-            if decision is None:
-                session.ask(asking.ask_confirm())
-                return {**reprompt, "confirm": True}
-        elif word in ("approve", "confirm"):
-            if approval["risk"] == "destructive":
-                current.confirming = True
-                session.ask(asking.ask_confirm())
-                return {**reprompt, "confirm": True}
-            decision = "approve"
-        elif word == "approve_always":
-            if not approval.get("can_always"):
-                session.ask(asking.no_always())
-                return reprompt
-            decision = "approve_always"
-        elif word in ("decline", "cancel"):
-            decision = word
-        else:
-            session.ask(asking.reprompt(approval))
-            return reprompt
-        try:
-            await self.tasks.approvals.decide(approval["id"], decision, "voice")
-        except LookupError:
-            # Answered on the card while this turn was being transcribed.
-            session.withdraw(approval["id"])
-            return {"outcome": "approval", "approval_id": approval["id"], "decision": None}
-        # Answered by voice, its task is the one on screen: what it says next is heard (App selects it).
-        session.selected = approval["task_id"]
-        # The acknowledgement goes first; withdrawing queues the next question, if any.
-        session.speak(asking.acknowledge(decision, current.project), task_id=approval["task_id"], asked=True)
-        session.withdraw(approval["id"])
-        return {"outcome": "approval", "approval_id": approval["id"], "decision": decision,
-                "task_id": approval["task_id"]}
-
-    async def _dispatch(self, turn: Turn, text: str, named_project: int | None) -> dict | None:
-        """A named project wins over the selection, unless the selected task is in it. The turn's
-        model is for a task started in its own project."""
-        selected = self.tasks.db.task(turn.task_id) if turn.task_id is not None else None
-        if named_project is not None:
-            if selected and selected["project_id"] == named_project:
-                return await self.tasks.follow_up(selected["id"], text)
-            if named_project != turn.project_id or turn.task_id is not None:
-                return await self.tasks.create(named_project, text)
-        elif turn.task_id is not None:
+    async def _dispatch(self, turn: Turn, text: str) -> dict | None:
+        """A follow-up to the selected task, or a new task in the selected project with the turn's model."""
+        if turn.task_id is not None:
             return await self.tasks.follow_up(turn.task_id, text)
         if turn.project_id is not None:
             return await self.tasks.create(turn.project_id, text, turn.model, turn.effort)
@@ -283,8 +194,6 @@ class VoiceHub:
         elif kind == "delta":
             if task_id in self.turns:
                 self._stream(task_id, self.turns[task_id], event["item_id"], event["delta"])
-        elif kind == "approval":
-            self._approval(event["approval"])
         elif kind == "event" and event["event"]["kind"] == "turn_started":
             owner = self.owners.get(task_id)
             if event["event"]["data"].get("by") == "agent" and owner in self.sessions and task_id not in self.turns:
@@ -301,8 +210,6 @@ class VoiceHub:
             self.owners.pop(task_id, None)
             self.turns.pop(task_id, None)
             self._forget(task_id)
-            for session in [s for s, heard in self.heard.items() if heard == task_id]:
-                del self.heard[session]  # "read me the details" has nothing to read now
         elif kind == "task" and event["task"]["status"] in ("failed", "unknown", "cancelled"):
             # The turn ended without finishing its message, e.g. the agent failed to start.
             task = event["task"]
@@ -312,26 +219,6 @@ class VoiceHub:
                 pending.result = pending.result or {"status": "failed" if task["status"] != "cancelled"
                                                     else "cancelled", "error": task.get("error")}
                 self._reply(task["id"], pending)
-
-    def _approval(self, approval: dict):
-        if approval["status"] != "pending":
-            for session in self.sessions:
-                session.withdraw(approval["id"])
-            return
-        if approval["task_id"] in self.voicing:
-            self._after(approval["task_id"], lambda: self._offer(approval["id"]))
-            return
-        self._offer(approval["id"])
-
-    def _offer(self, approval_id: int):
-        approval = self.tasks.approvals.present(self.tasks.db.approval(approval_id))
-        if approval["status"] != "pending":
-            return  # answered on the card while speech was being prepared
-        owner = self.owners.get(approval["task_id"])
-        if owner in self.sessions:
-            task = self.tasks.db.task(approval["task_id"])
-            project = self.tasks.db.project(task["project_id"]) if task else None
-            owner.offer(approval, project["name"] if project else "The agent")
 
     def _reply(self, task_id: int, pending: Pending):
         """The turn ended. Its messages have been spoken; only a failure, or a limit getting close, is left to say."""
@@ -410,7 +297,6 @@ class VoiceHub:
     def _queue_live(self, task_id: int, pending: Pending, live: Live):
         if pending.hushed or pending.session not in self.sessions:
             return
-        self.heard[pending.session] = task_id
         live.reply = pending.session.speak(live.waiting, task_id=task_id, cue=pending.cue, streaming=not live.closed)
         live.waiting = []
         pending.cue = False
@@ -462,7 +348,6 @@ class VoiceHub:
         if pending.hushed and not failure:
             return
         if pending.session in self.sessions:
-            self.heard[pending.session] = task_id
             pending.session.speak(clauses(text), task_id=task_id, cue=pending.cue)
             pending.cue = False
 

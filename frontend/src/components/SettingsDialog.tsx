@@ -105,7 +105,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
           )}
         </Section>
 
-        <Section title="Projects" hint="The spoken name and aliases are how you'll pick a project by voice." order={2}>
+        <Section title="Projects" order={2}>
           <div className="flex flex-col gap-2">
             {projects.map((project) => (
               <ProjectRow key={project.id} project={project} defaultMode={settings?.approvals.mode ?? 'ask'}
@@ -196,10 +196,7 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
     <div className={cn(card, 'px-4 py-3.5')}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium">
-            {project.name}
-            {project.aliases.length > 0 && <span className="font-normal text-muted-foreground"> · also {project.aliases.join(', ')}</span>}
-          </p>
+          <p className="text-sm font-medium">{project.name}</p>
           <p className="truncate font-mono text-xs text-muted-foreground">{project.path}</p>
         </div>
         <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label={`Remove ${project.name}`}
@@ -302,7 +299,6 @@ const input = 'h-10 min-w-0 rounded-full bg-card px-4'
 function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) {
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
-  const [aliases, setAliases] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
   const [browsing, setBrowsing] = useState(false)
   // Until one is chosen: the first agent that is set up, else the first.
@@ -311,22 +307,21 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
   const add = async (event: React.FormEvent) => {
     event.preventDefault()
     const ok = await attempt(() => api.addProject({
-      path: path.trim(), name: name.trim() || undefined,
-      aliases: aliases.split(',').map((a) => a.trim()).filter(Boolean), agent,
+      path: path.trim(), name: name.trim() || undefined, agent,
     }), 'Could not add the project')
     if (ok) {
-      setPath(''); setName(''); setAliases('')
+      setPath(''); setName('')
     }
   }
   return (
-    <form onSubmit={add} className="grid min-w-0 gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
+    <form onSubmit={add} className="grid min-w-0 gap-2 sm:grid-cols-[2fr_1fr_auto]">
       <div className="flex min-w-0 gap-2">
         <Input className={input} placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
         <Button type="button" variant="outline" className="h-10 shrink-0 rounded-full px-4" aria-expanded={browsing}
           onClick={() => setBrowsing(!browsing)}>Browse</Button>
       </div>
       {browsing && (
-        <div className="min-w-0 sm:order-1 sm:col-span-4">
+        <div className="min-w-0 sm:order-1 sm:col-span-3">
           <FolderBrowser start={path.trim()} onClose={() => setBrowsing(false)} onPick={(picked, folder) => {
             setPath(picked)
             if (!name.trim()) setName(folder)
@@ -334,10 +329,9 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
           }} />
         </div>
       )}
-      <Input className={input} placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Spoken name" />
-      <Input className={input} placeholder="Aliases, comma separated" value={aliases} onChange={(e) => setAliases(e.target.value)} aria-label="Aliases" />
+      <Input className={input} placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
       <Button type="submit" className="h-10 rounded-full px-5" disabled={!path.trim() || !agent}>Add</Button>
-      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:order-2 sm:col-span-4">
+      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:order-2 sm:col-span-3">
         Agent
         <AgentSelect agents={agents} value={agent ?? ''} onChange={setChosen} label="Agent for the new project" />
       </label>

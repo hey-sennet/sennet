@@ -19,7 +19,10 @@ change. To help with one, or to suggest something, open an issue.
   merging a few quick barge-ins into one message. Real requests are still forwarded word
   for word, it never chooses the project, and it forwards whenever it's unsure, so it
   saves your agent usage without guessing. It would start by measuring how much of what's
-  said it could handle.
+  said it could handle. It is also where spoken commands would go, if they come back:
+  "stop", "cancel", "read me the details", answering an approval by voice, or sending a
+  request to a project you name. Sennet has none of these today, because a word list
+  can't tell a command from a request.
 - **Announcements between turns**: a short spoken note when a task in another project
   finishes or needs you.
 - **Signing in again with a passkey**, and pairing the tailnet's owner without a code.

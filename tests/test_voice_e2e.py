@@ -20,7 +20,6 @@ def test_a_spoken_command_gets_a_spoken_reply(device):
     if device == "cuda" and not cuda_available():
         pytest.skip("no CUDA runtime")
     (run,) = bench(Path(os.environ["SENNET_MODELS"]), device, runs=1)
-    heard = run.transcript.replace("back-end", "backend").replace("back end", "backend")
-    assert setup._words(heard) == setup._words(COMMAND)
-    assert run.reply == "You said: Run the unit tests and tell me which ones failed."  # routed, phrase removed
+    assert setup._words(run.transcript) == setup._words(COMMAND)
+    assert setup._words(run.reply) == setup._words(f"You said: {COMMAND}")
     assert run.audio_s > 1.0 and run.captions > 3

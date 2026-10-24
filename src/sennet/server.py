@@ -62,13 +62,11 @@ mimetypes.add_type("application/octet-stream", ".onnx")  # the wake word's model
 class ProjectIn(BaseModel):
     path: str
     name: str | None = None
-    aliases: list[str] = []
     agent: str = registry.DEFAULT
 
 
 class ProjectPatch(BaseModel):
     name: str | None = None
-    aliases: list[str] | None = None
     agent: str | None = None
     approval_mode: str | None = None
     access: str | None = None
@@ -331,7 +329,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.post("/api/projects", status_code=201)
     async def add_project(body: ProjectIn, request: Request):
         try:
-            project = projects.add(db(request), body.path, body.name, body.aliases, body.agent)
+            project = projects.add(db(request), body.path, body.name, body.agent)
         except projects.ProjectError as error:
             raise HTTPException(400, str(error))
         await request.app.state.bus.publish({"type": "project", "project": project})

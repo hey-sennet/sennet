@@ -99,7 +99,7 @@ def test_cancelling_a_task_with_background_work_stops_the_agent(scripted, agent)
 
 def test_background_work_does_not_survive_a_restart(tmp_path):
     db = Database(tmp_path / "db.sqlite")
-    db.add_project("app", "/app", [], "codex")
+    db.add_project("app", "/app", "codex")
     task_id = db.add_task(1, "codex", "t")
     db.update_task(task_id, status="background")
     db.recover()

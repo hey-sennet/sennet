@@ -12,11 +12,8 @@ export type VoiceMessage =
   | { type: 'speech_status'; speech: SpeechStatuses }
   | { type: 'voice_state'; state: VoiceState; turn: string | null }
   | { type: 'caption'; turn: string; committed: string; provisional: string }
-  | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; approval_id?: number;
-      decision?: string | null; confirm?: boolean }
-  | { type: 'speech'; reply: number; generation: number; segment: number; text: string; task_id: number | null; approval_id: number | null
-      cue?: boolean }
-  | { type: 'asking'; approval_id: number }
+  | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number }
+  | { type: 'speech'; reply: number; generation: number; segment: number; text: string; task_id: number | null; cue?: boolean }
   | { type: 'unheard'; task_id: number } // a reply about a task not on screen, not spoken
   | { type: 'speech_end'; reply: number; generation: number }
   | { type: 'stopped'; generation: number }

@@ -44,7 +44,7 @@ FIXTURES = {
 @pytest.fixture
 def engine(tmp_path):
     db = Database(tmp_path / "db")
-    project = db.add_project("app", str(tmp_path), [], "codex")
+    project = db.add_project("app", str(tmp_path), "codex")
     task_id = db.add_task(project["id"], "codex", "t")
     published = []
 

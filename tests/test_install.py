@@ -67,7 +67,7 @@ def use_service(monkeypatch, managed):
 def add_task(paths, status):
     db = Database(paths.database)
     try:
-        project = db.add_project("app", str(paths.data_dir), [], "codex")
+        project = db.add_project("app", str(paths.data_dir), "codex")
         task = db.add_task(project["id"], "codex", "fix the tests")
         db.update_task(task, status=status)
     finally:

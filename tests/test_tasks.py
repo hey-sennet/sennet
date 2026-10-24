@@ -220,7 +220,7 @@ def test_global_concurrency_limit(settings, paths, tmp_path, codex_log):
 
 def test_restart_marks_in_flight_work_unknown(paths):
     db = Database(paths.database)
-    project = db.add_project("p", "/tmp", [], "codex")
+    project = db.add_project("p", "/tmp", "codex")
     running = db.add_task(project["id"], "codex", "x")
     db.update_task(running, status="running")
     db.add_approval(running, "command", "execute", "run x", {})

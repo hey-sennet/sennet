@@ -14,7 +14,6 @@ export interface Project {
   id: number
   name: string
   path: string
-  aliases: string[]
   agent: string
   approval_mode: ApprovalMode | null
   access: Access | null
@@ -259,11 +258,11 @@ export const api = {
   prewarm: (target: { task_id?: number; project_id?: number } & Partial<ModelChoice>) =>
     request<void>('POST', '/api/prewarm', target),
   decide: (id: number, decision: Decision) => request<Approval>('POST', `/api/approvals/${id}`, { decision }),
-  addProject: (body: { path: string; name?: string; aliases: string[]; agent?: string }) =>
+  addProject: (body: { path: string; name?: string; agent?: string }) =>
     request<Project>('POST', '/api/projects', body),
   chooseModel: (id: number, model: string | null, effort: string | null) =>
     request<Task>('PATCH', `/api/tasks/${id}`, { model, effort }),
-  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'aliases' | 'agent' | 'approval_mode' | 'access' | 'project_config' | 'model' | 'effort'>>) =>
+  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'agent' | 'approval_mode' | 'access' | 'project_config' | 'model' | 'effort'>>) =>
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
   directories: (path?: string) =>

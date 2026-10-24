@@ -19,8 +19,9 @@ results, in a version the agent writes to be heard.
   providers.
 - **Don't spend the user's agent usage on chat.** Only real tasks reach the agent. The
   one thing asked of it beyond the task is a short spoken version of a long reply (§6.3).
-- **Explicit routing.** The user picks the target, by selecting it or naming the project
-  first. No model guesses where a request should go (§6.3).
+- **Explicit routing.** The user picks the target by selecting it, and what they say is
+  sent word for word. No model guesses where a request should go, and no spoken words
+  are commands (§6.3).
 - **Runs on the host.** The daemon is a user-level system service, so agents act on the
   user's real repositories, toolchains and credentials. The agents' own sandbox and
   permission modes are the safety boundary, plus Sennet's approval policy.
@@ -45,7 +46,7 @@ flowchart LR
     subgraph Daemon[sennet daemon — Python, user service]
         WS[HTTP + WebSocket gateway]
         VOICE[Voice pipeline: VAD → turn detection → STT]
-        HUB[Voice hub: commands, routing, replies]
+        HUB[Voice hub: turns, replies]
         TASKS[Task manager]
         TTS[TTS]
         DB[(SQLite)]
@@ -74,10 +75,9 @@ flowchart LR
 
 ## 3. Core concepts
 
-- **Project.** A registered directory with a name, optional spoken aliases (e.g.
-  "backend", "api"), a default agent with its model and effort, and an approval policy.
-  Added via UI or
-  `sennet project add ~/code/api --name backend --alias api`.
+- **Project.** A registered directory with a name, a default agent with its model and
+  effort, and an approval policy. Added via UI or
+  `sennet project add ~/code/api --name backend`.
 - **Task.** One unit of agent work: project + agent + agent session/thread + status,
   with an optional model and effort that override the project's. Tasks are long-lived;
   follow-ups to the same work go to the same task, so the agent keeps its context.
@@ -180,22 +180,21 @@ Approval requests from any task go through one policy engine:
 
 | Setting | Behavior |
 | --- | --- |
-| `ask` | Ask by voice and show a card on screen; either may answer. Codex: `approvalPolicy = untrusted`. |
+| `ask` | Chime and show a card on screen, which answers it. Codex: `approvalPolicy = untrusted`. |
 | `auto` | The agent works freely within its access level and asks only to go beyond it. Codex: `on-request`. |
-| `allow-always` rules | Remembered decisions, e.g. "always allow `npm test` in backend". Created by saying "approve always" / tapping "Always". Scoped to project + command prefix or tool/file pattern. Viewable and revocable in Settings. |
+| `allow-always` rules | Remembered decisions, e.g. "always allow `npm test` in backend". Created by tapping "Always". Scoped to project + command prefix or tool/file pattern. Viewable and revocable in Settings. |
 | `never` | Full auto. Maps to the agent's own non-interactive mode (e.g. Codex `approval_policy = never`). Anything beyond the access level fails. Clearly marked in UI. |
 | `classifier` | Nothing asked up front: the agent's own safety classifier allows or blocks each action. Claude Code: `--permission-mode auto`. Not a sandbox, so it can reach past `workspace`; read-only still holds. Codex has no such mode. |
 
 Policy is set globally, then per project, then per agent. Each request is classified
 as read / edit / execute / network / destructive (`rm`, `git push`, force flags…, and
 edits that delete files).
-A per-class setting can raise the bar, e.g. destructive actions require repeating a
-confirmation phrase even when edits are approved by plain "yes".
+Destructive requests are always asked, even where an "always" rule would cover them, and
+the card shows them in red.
 
-Voice approval is a fixed flow, not free chat. Sennet plays a short chime as the
+Approvals are answered on the card, not by voice. Sennet plays a short chime as the
 approval appears instead of reading it out; the card shows the task and the action.
-Only a clear
-yes/no/always is accepted; anything else re-prompts. Pending approvals never time out
+What is said meanwhile is a request like any other. Pending approvals never time out
 into approval. Every decision, and who/what made it, is logged.
 
 ## 5. Local models
@@ -316,16 +315,19 @@ returns:
   VAD pause is full-passed in the background while the user keeps talking, leaving
   only the last segment at the end.
 - No transcript review step by default. In M2 a request is retracted by sliding off
-  the talk control before release, or by saying "cancel" next to interrupt the task.
-  No retraction window: routing is explicit, so a wrong target is unlikely.
+  the talk control before release, or by stopping the task.
+  No retraction window: the target is what is selected, so a wrong one is unlikely.
 - Raw audio is never stored. Transcripts are stored with the conversation.
 
 ### 6.3 Routing and spoken replies
 
-Routing is deterministic: a final transcript goes to the selected task or project,
-or to a project named first ("in backend, …"), minus that phrase. Fixed words are
-commands, never requests: "stop", "cancel", "read me the details", and approval
-answers. The exact dispatched text is shown in the UI.
+Routing is deterministic: a final transcript goes, word for word, to the selected task
+or project. There are no spoken commands, project names or approval answers: a fixed
+phrase that does something other than what the agent would make of it is opaque ("read
+me the details" read the last reply when a fresh summary was meant), and the disc, Stop
+task and the approval card already do what they did. Telling such phrases from requests
+is a job for a local model, if they come back (roadmap: a front desk). The exact
+dispatched text is shown in the UI.
 
 M3 first put a local LLM with tool calling in front of the agents to choose the
 target, answer status questions and announce events. On real models (Qwen3.5 2B and
@@ -341,13 +343,13 @@ Replies:
   The agent knows what mattered, so this is the most faithful version; it costs a few
   sentences of the user's agent usage per long reply. The timeline hides it.
 - A long message without one is cut to its opening sentences.
-- "Read me the details" reads the last reply in full. The timeline always has it.
+- The timeline always has the reply in full.
 - Approvals use the fixed flow (§4.4).
 
 ### 6.4 Speech output
 
 - Text is split into sentences and synthesized one segment ahead of playback, so
-  "stop" is responsive.
+  stopping is responsive.
 - Sentences are kept whole. Kokoro synthesizes each segment as a complete utterance, so
   a cut inside a sentence ends the first half with a full stop's fall in pitch and the
   voice jumps there. Only a sentence too long for one pass (about 300 characters) is cut,
@@ -355,8 +357,9 @@ Replies:
   a sentence) that started the voice sooner: Kokoro produces no audio until a whole
   segment is synthesized, and on CPU (real-time factor ~0.28) a long first sentence
   delayed the reply by 3.4 s in M0. On a GPU that wait is a fraction of a second.
-- Code blocks, logs, URLs and markdown are never narrated. "Read details" is explicit.
-- "Stop speaking" stops audio only. "Cancel" stops agent work. These are separate actions.
+- Code blocks, logs, URLs and markdown are never narrated; the timeline has them.
+- Stopping speech (pressing the disc, or talking over it) stops audio only. Stop task
+  stops agent work. These are separate actions.
 
 ### 6.5 Interaction modes
 

@@ -263,78 +263,13 @@ def user_messages(client, task_id):
     return [m["text"] for m in client.get(f"/api/tasks/{task_id}").json()["messages"] if m["role"] == "user"]
 
 
-def test_a_leading_project_name_routes_the_turn(client, voice, speech, project):
+def test_a_project_name_is_sent_as_said(client, voice, speech, project, other_project):
     speech.stt.transcript = "In backend, run the tests."
-    voice.talk()  # nothing selected
+    voice.talk(project_id=other_project["id"])
     final = voice.next("final")
     assert final["outcome"] == "dispatched"
-    task = client.get(f"/api/tasks/{final['task_id']}").json()
-    assert task["project_id"] == project["id"]
-    assert user_messages(client, task["id"]) == ["Run the tests."]
-
-
-def test_a_named_project_wins_over_a_task_in_another_project(client, voice, speech, project, other_project):
-    selected = client.post("/api/tasks", json={"project_id": other_project["id"], "text": "fix the header"}).json()
-    wait_for(client, selected["id"], lambda t: t["status"] == "completed")
-    speech.stt.transcript = "Backend: run the tests."
-    voice.talk(task_id=selected["id"])
-    final = voice.next("final")
-    assert final["task_id"] != selected["id"]
-    assert client.get(f"/api/tasks/{final['task_id']}").json()["project_id"] == project["id"]
-
-
-def test_a_named_project_follows_up_on_its_selected_task(client, voice, speech, project):
-    selected = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
-    wait_for(client, selected["id"], lambda t: t["status"] == "completed")
-    speech.stt.transcript = "In backend, now run it."
-    voice.talk(task_id=selected["id"])
-    assert voice.next("final")["task_id"] == selected["id"]
-    wait_for(client, selected["id"], lambda t: len([m for m in t["messages"] if m["role"] == "user"]) == 2)
-    assert user_messages(client, selected["id"]) == ["add a test", "Now run it."]
-
-
-def test_only_a_project_name_sends_nothing(client, voice, speech, project):
-    speech.stt.transcript = "In backend."
-    voice.talk(project_id=project["id"])
-    assert voice.next("final")["outcome"] == "empty"
-    assert client.get("/api/state").json()["tasks"] == []
-
-
-def test_stop_stops_speech_without_dispatching(client, voice, speech, project):
-    speech.stt.transcript = "Stop."
-    voice.talk(project_id=project["id"])
-    assert voice.next("stopped")["generation"] == 1  # from starting the turn
-    seen = voice.until("final")
-    assert [m["generation"] for m in seen if m["type"] == "stopped"] == [2]
-    assert seen[-1]["outcome"] == "stop"
-    assert client.get("/api/state").json()["tasks"] == []
-
-
-def test_cancel_cancels_the_selected_task(client, voice, speech, project, monkeypatch):
-    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
-    wait_for(client, task["id"], lambda t: t["status"] == "completed")
-    cancelled = []
-    manager = client.app.state.tasks
-    original = manager.cancel
-
-    async def cancel(task_id):
-        cancelled.append(task_id)
-        return await original(task_id)
-
-    monkeypatch.setattr(manager, "cancel", cancel)
-    speech.stt.transcript = "Cancel that."
-    voice.talk(task_id=task["id"])
-    assert voice.next("final") == {"type": "final", "turn": "t1", "text": "Cancel that.", "outcome": "stop",
-                                   "task_id": task["id"]}
-    assert cancelled == [task["id"]]
-    assert user_messages(client, task["id"]) == ["add a test"]
-
-
-def test_cancel_needs_a_selected_task(voice, speech, project):
-    speech.stt.transcript = "Cancel."
-    voice.talk(project_id=project["id"])
-    assert voice.next("voice_error")["code"] == "no_target"
-    assert voice.next("final")["outcome"] == "failed"
+    assert client.get(f"/api/tasks/{final['task_id']}").json()["project_id"] == other_project["id"]
+    assert user_messages(client, final["task_id"]) == ["In backend, run the tests."]
 
 
 # Frames and limits
@@ -391,7 +326,7 @@ def test_a_reply_is_spoken_with_tagged_frames(client, voice, speech):
     assert voice.next("voice_state")["state"] == "speaking"
     first = voice.next("speech")
     assert first == {"type": "speech", "reply": 1, "generation": 0, "segment": 0, "text": "All tests pass.",
-                     "task_id": 7, "approval_id": None}
+                     "task_id": 7}
     assert voice.next("speech")["segment"] == 1
     assert voice.next("speech_end") == {"type": "speech_end", "reply": 1, "generation": 0}
     voice.send(type="drained", reply=1, segment=1)  # the device has played it all
@@ -411,14 +346,6 @@ def test_a_reply_about_a_task_not_on_screen_is_not_spoken(client, voice, speech)
     assert voice.next("unheard") == {"type": "unheard", "task_id": 8}
     speech_message = voice.next("speech")
     assert (speech_message["reply"], speech_message["text"]) == (2, "From this one.")
-
-
-def test_a_reply_asked_for_is_spoken_whichever_task_is_on_screen(client, voice, speech):
-    speech.tts.gate.set()
-    voice.send(type="target", task_id=7)
-    voice_session = session(client)
-    client.portal.call(lambda: voice_session.speak(["The details."], task_id=8, asked=True))
-    assert voice.next("speech")["text"] == "The details."
 
 
 def test_moving_to_another_task_stops_its_reply_at_the_next_sentence(client, voice, speech):
@@ -606,15 +533,11 @@ def test_a_closed_socket_drops_its_turn(client, project):
     assert client.app.state.voice.sessions == set()
 
 
-def test_a_task_started_by_voice_takes_the_turns_model(client, voice, speech, project, other_project):
+def test_a_task_started_by_voice_takes_the_turns_model(client, voice, speech, project):
     speech.stt.transcript = "Run the tests."
     voice.talk(project_id=project["id"], model="gpt-deep", effort="max")
     task = client.get(f"/api/tasks/{voice.next('final')['task_id']}").json()
     assert (task["model"], task["effort"]) == ("gpt-deep", "max")
-    speech.stt.transcript = "In web client, fix the header."  # another project: its own default
-    voice.talk(turn="t2", project_id=project["id"], model="gpt-deep")
-    task = client.get(f"/api/tasks/{voice.next('final')['task_id']}").json()
-    assert (task["project_id"], task["model"]) == (other_project["id"], None)
 
 
 def test_a_model_the_agent_doesnt_list_fails_the_turn(client, voice, speech, project):

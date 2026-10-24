@@ -20,8 +20,8 @@ A few rules hold everywhere, and changes should keep them:
 
 - **Only the agents talk to the cloud.** Speech is local. Sennet never calls a provider's
   API or holds its credentials; agents run under the user's own login.
-- **Nothing guesses the target.** A request goes to the selected task or project, or the
-  one named first. No model routes requests ([why](m3-summaries.md)).
+- **Nothing guesses the target.** A request goes to the selected task or project. No
+  model routes requests ([why](m3-summaries.md)), and no spoken words are commands.
 - **Agents are behind one contract.** Nothing outside `agents/` sees a provider's own
   words, events or modes.
 - **Inference never runs on the event loop.** Speech models run in worker threads.
@@ -75,11 +75,8 @@ instant stand-ins, so tests never need the real models.
 - `recognition.py`: one turn, from audio to live captions to the final transcript.
 - `conversation.py`, `endpoint.py`: open-mic conversations, where turns start and end,
   and barge-in.
-- `dispatch.py`: what a final transcript asks for: a fixed command, a project named
-  first, an approval answer, or a request.
 - `hub.py`: all voice sessions, where their transcripts go, and which session hears
   each reply.
-- `asking.py`: approvals asked and answered by voice.
 - `speakable.py`, `summary.py`: agent text made fit to speak, and long replies cut down.
 
 The wire protocol is in [voice-protocol.md](voice-protocol.md).

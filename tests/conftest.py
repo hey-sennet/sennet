@@ -118,7 +118,7 @@ def client(settings, paths, codex_log):
 def project(client, tmp_path):
     directory = tmp_path / "repo"
     directory.mkdir()
-    response = client.post("/api/projects", json={"path": str(directory), "name": "backend", "aliases": ["api"]})
+    response = client.post("/api/projects", json={"path": str(directory), "name": "backend"})
     assert response.status_code == 201, response.text
     return response.json()
 

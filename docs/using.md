@@ -22,23 +22,15 @@ The dock along the bottom has, from left to right:
 
 ## Projects and tasks
 
-A request goes to a **project**: a directory with an agent and a name you can say. Add
+A request goes to a **project**: a directory with an agent and a name. Add
 projects with `sennet project add` or in Settings. Each request starts a **task**, which
 keeps its conversation with the agent, so follow-ups pick up where it left off. A project
 runs one task at a time, and later requests to it queue. Up to three tasks run at once
 across projects (`tasks.max_concurrent`).
 
-To aim a request:
-
-- **Select** a project or task on screen, then talk. With a task selected, what you say
-  is a follow-up to it.
-- **Name the project first**, with a comma or colon after it: "In backend, add a health
-  check." or "API: why is the login test failing?" Sennet sends the rest, word for word.
-  Without the comma or colon it's an ordinary request, so "API docs need updating" isn't
-  sent to a project called API.
-
-Nothing guesses where a request should go. If there's no project selected or named,
-Sennet says so instead of picking one.
+To aim a request, **select** a project or task on screen, then talk. With a task
+selected, what you say is a follow-up to it. Nothing guesses where a request should go:
+if no project is selected, Sennet says so instead of picking one.
 
 ### The task list
 
@@ -102,31 +94,23 @@ two cases: with `auto` it asks before commands that aren't read-only, and with `
 it can't run them at all.
 
 When the agent asks, a chime plays and a card shows what it wants to do. Answer on the
-card or by voice:
+card: **Approve**, **Decline**, or **Always in** the project to approve and remember it
+(say, `npm test`). Approvals aren't answered by voice; what you say meanwhile goes to the
+agent as a request.
 
-- "yes", "yeah", "okay", "go ahead": approve
-- "no", "nope", "don't": decline
-- "always": approve, and remember it for the project (say, `npm test`)
-- "cancel": stop the task
-
-Something hard to undo, like `git push` or `rm`, is always asked, even if you said
-"always" before, and after "yes" Sennet asks you to say "confirm". Remembered approvals
-are listed in Settings, where you can forget them.
+Something hard to undo, like `git push` or `rm`, is shown in red and always asked, even
+if you chose Always before. Remembered approvals are listed in Settings, where you can
+forget them.
 
 Claude Code loads your own settings, but not a project's `.claude/settings.json` hooks
 or `.mcp.json` servers, which would run without asking. Turn them on per project in
 Settings, for projects you trust.
 
-## Voice commands
+## No voice commands
 
-These are acted on by Sennet itself, never sent to an agent, when they're all you say:
-
-| Say | What it does |
-| --- | --- |
-| "stop", "stop speaking", "be quiet" | Stops speech. |
-| "cancel", "cancel that" | Interrupts the selected task. |
-| "read me the details", "details", "read it all" | Reads the last reply in full. |
-| a project's name on its own | Nothing; name it with your request ("in backend, …"). |
+Everything you say goes to the agent, word for word; Sennet doesn't listen for command
+words. To stop a reply, press the disc, or in a conversation just start talking. To stop
+a task, use **Stop task** under the disc.
 
 ## Usage limits
 

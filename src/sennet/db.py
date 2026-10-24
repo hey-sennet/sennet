@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     path TEXT NOT NULL UNIQUE,
-    aliases TEXT NOT NULL DEFAULT '[]',
     agent TEXT NOT NULL DEFAULT 'codex',
     approval_mode TEXT,
     access TEXT,                   -- read-only | workspace | full; null for the default
@@ -117,7 +116,7 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
 FINISHED = ("completed", "failed", "cancelled", "unknown")
@@ -167,11 +166,19 @@ class Database:
             if version < 7:
                 self._to_v7()
             # Version 8 adds the search index (SCHEMA), filled once it exists.
+            if version < 9:
+                self._to_v9()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
         return version
+
+    def _to_v9(self):
+        """Project aliases went with routing by a spoken project name."""
+        columns = [row[1] for row in self.conn.execute("PRAGMA table_info(projects)")]
+        if "aliases" in columns:
+            self.conn.execute("ALTER TABLE projects DROP COLUMN aliases")
 
     def _to_v7(self):
         """Tokens used, per task. Without a tasks table yet, SCHEMA makes one with them."""
@@ -228,10 +235,10 @@ class Database:
 
     # Projects
 
-    def add_project(self, name: str, path: str, aliases: list[str], agent: str) -> dict:
+    def add_project(self, name: str, path: str, agent: str) -> dict:
         project_id = self.execute(
-            "INSERT INTO projects (name, path, aliases, agent, created_at) VALUES (?, ?, ?, ?, ?)",
-            name, path, json.dumps(aliases), agent, time.time())
+            "INSERT INTO projects (name, path, agent, created_at) VALUES (?, ?, ?, ?)",
+            name, path, agent, time.time())
         return self.project(project_id)
 
     def project(self, project_id: int) -> dict | None:
@@ -241,8 +248,6 @@ class Database:
         return [_project(row) for row in self.query("SELECT * FROM projects ORDER BY name")]
 
     def update_project(self, project_id: int, **fields):
-        if "aliases" in fields:
-            fields["aliases"] = json.dumps(fields["aliases"])
         assignments = ", ".join(f"{key} = ?" for key in fields)
         self.execute(f"UPDATE projects SET {assignments} WHERE id = ?", *fields.values(), project_id)
 
@@ -442,7 +447,6 @@ class Database:
 
 def _project(row: dict | None) -> dict | None:
     if row is not None:
-        row["aliases"] = json.loads(row["aliases"])
         row["project_config"] = bool(row["project_config"])
     return row
 

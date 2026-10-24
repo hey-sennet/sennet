@@ -43,7 +43,7 @@ class Session:
     def spoken(self):
         return [(" ".join(r.segments), r.task_id) for r in self.replies]
 
-    def speak(self, segments, task_id=None, approval_id=None, cue=False, streaming=False):
+    def speak(self, segments, task_id=None, cue=False, streaming=False):
         if not [s for s in segments if s.strip()]:
             return None  # as VoiceSession.speak: an empty reply isn't queued
         self.replies.append(reply := Reply(segments, task_id, streaming))

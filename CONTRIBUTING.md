@@ -20,9 +20,9 @@ Some decisions are settled, and changes that undo them won't be merged:
 - **Agents run through their official CLIs, on the user's own subscription.** No API keys,
   and no calling a provider's API directly.
 - **Speech runs locally.** No cloud speech recognition or voices.
-- **Nothing guesses where a request goes.** The user selects a task or project, or names
-  it first. A local model that routed requests was tried, and sent them to the wrong
-  projects ([m3-summaries.md](docs/m3-summaries.md)).
+- **Nothing guesses where a request goes.** The user selects a task or project, and what
+  they say is sent word for word, with no spoken commands. A local model that routed
+  requests was tried, and sent them to the wrong projects ([m3-summaries.md](docs/m3-summaries.md)).
 - **It runs on the host, as a user service.** No Docker-first install.
 - **Self-hosted, free and open source.** Not a hosted service.
 

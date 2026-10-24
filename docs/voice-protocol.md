@@ -115,7 +115,7 @@ JSON text frames.
 
 | Message | Meaning |
 | --- | --- |
-| `{"type": "start", "turn": "t7", "task_id": 12, "project_id": 3}` | The talk control was pressed. Audio frames follow. `task_id` is the selected task, or null to start a new task in `project_id`, optionally on its own `model` and `effort` (strings or null; they don't apply to a project named aloud). Stops any speech on this session (§7). |
+| `{"type": "start", "turn": "t7", "task_id": 12, "project_id": 3}` | The talk control was pressed. Audio frames follow. `task_id` is the selected task, or null to start a new task in `project_id`, optionally on its own `model` and `effort` (strings or null). Stops any speech on this session (§7). |
 | `{"type": "end", "turn": "t7"}` | Released. The server runs the final pass. |
 | `{"type": "cancel", "turn": "t7"}` | Discard the turn (slid off the button, or held too briefly). No final pass. |
 | `{"type": "stop"}` | Stop speaking. Audio only; agent work carries on (HLD §6.4). |
@@ -135,8 +135,7 @@ ignored.
 | `{"type": "voice_state", "state": "listening", "turn": "t7"}` | `idle`, `open` (a conversation is listening and nobody is talking, §12), `listening` (turn open), `transcribing` (final pass running), `speaking`. Sent on every change. |
 | `{"type": "caption", "turn": "t7", "committed": "run the", "provisional": "tests in back"}` | Every ~250 ms while listening; the interval adapts on slow CPUs (HLD §6.2). Preview only, never dispatched. Each caption replaces the last. |
 | `{"type": "final", "turn": "t7", "text": "Run the tests in backend.", "outcome": "dispatched", "task_id": 12}` | The full-pass transcript and what happened to it (below). |
-| `{"type": "speech", "reply": 3, "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12, "approval_id": null}` | Sent just before a segment's audio, so the client can caption the agent's words. `reply` is the session's count of replies, from 1; segments count from 0 within it. `task_id` and `approval_id` say what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
-| `{"type": "asking", "approval_id": 9}` | This session is now asking about the approval: its next turn answers it (§8). Nothing is spoken; the client plays the approval chime when the approval's card shows. |
+| `{"type": "speech", "reply": 3, "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12}` | Sent just before a segment's audio, so the client can caption the agent's words. `reply` is the session's count of replies, from 1; segments count from 0 within it. `task_id` says what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
 | `{"type": "speech_end", "reply": 3, "generation": 4}` | The last segment of this reply has been sent. It may still be playing: `drained` says when it has been heard. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
 | `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `turn_unavailable` (§12), `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
@@ -144,15 +143,6 @@ ignored.
 `final.outcome` is one of:
 
 - `dispatched`: sent to `task_id` (a follow-up, or the task created for `project_id`).
-- `approval`: taken as the answer to the approval being asked (§8). `approval_id` says
-  which, `task_id` is its task (which becomes the one on screen, §9), and `decision` is `approve`, `approve_always`, `decline` or `cancel`, or null
-  when the card answered first while the turn was being transcribed.
-- `reprompt`: an approval was being asked and the words weren't a clear answer, or
-  "always" can't apply. The question is put again. `confirm: true` when a destructive
-  request got its "yes" and now needs "confirm".
-- `stop`: the whole transcript was "stop" or "cancel" (§9).
-- `details`: the whole transcript was "read me the details" (§9). `task_id`'s last reply
-  is read in full.
 - `empty`: no speech found. Nothing is sent.
 - `interrupted`: in a conversation, a lone word or a "wait" said over a reply: it stopped
   the reply and isn't sent (§12).
@@ -183,14 +173,11 @@ without waiting a round trip. The server applies the same +1, so the two agree; 
 `stopped` reply confirms the value. Frames already in flight carry the old generation
 and are dropped on arrival.
 
-## 8. Voice approvals
+## 8. Approvals
 
-The fixed flow from HLD §4.4:
+Approvals are answered on their card, never by voice: what is said while one waits is a
+request like any other.
 
-- An approval is asked on the session that last dispatched to that task, between turns
-  only (never while `listening` or `transcribing`). If that session isn't connected,
-  only the card shows. The card and the voice are both live; whichever answers first
-  wins, and the other side follows the `approval` event on `/api/events`.
 - The question isn't spoken. The client plays a short chime (a low singing bowl, tapped
   twice) as the approval's card shows, over any speech still playing (which dips under
   it), and again for each approval after it; the card says what the agent wants to do.
@@ -198,42 +185,21 @@ The fixed flow from HLD §4.4:
   task selected, for the tasks that device started or followed up (kept in the browser).
   Other devices show a quiet "Another task needs you" line instead, with no chime, which
   selects the task so it can be answered there too.
-- The question takes its place among replies like speech: after anything already queued,
-  and never during a turn. When its turn comes the server sends `asking`, and from then
-  the session's next turn answers it instead of going to a task. A turn open before then
-  is an ordinary request, and the question is asked after it.
-- Only a clear answer counts, as the whole transcript: yes, yeah, go ahead, okay →
-  `approve`; no, nope, don't, decline → `decline`; always, yes always → `approve_always`
-  (only where `can_always` is true; otherwise "That one can't be approved always");
-  cancel → `cancel`. "Stop" stops the question and leaves it open. Anything else gets
-  `reprompt`: "Sorry, I need a clear answer. Say yes, no, or always."
-- Destructive requests need a second step: after "yes", the server says "This could be
-  hard to undo. Say confirm to go ahead, or no.", and only "confirm" approves. A second "yes" is not a confirm.
-- A decision is acknowledged ("Approved.", "Declined.", "Approved, and I'll remember that
-  for backend.") and recorded as `decided_by: "voice"`.
-- Several pending approvals are asked one at a time, oldest first.
 
 ## 9. Turns and replies
 
 - The final transcript goes to `start.task_id` as a follow-up, or starts a task in
   `start.project_id`. With neither, the turn fails with `no_target`.
-- A transcript that opens with a project name or alias set off by a comma or colon
-  ("in backend, …", "API: …") goes to that project instead, with the routing phrase
-  removed: as a follow-up when the selected task is in that project, else as a new
-  task. The rest is sent verbatim. Without the comma or colon it isn't a route ("API
-  docs need updating" is a request); a wrong project is worse than none. A project name
-  on its own sends nothing (`empty`).
-- A transcript that is only "stop" (or "stop speaking", "be quiet") or "cancel" (or
-  "cancel that") isn't dispatched. "Stop" stops speech; "cancel" interrupts the selected
-  task, and fails with `no_target` when none is selected. Both end with outcome `stop`.
+- The transcript is sent verbatim. There are no spoken commands: "stop", "cancel", "yes"
+  or a project's name are sent like anything else. A reply is stopped with `stop` (the client's disc) or by talking over it;
+  a task with `POST /api/tasks/{id}/cancel`.
 - Each agent message is spoken as it arrives, on the session that dispatched the
   request and on no other, split into whole sentences (HLD §6.4).
 - Only the task on screen is heard. A reply about any other task isn't spoken, and the
   session sends `unheard` instead, so the client can mark the task. The task on screen is
-  the one `target`, `start` or `open_mic` last named; dispatching a request, or answering
-  an approval by voice, makes its task the one on screen (the client selects it too).
-  Moving to another task stops its reply at the next sentence. Approval questions, their
-  acknowledgements and "read me the details" are said whatever is on screen. Markdown, code
+  the one `target`, `start` or `open_mic` last named; dispatching a request makes its task
+  the one on screen (the client selects it too). Moving to another task stops its reply
+  at the next sentence. Markdown, code
   blocks, inline code, URLs, file paths and commit hashes are stripped or replaced
   with a short word ("a code block", "a commit"). Symbols are said as words ("$24" is "24 dollars",
   "£3.50" "3 pounds 50", "~5%" "about 5 percent", "->" "to"); emoji are dropped.
@@ -241,16 +207,13 @@ The fixed flow from HLD §4.4:
   long message with a version written to be heard, in `<spoken>` tags. The hub follows the
   message as it streams and speaks that version a sentence at a time as each is written,
   as one reply that stays open until the closing tag, so the voice starts before the rest
-  is written; the timeline hides it, and "read me the details" leaves it out.
+  is written; the timeline hides it.
 - A long message without one, longer than six sentences or 600 characters, is cut to
   its first four sentences.
 - A turn the agent starts itself, to report work it left running when its last turn
   ended, answers no request. Its messages are spoken the same way on the session that
   owns the task, if it is connected, and the first carries `cue: true`: the report can
   come minutes later, so it opens with the chime rather than out of silence.
-- "Read me the details" (or "details", "read it all", "read the full reply") reads the
-  last reply in full: the selected task's, or else the one this session last heard. With
-  neither, it fails with `no_target`. The outcome is `details`.
 
 ## 10. Mapping to Strata
 
@@ -268,16 +231,17 @@ For Q8, and not part of the wire format.
 
 - Voice has its own socket, `/api/voice` (§1).
 - Push-to-talk is per device: one open turn per session (§2).
-- "Confirm" is the confirmation word for destructive requests (§8).
+- No spoken commands or approval answers (§8, §9): a word that does something other than
+  what the agent would make of it makes the system opaque. Phrases like these may come
+  back with a local model to tell them apart from requests (roadmap: a front desk).
 - No retraction window in M2. Push-to-talk already has two chances to back out before
-  anything is sent: slide off to `cancel` the turn, or release and say "cancel" as the
-  next turn to interrupt the task (§9). A retraction window would hold every dispatch
-  for a few seconds, or race the agent starting. Routing stays explicit, so a wrong
-  target is unlikely.
+  anything is sent: slide off to `cancel` the turn, or stop the task once it starts. A
+  retraction window would hold every dispatch for a few seconds, or race the agent
+  starting. The target is what is selected on screen, so a wrong one is unlikely.
 - A reply is spoken only on the session that dispatched it (§9).
 - No model chooses the target. A local model that routed requests was tried in M3 and
   removed: it sent ambiguous requests to the wrong project (docs/m3-summaries.md).
-- Words said over a reply are not sent unless they are a fixed command (§12): from
+- A lone word or a "wait" said over a reply only stops it, and isn't sent (§12): from
   step 0 of M7, about half of them come through with their first words wrong.
 
 ## 12. Conversations
@@ -308,14 +272,10 @@ works as before when no conversation is open.
   with `turn`, `manual: true`, and the client uses that id from then on.
 - **Barge-in:** speech over a reply (160 ms of it) stops the reply, and the rest of that
   agent turn (an agent often sends several messages in one; a failure is still said), and
-  opens a turn, which ends as any other does. What is said is acted on as usual: a fixed
-  command, an approval answer (§8, §9) or a request, which is sent. A lone word, or a
+  opens a turn, which ends as any other does. What is said is sent as usual. A lone word, or a
   "wait" or "hang on", only stopped the reply: the outcome is `interrupted`. A transcript
   that is mostly what Sennet was saying is its own echo: `empty`.
 - **Filler:** a transcript of only "um", "uh", "hmm" and the like is `empty`.
-- **Approvals:** a voice answer counts within 30 s of the chime. A later one asks the
-  question again (a fresh `asking`, and the chime) instead, and gets `reprompt`. Pressing
-  talk to answer has no window.
 
 ## 13. The life of a reply
 
@@ -335,13 +295,13 @@ agent message ──▶ hub ──▶ session queue ──▶ socket ──▶ p
    about is cut to what should be heard: its `<spoken>` part (a sentence at a time as it
    streams, in a reply left open until the tag closes), or its opening sentences. It is
    split into clauses and handed to the session. *Waits:* behind speech still being prepared for the same task, so a
-   task's messages, approvals and failure are said in order. *Dropped:* when the turn was
+   task's messages and failure are said in order. *Dropped:* when the turn was
    talked over (`hushed`, §12), and for requests that weren't spoken (typed ones).
 2. **Session queue, per device** (`voice/session.py`, `speak`). The reply gets its id and
-   joins one queue with the approval questions (`ask`). Logged `reply N … queued`.
+   joins the device's queue. Logged `reply N … queued`.
    *Waits:* for any open turn on this device to close (`floor`): nothing is said while
    you talk (logged `waits for the open turn`). *Dropped:* if a stop or a new turn raised
-   the generation since it was queued (§7). Approval questions are never dropped.
+   the generation since it was queued (§7).
 3. **Socket** (`_play`). Each segment is synthesized one ahead of what is sent. Its
    `speech` message goes first, then its audio frames, in order on the one socket, so a
    frame belongs to the latest `speech` message. Logged `sending reply N segment S`.

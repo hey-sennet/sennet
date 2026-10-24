@@ -4,7 +4,7 @@
     uv run python tests/voice_bench.py --models ... --device cuda --wav my-command.wav
 
 Each run streams a spoken command over /api/voice in real time, 20 ms frames, as a
-browser would, routed by its leading project name. It times the final transcript
+browser would, to a new task in the one project. It times the final transcript
 after release, the (fake) agent's turn, and the reply's first audio after the
 agent's message. Without --wav the command is synthesized by Kokoro, which is
 cleaner than a real voice; record real commands to measure what users will see.
@@ -32,7 +32,7 @@ from sennet.server import create_app
 from sennet.speech import Speech
 from conftest import paired
 
-COMMAND = "In backend, run the unit tests and tell me which ones failed."
+COMMAND = "Run the unit tests and tell me which ones failed."
 FAKE_CODEX = Path(__file__).with_name("fake_codex.py")
 FRAME = 320  # 20 ms at 16 kHz
 
@@ -71,7 +71,7 @@ def spoken_command(speech: Speech, wav: Path | None) -> np.ndarray:
     return np.concatenate([pad, audio, pad])
 
 
-def run_once(client: TestClient, audio: np.ndarray, turn: str) -> Run:
+def run_once(client: TestClient, audio: np.ndarray, turn: str, project_id: int) -> Run:
     agent_message = {}
 
     def watch_events():
@@ -115,7 +115,7 @@ def run_once(client: TestClient, audio: np.ndarray, turn: str) -> Run:
 
         reader = threading.Thread(target=read, daemon=True)
         reader.start()
-        ws.send_json({"type": "start", "turn": turn})
+        ws.send_json({"type": "start", "turn": turn, "project_id": project_id})
         started = time.perf_counter()
         for i, offset in enumerate(range(0, len(pcm), FRAME * 2)):
             ws.send_bytes(pcm[offset:offset + FRAME * 2])
@@ -145,8 +145,8 @@ def bench(models: Path, device: str, runs: int, wav: Path | None = None, threads
         try:
             with paired(TestClient(create_app(settings, Paths(home, home), speech=speech),
                                    headers={"X-Sennet": "1"})) as client:
-                client.post("/api/projects", json={"path": str(home / "repo"), "name": "backend"})
-                return [run_once(client, audio, f"t{i}") for i in range(runs)]
+                project = client.post("/api/projects", json={"path": str(home / "repo"), "name": "backend"}).json()
+                return [run_once(client, audio, f"t{i}", project["id"]) for i in range(runs)]
         finally:
             speech.close()
 

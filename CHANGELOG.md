@@ -12,12 +12,11 @@ The first release.
 - Local speech: Parakeet speech recognition with live captions, smart-turn end-of-turn
   detection, and Kokoro voices, on CPU or an NVIDIA GPU.
 - An optional wake word, from openWakeWord's pre-trained phrases.
-- Projects named by voice ("in backend, …"), tasks with follow-ups, and up to three
-  running at once.
-- Approvals by voice or tap: ask, auto, never or classifier modes, read-only, project or
-  full access, remembered "always" rules, and a second confirm for destructive actions.
-- Replies read out in a version the agent writes to be heard, and "read me the details"
-  for the whole reply.
+- Projects, tasks with follow-ups, and up to three running at once.
+- Approvals with a chime and a card: ask, auto, never or classifier modes, read-only,
+  project or full access, and remembered "always" rules.
+- Replies read out in a version the agent writes to be heard; the timeline has the whole
+  reply. No spoken commands: everything said goes to the agent, word for word.
 - The model and effort per project and per task.
 - Each agent's five-hour and weekly usage limits in Settings, with reset times, a spoken
   warning when one is nearly used up, a clear message when one is reached, and the tokens

@@ -68,10 +68,7 @@ class Reply:
     segments: list[str]
     generation: int                 # replies from before a stop or start are dropped
     task_id: int | None = None
-    approval_id: int | None = None  # set on an approval question, which is never dropped
-    cancelled: bool = False         # the approval was answered elsewhere
     cue: bool = False               # the client chimes before it: nothing was asked for
-    asked: bool = False             # asked for here ("read me the details"): said whichever task is on screen
     # Its trace, for the line logged when it ends (`_finished`).
     queued_at: float = field(default_factory=time.monotonic)
     waited: float = 0.0             # for an open turn to close
@@ -92,18 +89,6 @@ class Reply:
     def close(self):
         self.streaming = False
         self.more.set()
-
-
-@dataclass
-class Asking:
-    """The approval this session is asking about (voice-protocol §8)."""
-
-    approval: dict
-    project: str
-    started: bool = False           # the question began playing: the next turn answers it
-    confirming: bool = False        # a destructive request got its yes; waiting for "confirm"
-    reply: Reply | None = None
-    asked_at: float = 0.0           # when the chime was asked for
 
 
 class VoiceSession:
@@ -130,8 +115,6 @@ class VoiceSession:
         self.spoken: deque[tuple[float, str]] = deque(maxlen=32)  # recent segments, for the echo check
         self.send_lock = asyncio.Lock()
         self.ignored_frames = 0
-        self.approvals: dict[int, tuple[dict, str]] = {}  # waiting to be asked: id → (approval, project)
-        self.asking: Asking | None = None
         self.uplink: OpusUplink | None = None      # set once the client asks for Opus (`codecs`)
         self.downlink: OpusDownlink | None = None
         self.opus_down = False
@@ -394,12 +377,6 @@ class VoiceSession:
                   for w in re.findall(r"[\w']+", text.lower())}
         return bool(recent) and sum(w in recent for w in words) >= 0.6 * len(words)
 
-    def reask(self):
-        """Ask the current approval again: chime, and a fresh window to answer it."""
-        if self.asking:
-            self.asking.started = False
-            self.ask([])
-
     async def _frame(self, data: bytes):
         if self.conversation is not None:
             try:
@@ -502,11 +479,11 @@ class VoiceSession:
 
     # Speech out
 
-    def speak(self, segments: list[str], task_id: int | None = None, approval_id: int | None = None,
-              cue: bool = False, streaming: bool = False, asked: bool = False) -> Reply | None:
+    def speak(self, segments: list[str], task_id: int | None = None, cue: bool = False,
+              streaming: bool = False) -> Reply | None:
         """Queue a reply, spoken once no turn is open, after any reply before it. With `cue`, the
         client chimes first. A `streaming` reply takes more segments (`Reply.append`) until closed.
-        A reply about a task that isn't on screen isn't spoken (`_elsewhere`), unless it was `asked`."""
+        A reply about a task that isn't on screen isn't spoken (`_elsewhere`)."""
         segments = [s for s in segments if s.strip()]
         if not segments:
             return None
@@ -514,8 +491,7 @@ class VoiceSession:
         log.debug("voice %s: reply %d for task %s queued, %d segment%s%s: %.60r", self.id[:4], self.replies_made,
                   task_id, len(segments), "" if len(segments) == 1 else "s", " so far" if streaming else "",
                   " ".join(segments))
-        reply = Reply(self.replies_made, segments, self.generation, task_id, approval_id, cue=cue,
-                      streaming=streaming, asked=asked)
+        reply = Reply(self.replies_made, segments, self.generation, task_id, cue=cue, streaming=streaming)
         self.replies.put_nowait(reply)
         return reply
 
@@ -528,42 +504,6 @@ class VoiceSession:
             self._finished(reply, "stopped")
         await self.send(type="barge_in" if barge_in else "stopped", generation=self.generation)
 
-    # Approvals
-
-    def offer(self, approval: dict, project: str):
-        """An approval for a task this session owns. Asked oldest first, one at a time."""
-        if approval["id"] not in self.approvals and not (self.asking and self.asking.approval["id"] == approval["id"]):
-            self.approvals[approval["id"]] = (approval, project)
-            self._ask_next()
-
-    def withdraw(self, approval_id: int):
-        """The approval was answered, here or elsewhere: stop asking about it."""
-        self.approvals.pop(approval_id, None)
-        if self.asking and self.asking.approval["id"] == approval_id:
-            if self.asking.reply:
-                self.asking.reply.cancelled = True
-            self.asking = None
-            self._ask_next()
-
-    def ask(self, segments: list[str]):
-        """Say something as part of the current approval's question."""
-        asking = self.asking
-        log.info("voice %s: reply %d, approval %s for task %s, queued%s", self.id[:4], self.replies_made + 1,
-                 asking.approval["id"], asking.approval["task_id"],
-                 f": {' '.join(segments)!r:.60}" if segments else " (the chime)")
-        self.replies_made += 1
-        reply = Reply(self.replies_made, segments, self.generation, asking.approval["task_id"], asking.approval["id"])
-        if asking.reply:
-            asking.reply.cancelled = True
-        asking.reply = reply
-        self.replies.put_nowait(reply)
-
-    def _ask_next(self):
-        if self.asking is None and self.approvals:
-            approval, project = self.approvals.pop(min(self.approvals))
-            self.asking = Asking(approval, project)
-            self.ask([])  # the question itself is the client's chime; it takes its turn like speech
-
     async def _speaker(self):
         while True:
             reply = await self.replies.get()
@@ -572,20 +512,11 @@ class VoiceSession:
                 waiting = time.monotonic()
                 await self.floor.wait()
                 reply.waited = time.monotonic() - waiting
-            if reply.cancelled:
-                continue
-            if reply.approval_id is not None:
-                reply.generation = self.generation  # a question waits out a stop or a turn; it is never dropped
-            elif reply.generation != self.generation:
+            if reply.generation != self.generation:
                 log.debug("voice %s: reply %d dropped, queued before a stop or a turn", self.id[:4], reply.id)
                 continue  # queued before a stop or a new turn
             if self._elsewhere(reply):
                 await self._unheard(reply)
-                continue
-            if not reply.segments:
-                self.asking.started = True  # nothing to say: from here the next turn answers it
-                self.asking.asked_at = time.monotonic()
-                await self.send(type="asking", approval_id=reply.approval_id)
                 continue
             if self.speech.status["tts"] != "ready":
                 await self.error("tts_unavailable", self.speech.detail["tts"] or "speech output is loading")
@@ -599,8 +530,6 @@ class VoiceSession:
                 await self.error("tts_unavailable", "speech output failed")
             finally:
                 self.sending = False
-            if self.asking and reply is self.asking.reply and not self.asking.started and not reply.cancelled:
-                self.replies.put_nowait(reply)  # interrupted before a word went out: ask again afterwards
             if self.playing:
                 # The client is still playing it: `drained` settles the state, or the cap does.
                 if self.settle_timer:
@@ -611,9 +540,8 @@ class VoiceSession:
             await self._settle()
 
     def _elsewhere(self, reply: Reply) -> bool:
-        """A reply about a task other than the one on screen: not spoken. Approvals are still asked."""
-        return (reply.task_id is not None and reply.task_id != self.selected
-                and reply.approval_id is None and not reply.asked)
+        """A reply about a task other than the one on screen: not spoken."""
+        return reply.task_id is not None and reply.task_id != self.selected
 
     async def _unheard(self, reply: Reply):
         """Tell the client there's a reply it didn't hear, so it can mark the task."""
@@ -625,7 +553,7 @@ class VoiceSession:
         """Whether segment `index` is there to play, waiting for it while the reply is streaming."""
         since = time.monotonic()
         while index >= len(reply.segments) and reply.streaming:
-            if self.generation != reply.generation or reply.cancelled:
+            if self.generation != reply.generation:
                 return False
             if time.monotonic() - since > STREAM_IDLE_S:
                 log.warning("voice %s: reply %d was never closed; ending it", self.id[:4], reply.id)
@@ -636,7 +564,7 @@ class VoiceSession:
                 await asyncio.wait_for(reply.more.wait(), STREAM_WAIT_S)
             except asyncio.TimeoutError:
                 pass  # check for a stop, then wait again
-        return index < len(reply.segments) and self.generation == reply.generation and not reply.cancelled
+        return index < len(reply.segments) and self.generation == reply.generation
 
     async def _play(self, reply: Reply):
         generation, tts = reply.generation, self.speech.tts
@@ -650,7 +578,7 @@ class VoiceSession:
             while True:
                 if upcoming is None:
                     if not await self._more(reply, index):
-                        if self.generation != generation or reply.cancelled:
+                        if self.generation != generation:
                             return  # stopped while waiting for the next sentence
                         break
                     upcoming = synthesize(reply.segments[index])
@@ -658,18 +586,16 @@ class VoiceSession:
                 audio = await upcoming
                 # Synthesize one segment ahead of what is being sent, and no further.
                 upcoming = synthesize(reply.segments[index + 1]) if index + 1 < len(reply.segments) else None
-                if self.generation != generation or reply.cancelled:
+                if self.generation != generation:
                     return
                 if self._elsewhere(reply):  # its task was left mid-reply
                     await self._unheard(reply)
                     return
                 if upcoming is not None and (pause := pause_after(text)):
                     audio = np.concatenate([audio, np.zeros(int(pause * tts.rate), audio.dtype)])
-                if self.asking and reply is self.asking.reply:
-                    self.asking.started = True  # once the user may have heard it, the next turn answers it
                 cue = {"cue": True} if reply.cue and index == 0 else {}
                 await self.send(type="speech", reply=reply.id, generation=generation, segment=index, text=text,
-                                task_id=reply.task_id, approval_id=reply.approval_id, **cue)
+                                task_id=reply.task_id, **cue)
                 now = time.monotonic()
                 log.debug("voice %s: sending reply %d segment %d (task %s)", self.id[:4], reply.id, index,
                           reply.task_id)
@@ -685,7 +611,7 @@ class VoiceSession:
                     + PLAYBACK_TAIL_S
                 self.spoken.append((now, text))
                 for frame in self._encode(audio, tts.rate, generation, index):
-                    if self.generation != generation or reply.cancelled:
+                    if self.generation != generation:
                         return
                     await self.send_bytes(frame)
                 index += 1

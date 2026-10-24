@@ -53,7 +53,7 @@ function voiceWithPlayback() {
 describe('playback generations', () => {
   it('drops the reply a barge-in stopped, and plays the next one', () => {
     const { played } = voiceWithPlayback()
-    server({ type: 'speech', generation: 0, segment: 0, text: 'A long reply.', task_id: 1, approval_id: null })
+    server({ type: 'speech', generation: 0, segment: 0, text: 'A long reply.', task_id: 1 })
     audio(0)
     expect(played).toHaveBeenCalledTimes(1)
 
@@ -61,7 +61,7 @@ describe('playback generations', () => {
     audio(0) // still in flight from the stopped reply
     expect(played).toHaveBeenCalledTimes(1)
 
-    server({ type: 'speech', generation: 1, segment: 0, text: 'The answer.', task_id: 1, approval_id: null })
+    server({ type: 'speech', generation: 1, segment: 0, text: 'The answer.', task_id: 1 })
     audio(1)
     expect(played).toHaveBeenCalledTimes(2)
   })
@@ -71,7 +71,7 @@ describe('playback generations', () => {
     voice.stop()
     server({ type: 'stopped', generation: 1 })
     audio(0)
-    server({ type: 'speech', generation: 1, segment: 0, text: 'Next.', task_id: 1, approval_id: null })
+    server({ type: 'speech', generation: 1, segment: 0, text: 'Next.', task_id: 1 })
     audio(1)
     expect(played).toHaveBeenCalledTimes(1)
   })
@@ -98,7 +98,7 @@ describe('words under the disc', () => {
 describe('leaving a task', () => {
   function playing(taskId: number) {
     const { voice, played } = voiceWithPlayback()
-    server({ type: 'speech', reply: 1, generation: 0, segment: 0, text: 'A long reply.', task_id: taskId, approval_id: null })
+    server({ type: 'speech', reply: 1, generation: 0, segment: 0, text: 'A long reply.', task_id: taskId })
     audio(0)
     played.mock.calls[0][2]() // its first audio starts playing
     voice.playback.onPlayingChange(true)

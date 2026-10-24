@@ -58,18 +58,17 @@ def test_classify_reads_and_network():
     assert classify(ApprovalRequest(kind="edit")) == "edit"
 
 
-def test_project_names_and_aliases_are_unique(tmp_path):
+def test_project_names_are_unique(tmp_path):
     db = Database(tmp_path / "db")
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
-    projects.add(db, str(tmp_path / "a"), "Backend", ["api"])
+    projects.add(db, str(tmp_path / "a"), "Backend")
     with pytest.raises(projects.ProjectError, match="already used"):
-        projects.add(db, str(tmp_path / "b"), "API")
+        projects.add(db, str(tmp_path / "b"), "backend")
     with pytest.raises(projects.ProjectError, match="already a project"):
         projects.add(db, str(tmp_path / "a"), "other")
     with pytest.raises(projects.ProjectError, match="not a directory"):
         projects.add(db, str(tmp_path / "missing"))
-    assert projects.find(db, "api")["name"] == "Backend"
     assert projects.find(db, "BACKEND")["name"] == "Backend"
 
 

@@ -1,4 +1,4 @@
-"""Long agent replies cut for speech, and "read me the details"."""
+"""Long agent replies cut for speech."""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -6,7 +6,6 @@ from sennet.server import create_app
 from sennet.speech import Speech
 from sennet.speech.fakes import FakeRecognizer, FakeVAD
 from sennet.voice import summary
-from sennet.voice.dispatch import Details, Request, parse
 from conftest import HEADERS, wait_for, paired
 from test_voice import GatedSynthesizer, Voice
 
@@ -47,19 +46,6 @@ def test_a_long_reply_is_cut_to_its_opening():
 
 def test_a_spoken_version_is_left_out():
     assert summary.shorten("<spoken>Heard already.</spoken>\nAll 40 tests pass.") == "All 40 tests pass."
-
-
-# Read me the details
-
-@pytest.mark.parametrize("text", ["Read me the details.", "Details.", "Read it all, please.",
-                                  "OK read the full reply"])
-def test_details_words(text):
-    assert isinstance(parse(text, []), Details)
-
-
-def test_details_inside_a_request_is_a_request():
-    assert parse("Read the details of the API and summarise them.", []) == \
-        Request("Read the details of the API and summarise them.")
 
 
 # In the daemon
@@ -106,20 +92,3 @@ def test_a_long_reply_is_heard_as_its_opening(client, voice, speech, project):
     assert task["messages"][-1]["text"] == f"You said: {LONG}"
 
 
-def test_read_me_the_details_reads_the_whole_reply(client, voice, speech, project):
-    speech.stt.transcript = LONG
-    voice.talk(project_id=project["id"])
-    task_id = voice.next("final")["task_id"]
-    assert spoken(voice) == HEARD
-    speech.stt.transcript = "Read me the details."
-    voice.talk("t2")   # nothing selected: the reply last heard here
-    assert voice.next("final", turn="t2") == {"type": "final", "turn": "t2", "text": "Read me the details.",
-                                              "outcome": "details", "task_id": task_id}
-    assert spoken(voice) == f"You said: {LONG}"
-
-
-def test_details_with_nothing_heard_says_so(voice, speech):
-    speech.stt.transcript = "Read me the details."
-    voice.talk()
-    assert voice.next("voice_error")["code"] == "no_target"
-    assert voice.next("final")["outcome"] == "failed"

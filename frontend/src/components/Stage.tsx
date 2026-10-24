@@ -53,7 +53,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
   // last reply lingers to be read.
   const update = said?.speaker === 'agent' && running && !snapshot.speaking
   const words = said && !sent && !update && !(approval && said.speaker === 'agent') ? said : null
-  // The chime is the approval's question (voice-protocol §8): once as its card shows, even over
+  // The chime says an approval needs you (voice-protocol §8): once as its card shows, even over
   // the agent's speech, and again for each approval after it.
   const chiming = !words && !strataPreview ? approval?.id : undefined
   useEffect(() => {
@@ -175,7 +175,7 @@ function Lead({ children, quiet, agent, className }: { children: ReactNode; quie
   )
 }
 
-/** The oldest approval waiting on you, answerable here or by voice. */
+/** The oldest approval waiting on you. */
 function StageApproval({ approval, project }: { approval: Approval; project?: Project }) {
   const { busy, decide } = useDecide(approval)
   const shown = approval.kind === 'command' ? approval.detail.command : approval.kind === 'tool' ? approval.detail.tool : null

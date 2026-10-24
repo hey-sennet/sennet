@@ -21,7 +21,6 @@ import numpy as np
 from ..speech import RATE
 from ..speech.base import AudioBuffer
 from ..speech.stt import Caption
-from .dispatch import Request, parse
 from .endpoint import SPEECH, Endpointer
 from .recognition import Recognition
 
@@ -35,7 +34,6 @@ KEEP_S = 1.0            # audio kept between turns, for the pre-roll
 UPLINK_LIMIT_S = 2.0    # audio received but not yet looked at
 TURN_LIMIT_S = 300.0    # as for push-to-talk: a television never falls quiet
 IDLE_S = 300.0          # a conversation closes after this long with nobody talking, Sennet included
-ASK_WINDOW_S = 30.0     # an approval question is answered by voice only this soon after its chime
 ECHO_WINDOW_S = 20.0    # what was spoken this recently counts as a possible echo
 FILLER = {"um", "uh", "erm", "er", "hmm", "mm", "mhm", "ah", "oh", "uh huh"}
 HOLD = {"wait", "wait wait", "hold on", "hang on", "one sec", "one second", "just a sec", "just a second",
@@ -273,19 +271,13 @@ class Conversation:
         """The checks a conversation adds before a transcript is acted on (m7-sessions, Barge-in)."""
         session = self.session
         words = [w.lower() for w in WORD.findall(text)]
-        asking = session.asking if session.asking and session.asking.started else None
-        if not words or (" ".join(words) in FILLER and asking is None):
+        if not words or " ".join(words) in FILLER:
             return {"outcome": "empty"}
         if turn.over_reply and session.echoes(words):
             return {"outcome": "empty"}  # Sennet heard itself
-        if asking is not None and not turn.manual and time.monotonic() - asking.asked_at > ASK_WINDOW_S:
-            # Long after the chime, "yes" is as likely the television: ask again first.
-            session.reask()
-            return {"outcome": "reprompt", "approval_id": asking.approval["id"]}
-        if turn.over_reply and not turn.manual and asking is None \
-                and (len(words) < 2 or " ".join(words) in HOLD) \
-                and isinstance(parse(text, session.hub.tasks.db.projects()), Request):
-            return {"outcome": "interrupted"}  # it only stopped the reply; a damaged "stop", often
+        if turn.over_reply and not turn.manual \
+                and (len(words) < 2 or " ".join(words) in HOLD):
+            return {"outcome": "interrupted"}  # it only stopped the reply
         return await session.hub.deliver(session, turn, text)
 
     # Audio kept
