@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, AudioLines, Ear, Keyboard, ListTodo, Plus, Square } from 'lucide-react'
+import { ArrowUp, AudioLines, Ear, Keyboard, ListTodo, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -10,8 +10,8 @@ const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border bord
 
 /**
  * Under the stage: on the left the new-task glyph; in the middle the wake word glyph (when the
- * server has a model), the conversation glyph and a keyboard glyph that grows into a type bar; on the right stop while a reply plays,
- * and on phones the tasks glyph that opens the sheet.
+ * server has a model), the conversation glyph and a keyboard glyph that grows into a type bar; on the right, on phones, the
+ * tasks glyph that opens the sheet. A reply is stopped from the disc: pressing it silences the reply.
  */
 export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, target, onNewTask, activeTasks, needsYou, replyElsewhere, onOpenTasks, className }: {
   typing: boolean
@@ -27,7 +27,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
   onOpenTasks?: () => void
   className?: string
 }) {
-  const { speaking, conversation, stt, turnReady, wake, wakePhrase } = useVoice()
+  const { conversation, stt, turnReady, wake, wakePhrase } = useVoice()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -136,12 +136,6 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
       </div>
 
       <div className={cn('flex items-center justify-end gap-3', !typing && 'flex-1 basis-0')}>
-        {speaking && !typing && (
-          <button type="button" className={glyph}
-            aria-label="Stop speaking" title="Stop speaking" onClick={() => voice().stop()}>
-            <Square className="!size-4" />
-          </button>
-        )}
         {onOpenTasks && (
           <button type="button" className={cn(glyph, 'relative', typing && 'pointer-events-none absolute right-5 opacity-0')}
             aria-label="Tasks" title="Tasks" onClick={onOpenTasks}>

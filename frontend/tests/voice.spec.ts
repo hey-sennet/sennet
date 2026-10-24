@@ -153,7 +153,7 @@ test('sliding off the button cancels', async ({ page }, info) => {
   expect(await taskCount(page)).toBe(before)
 })
 
-test('the reply is spoken, and stop silences it', async ({ page }, info) => {
+test('the reply is spoken, and pressing the disc silences it', async ({ page }, info) => {
   const name = `voice-speak-${info.project.name}`
   await addProject(page, name)
   await page.goto('/')
@@ -165,10 +165,16 @@ test('the reply is spoken, and stop silences it', async ({ page }, info) => {
   await page.waitForTimeout(1000)
   await page.mouse.up()
 
-  const stop = page.getByRole('button', { name: 'Stop speaking' })
-  await expect(stop).toBeVisible()
-  await stop.click()
-  await expect(stop).toBeHidden()
+  const speaking = page.locator('canvas[data-state="speaking"]')
+  await expect(speaking).toBeVisible()
+  // Pressed and slid off, so nothing is said: only the silencing is left.
+  const box = (await talk.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await expect(speaking).toBeHidden()
+  await page.mouse.move(box.x + box.width / 2, box.y - 200)
+  await page.mouse.up()
+  await expect(speaking).toBeHidden()
 })
 
 /** The binary frames on the voice socket, each way. */
@@ -194,7 +200,7 @@ async function talkAndHearTheReply(page: Page, name: string) {
   await page.mouse.up()
   await expect(page.getByRole('main').getByText(`You said: ${HEARD}`)).toBeVisible()
   // Shown while the reply's audio is playing, so it was decoded.
-  await expect(page.getByRole('button', { name: 'Stop speaking' })).toBeVisible()
+  await expect(page.locator('canvas[data-state="speaking"]')).toBeVisible()
 }
 
 const kind = (frame: Buffer) => [frame[0], frame[1]].join(',')
