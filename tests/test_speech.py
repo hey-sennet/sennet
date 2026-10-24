@@ -12,7 +12,7 @@ import pytest
 from sennet import setup
 from sennet.config import Settings
 from sennet.speech import Speech, hardware, models
-from sennet.speech.base import AudioBuffer
+from sennet.speech.base import AudioBuffer, Word
 from sennet.speech.fakes import FakeRecognizer, FakeSynthesizer, FakeTurn, FakeVAD
 from sennet.speech.stt import StreamingTranscriber
 from sennet.speech.tts import VOCAB, split, tokens, trim
@@ -157,6 +157,32 @@ def test_streaming_transcriber_commits_words_two_passes_agree_on():
     audio.append(np.zeros(16000 // 4, dtype=np.float32))
     second = stream.tick(audio.view())
     assert (second.committed, second.provisional) == ("one two", "three")
+
+
+class PositionalRecognizer:
+    """Hears the word whose number each quarter second of audio holds, wherever the window starts."""
+
+    def __init__(self, transcript: list[str]):
+        self.transcript = transcript
+
+    def words(self, audio: np.ndarray) -> list[Word]:
+        quarter = 16000 // 4
+        return [Word(self.transcript[int(audio[i * quarter])], i * 0.25, (i + 1) * 0.25)
+                for i in range(len(audio) // quarter)]
+
+
+def test_streaming_transcriber_never_repeats_words_as_its_window_moves_on():
+    transcript = [f"w{i}" for i in range(40)]
+    stream = StreamingTranscriber(PositionalRecognizer(transcript), max_window=2.0)
+    audio = AudioBuffer()
+    for i in range(len(transcript)):
+        audio.append(np.full(16000 // 4, i, dtype=np.float32))
+        caption = stream.tick(audio.view())
+        shown = (caption.committed + " " + caption.provisional).split()
+        # What's shown is always the words heard so far, in order, once each (bar the last
+        # committed word, which a moving window holds back a tick to commit again).
+        assert shown in (transcript[:i + 1], transcript[:i]), (i, caption)
+    assert stream.anchor > 0  # the window did move on
 
 
 def test_audio_buffer_grows_without_changing_earlier_views():

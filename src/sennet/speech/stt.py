@@ -83,14 +83,15 @@ class StreamingTranscriber:
                 self.committed += [w.text for w in words[self.window_committed:agreed]]
                 self.window_committed = agreed
         self.previous = words
+        # Before any advance, which empties the window's committed count: after it, the whole
+        # window would read as provisional, repeating words already committed.
+        caption = Caption(" ".join(self.committed), " ".join(w.text for w in words[self.window_committed:]), decode_ms)
 
         # A decode can return fewer words than were committed (e.g. a word merged);
         # advance only when the current words still cover the committed ones.
         if len(window) / RATE > self.max_window and 1 < self.window_committed <= len(words):
             self._advance(words)
-
-        provisional = " ".join(w.text for w in words[self.window_committed:])
-        return Caption(" ".join(self.committed), provisional, decode_ms)
+        return caption
 
     def _advance(self, words: list[Word]):
         # Cut between the last two committed words, at the midpoint of the gap,
