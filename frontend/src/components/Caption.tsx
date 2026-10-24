@@ -11,12 +11,14 @@ const HOLD_MS = 4000 // after you scroll the caption yourself, it stops followin
  *
  * The caption scrolls within a few lines and glides to follow the words: the agent's last
  * spoken word sits one line above the bottom edge, so the next line shows what's coming; your
- * own words follow the newest one. Scrolling it yourself holds the view for a moment.
+ * own words follow the newest one. Scrolling it yourself holds the view for a moment. A `still`
+ * caption doesn't follow: it stays where it was left, to be scrolled and read.
  */
-export function Caption({ committed, provisional = '', speaker = 'user', className }: {
+export function Caption({ committed, provisional = '', speaker = 'user', still, className }: {
   committed: string
   provisional?: string
   speaker?: 'user' | 'agent'
+  still?: boolean
   className?: string
 }) {
   const solid = split(committed)
@@ -40,13 +42,13 @@ export function Caption({ committed, provisional = '', speaker = 'user', classNa
     const el = box.current
     if (!el) return
     measure()
-    if (Date.now() < heldUntil.current) return
+    if (still || Date.now() < heldUntil.current) return
     const word = el.querySelectorAll<HTMLElement>('[data-word]')[followed]
     if (!word) return
     const lead = agent ? parseFloat(getComputedStyle(el).lineHeight) : 0
     const top = Math.max(0, Math.min(word.offsetTop + word.offsetHeight + lead - el.clientHeight, el.scrollHeight - el.clientHeight))
     if (Math.abs(top - el.scrollTop) > 2) el.scrollTo({ top, behavior: 'smooth' })
-  }, [followed, total, agent])
+  }, [followed, total, agent, still])
 
   const hold = () => { heldUntil.current = Date.now() + HOLD_MS }
   const fade = (edge: boolean) => (edge ? 'transparent' : '#000')

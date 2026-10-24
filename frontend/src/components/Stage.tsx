@@ -98,8 +98,9 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
       </div>
     )
   } else if (task && lastReply(detail)) {
-    // What you heard stays once its caption clears, rather than the reply written to be read.
-    body = <Lead agent className="line-clamp-4">{spokenPart(lastReply(detail)!) ?? plainText(lastReply(detail)!)}</Lead>
+    // What you heard stays once its caption clears, rather than the reply written to be read. It
+    // takes the caption's place, so it keeps its scroll and can still be scrolled.
+    body = <Caption still speaker="agent" committed={spokenPart(lastReply(detail)!) ?? plainText(lastReply(detail)!)} />
   } else {
     body = <Lead quiet>{task ? task.title : 'What should we work on?'}</Lead>
   }
