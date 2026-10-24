@@ -56,11 +56,14 @@
 }
 
 /* The stage gives its disc all the room it has: its full width, and its height less the words
-   beneath (their label and 4.5 lines) and the gap between, up to 720px. */
+   beneath (their label and `--words`) and the gap between, up to 720px. `--words` is a fixed
+   height for the words, so a reply filling up doesn't move the disc: the tallest of 4.5 lines of
+   display type, the agent's caption (5 lines at 1.4) and yours (5 at 1.18), as in Caption. */
 @utility stage {
     container-type: size;
     --gap: clamp(16px, 4vh, 40px);
-    --disc: min(100cqw, 100cqh - var(--gap) - 4.5 * clamp(26px, 6vw, 34px) - 2rem, 720px);
+    --words: max(4.5 * clamp(26px, 6vw, 34px), 7 * clamp(19px, 4.5vw, 23px), 5.9 * clamp(22px, 5.5vw, 30px));
+    --disc: min(100cqw, 100cqh - var(--gap) - var(--words) - 2rem, 720px);
 }
 
 @theme inline {

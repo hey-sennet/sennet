@@ -131,7 +131,10 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
             </>
           )}
         </p>
-        <div className="min-h-[4.5em] font-serif text-[clamp(26px,6vw,34px)]">{body}</div>
+        {/* A fixed height, so words filling it don't move the disc; only an approval's card, taller,
+            changes it, and the height glides there and back. */}
+        <div className={cn('font-serif text-[clamp(26px,6vw,34px)] transition-[height] duration-600 ease-strata [interpolate-size:allow-keywords]',
+          approval && !words ? 'h-auto' : 'h-(--words)')}>{body}</div>
         {!approval && elsewhere[0] && (
           // Quiet, with no chime: the device following that task asks. This one can still answer.
           <button className="mt-3 inline-flex items-center gap-1.5 text-[13px] text-warn hover:underline"
