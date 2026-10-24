@@ -1,10 +1,10 @@
 # Adapter signals: usage and what else the agents tell us
 
-Status: investigation, for review. Date: 2026-10-23.
+Status: usage built (2026-10-24); the rest is still an investigation. First written 2026-10-23.
 
 Both agent CLIs send more than the adapters keep. This document lists what they send,
-what the adapters drop, and what could be useful in the app, usage above all. It is an
-investigation. No design is agreed, and nothing here is built.
+what the adapters drop, and what could be useful in the app. Usage limits and tokens per
+task are built (section 1); nothing else here is.
 
 Sources: the adapters (`agents/claude.py`, `agents/codex.py`), the contract
 (`agents/base.py`), the recorded Claude transcripts in `spikes/claude/transcripts`
@@ -36,10 +36,53 @@ their shapes and timing need checking before anything is built on them.
   reset credits and whether ordinary usage is allowed).
 - A separate account-wide token usage read exists (`GetAccountTokenUsage`).
 
-### What the adapters do with it
+### When a limit is reached
 
-Nothing. The Claude adapter reads only the status from `result` and ignores
-`rate_limit_event`. The Codex adapter doesn't handle any usage method.
+Checked on 2026-10-24: Claude Code 2.1.310 against a local server answering as Anthropic
+does at the limit, and codex-cli 0.161.0 from its schema.
+
+- **Claude** sends a `rate_limit_event` with `status: "rejected"`, then a reply of its own,
+  "You've hit your session limit · resets 6:26pm (Europe/London)", marked
+  `is_api_error_message`, `error: "rate_limit"` and `api_error: "usage_limit_reached"`,
+  with `api_error_params.rate_limit_info` (the window and `resetsAt`). The `result` has
+  `is_error: true` and the same text. It doesn't retry.
+- **Codex** fails the turn with `error.codexErrorInfo: "usageLimitExceeded"` and a message
+  that may hold links ("Upgrade to Pro (https://…) or try again at 4:12 PM").
+
+Before this was built, Sennet spoke Claude's reply and then "That task failed: …" with
+the same words, and read Codex's message with "a link" in it.
+
+### Asking between turns
+
+Both can be asked for their limits without a turn, so asking costs no usage:
+
+- **Claude**: the `get_usage` control request on stdin, with `skip_behaviors: true`. Its
+  SDK names it `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`, so it may
+  change. It answers with `rate_limits.five_hour` and `seven_day` (and model-specific
+  weekly windows when the plan has them), each a percentage and an ISO reset time, and
+  `rate_limits_available: false` without a plan. No session file is written.
+- **Codex**: `account/rateLimits/read`. Checked live: `primary` is the 300-minute window
+  and `secondary` the 10,080-minute one. A turn sends `account/rateLimits/updated` with
+  the same snapshot, and `thread/tokenUsage/updated` with `last` (one model response;
+  its `inputTokens` include `cachedInputTokens`) and the thread's `total`.
+
+### What is built
+
+- The contract has `usage` (a turn's tokens: input with cached included, cached, and
+  output), `limits` (`LimitWindow`s: id, title, percent used, reset time), a `limit`
+  field on `turn_completed`, and `Agent.limits()`.
+- Claude's adapter maps `rate_limit_event` and `get_usage` to windows, keeps its own
+  reply about a failed request out of the messages (the result carries it as the turn's
+  error), and reads tokens from `result.usage`. Codex's sums `last` over the turn, maps
+  both rate-limit messages, and on `usageLimitExceeded` reads the limits to say which
+  window is full.
+- `usage.py` keeps each agent's windows, merges partial reports, asks again when a page
+  loads and they're over five minutes old, and words "is reached" and the warnings.
+  Tokens add up on the task (`input_tokens`, `cached_tokens`, `output_tokens`).
+- The voice hub says a reached limit once, in Sennet's words, and after a reply mentions a
+  window past 80% and again past 95%, once each until it resets.
+- The client shows the limits under each agent in Settings, a line above the label once a limit is
+  past 80%, and tokens per task in its timeline. Cost is not shown.
 
 ### Resume and re-reading context
 
@@ -59,9 +102,8 @@ measuring. Codex's resume and caching behavior is not looked at here.
 
 ### Ideas for the UI
 
-- **Per task:** tokens, and cost for Claude, summed over turns, in the task detail.
-- **Per agent:** a small indicator of the five-hour and seven-day windows with reset
-  times. Claude's updates after turns. Codex's can also be polled.
+- ~~**Per task:** tokens, summed over turns, in the task detail.~~ Built, without cost.
+- ~~**Per agent:** the five-hour and seven-day windows with reset times.~~ Built.
 - **Cache cost:** a note on a turn that rebuilt the cache, so a model switch or a long
   gap shows what it cost.
 
@@ -128,7 +170,7 @@ since they explain a turn after it ends.
 
 ## Suggested order
 
-1. **Usage and the actual model.** Highest value, and the model name checks that a model
+1. ~~**Usage**~~ (built) **and the actual model.** The model name checks that a model
    switch applied.
 2. **Compaction and rerouting notices.** Both change cost or answers invisibly.
 3. **Tool-use timeline entries** for reads, searches and fetches, for the phone view.
@@ -137,11 +179,11 @@ since they explain a turn after it ends.
 
 ## Open questions
 
-- Is Claude's cost worth showing on a subscription, or only the windows?
-- Do Claude's rate-limit windows stay fresh enough with updates only during turns? Is
-  an occasional idle poll worth a turn's usage? (`claude` may have a status command,
-  unchecked.)
-- Does Codex's rate-limit snapshot match what its own app shows? This needs a live check.
+- ~~Is Claude's cost worth showing on a subscription?~~ No: it's at list price.
+- ~~Do Claude's windows stay fresh with updates only during turns?~~ `get_usage` answers
+  between turns at no cost; it's experimental, so a Claude Code update may break it.
+- Does Codex's rate-limit snapshot match what its own app shows? Its shape is checked
+  live; the numbers against its app aren't yet.
 - What do `thread/goal/*` and `thread/queue/changed` carry?
 - Should tool-use entries be spoken, or only shown?
 - Is the cold-cache cost of a Claude model switch worth warning about before it happens?

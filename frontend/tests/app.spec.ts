@@ -83,6 +83,114 @@ test('an edited file opens to its diff in the timeline', async ({ page }, info) 
   await expect(timeline.getByText('+b', { exact: true })).toBeVisible()
 })
 
+test('a task shows the tokens it used, and Settings the agents\' limits', async ({ page }, info) => {
+  const name = `usage-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  expect((await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })).ok()).toBe(true)
+  await page.goto('/')
+  await chooseProject(page, name)
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  await page.getByPlaceholder(`Ask codex to do something in ${name}`).fill('count the tokens')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('main').getByText('You said: count the tokens')).toBeVisible()
+
+  // The fake Codex reports two model responses of 1,000 tokens in and 20 out.
+  const timeline = await openTask(page, 'count the tokens')
+  await expect(timeline.getByText('2k in, 40 out')).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Usage limits' })).toHaveCount(0) // not in the task list
+  if (info.project.name === 'phone') await page.getByRole('button', { name: 'Close' }).click()
+
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const usage = page.getByRole('dialog').getByRole('group', { name: 'Usage limits' })
+  await expect(usage.first()).toBeVisible()
+  await expect(usage.getByRole('meter', { name: '5-hour limit used' }).first()).toBeVisible()
+  await expect(usage.getByText(/^30% used · resets /).first()).toBeVisible()
+  await page.screenshot({ path: `test-results/${info.project.name}-usage.png` })
+})
+
+/** The task list: the rail on desktop, the tasks sheet on phones, with nothing selected. */
+async function openList(page: Page) {
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    return page.getByRole('region', { name: 'Tasks' })
+  }
+  await page.getByRole('button', { name: /^Show tasks/ }).click()
+  return page.getByRole('complementary', { name: 'Tasks' })
+}
+
+async function finishedTasks(page: Page, name: string, texts: string[]) {
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  for (const text of texts) {
+    const task = await (await page.request.post('/api/tasks', { data: { project_id: project.id, text }, headers })).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).status).toBe('completed')
+  }
+}
+
+test('the list starts with the latest finished tasks and shows more on asking', async ({ page }, info) => {
+  const texts = Array.from({ length: 11 }, (_, i) => `paged ${info.project.name} ${i}`)
+  await finishedTasks(page, `paged-${info.project.name}`, texts)
+  await page.goto('/')
+  const list = await openList(page)
+  const earlier = list.getByRole('region', { name: 'Earlier' })
+  await expect(earlier.getByText(texts[10], { exact: true })).toBeVisible()
+  await expect(earlier.getByRole('listitem')).toHaveCount(10)
+  await expect(earlier.getByText(texts[0], { exact: true })).toHaveCount(0)
+  await earlier.getByRole('button', { name: 'Show more' }).click()
+  await expect(earlier.getByText(texts[0], { exact: true })).toBeVisible()
+})
+
+test('search finds a task by what was said in it, typos and all', async ({ page }, info) => {
+  const word = `quokka${info.project.name}`
+  await finishedTasks(page, `search-${info.project.name}`, [`feed the ${word} at noon`, 'something else'])
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByRole('searchbox', { name: 'Search tasks' }).fill(word.replace('kk', 'k')) // a typo
+  const results = list.getByRole('list', { name: 'Search results' })
+  // The fake agent's reply repeats the request, so the match is in a message as well as the title.
+  await expect(results.getByRole('listitem')).toHaveCount(1)
+  await expect(results.locator('mark').first()).toHaveText(word)
+  await page.screenshot({ path: `test-results/${info.project.name}-search.png` })
+  await results.getByRole('button', { name: new RegExp(`feed the ${word}`) }).first().click()
+  if (info.project.name === 'desktop') {
+    await expect(page.getByRole('complementary', { name: 'Task', exact: true }).getByText(`You said: feed the ${word} at noon`)).toBeVisible()
+  } else {
+    await expect(page.getByRole('region', { name: 'Tasks' }).getByText(`You said: feed the ${word} at noon`)).toBeVisible()
+  }
+})
+
+test('a finished task is deleted from the list, after asking', async ({ page }, info) => {
+  const title = `delete me ${info.project.name}`
+  await finishedTasks(page, `delete-${info.project.name}`, [title])
+  await page.goto('/')
+  const list = await openList(page)
+  const row = list.getByRole('listitem').filter({ hasText: title })
+  if (info.project.name === 'desktop') {
+    await row.hover()
+    await page.screenshot({ path: `test-results/${info.project.name}-delete.png` })
+    await page.once('dialog', (dialog) => dialog.dismiss()) // changed their mind
+    await row.getByRole('button', { name: `Delete ${title}` }).click()
+    await expect(row).toBeVisible()
+    page.once('dialog', (dialog) => dialog.accept())
+    await row.getByRole('button', { name: `Delete ${title}` }).click()
+  } else {
+    // Swipe the row left to show its Delete.
+    const box = (await row.boundingBox())!
+    const at = (x: number) => ({ pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: x, clientY: box.y + box.height / 2 })
+    const surface = row.locator('> div')
+    await surface.dispatchEvent('pointerdown', at(box.x + box.width - 20))
+    for (const dx of [10, 40, 80, 110]) await surface.dispatchEvent('pointermove', at(box.x + box.width - 20 - dx))
+    await surface.dispatchEvent('pointerup', at(box.x + box.width - 130))
+    await page.screenshot({ path: `test-results/${info.project.name}-delete.png` })
+    page.once('dialog', (dialog) => dialog.accept())
+    await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  }
+  await expect(row).toHaveCount(0)
+})
+
 test('a project is picked by browsing the folders on the computer', async ({ page }, info) => {
   const parent = path.join(home, `browse-${info.project.name}`)
   mkdirSync(path.join(parent, 'picked', '.git'), { recursive: true })
@@ -277,6 +385,8 @@ async function openTask(page: Page, title: string) {
     return page.getByRole('region', { name: 'Tasks' })
   }
   await page.getByRole('button', { name: 'Show tasks' }).click()
-  await page.getByRole('complementary', { name: 'Tasks' }).getByRole('button', { name: new RegExp(title) }).click()
+  // The row's own button, not the delete button beside it.
+  await page.getByRole('complementary', { name: 'Tasks' }).getByRole('listitem').filter({ hasText: title }).first()
+    .getByRole('button').first().click()
   return page.getByRole('complementary', { name: 'Task', exact: true })
 }

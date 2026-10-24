@@ -8,12 +8,17 @@ before the process starts; `--resume` continues the conversation in a new one.
 
 Approvals come through `--permission-prompt-tool`: an MCP tool Sennet serves
 at a per-session URL (agents.callbacks), which waits for the user's answer.
+
+Usage limits arrive as `rate_limit_event`s during turns. Between turns they come from the
+`get_usage` control request, which Claude Code marks experimental: it answers from the
+plan's usage, without a turn, so it costs nothing.
 Sennet runs the user's own unmodified `claude` on their subscription login,
 and never reads or passes on its credentials.
 """
 from __future__ import annotations
 
 import asyncio
+import datetime
 import difflib
 import json
 import logging
@@ -25,7 +30,7 @@ import uuid
 from pathlib import Path
 
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, EventSink, FileChange, ModelOption, TurnPolicy, spoken_instructions)
+                   Capabilities, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy, spoken_instructions)
 from .callbacks import CallbackServer, Registration
 
 log = logging.getLogger(__name__)
@@ -34,6 +39,7 @@ STREAM_LIMIT = 32 * 1024 * 1024
 OUTPUT_TAIL = 2000
 DIFF_LIMIT = 20000
 STATUS_TIMEOUT_S = 15
+LIMITS_TIMEOUT_S = 20
 CLOSE_GRACE_S = 5
 # HTTP MCP requests fail after 60 s unless the server entry sets its own timeout (ms); an
 # approval waits for the user, who may be away for a while.
@@ -57,6 +63,9 @@ EXIT_CODE_RE = re.compile(r"^Exit code (\d+)")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 MODELS = [ModelOption("opus", "Opus", EFFORTS), ModelOption("sonnet", "Sonnet", EFFORTS),
           ModelOption("haiku", "Haiku", EFFORTS), ModelOption("fable", "Fable", EFFORTS)]
+# Claude's limit windows, by its names for them: the contract's id and title for each.
+WINDOWS = {"five_hour": ("session", "5-hour"), "seven_day": ("weekly", "weekly"),
+           "seven_day_opus": ("weekly_opus", "Opus weekly"), "seven_day_sonnet": ("weekly_sonnet", "Sonnet weekly")}
 
 
 def permission_args(policy: TurnPolicy, cwd: Path) -> list[str]:
@@ -102,6 +111,38 @@ def config_args(policy: TurnPolicy) -> list[str]:
     if policy.project_config:
         return ["--setting-sources", "user,project,local"]
     return ["--setting-sources", "user", "--strict-mcp-config"]
+
+
+def _epoch(value) -> float | None:
+    """A reset time, which Claude gives as Unix seconds or as an ISO 8601 string."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return datetime.datetime.fromisoformat(value).timestamp() if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def event_windows(info: dict) -> list[dict]:
+    """The windows in a `rate_limit_event`, whose utilization is a fraction."""
+    windows = []
+    for name, window in (info.get("unifiedWindows") or {}).items():
+        if name in WINDOWS and isinstance(window, dict) and window.get("utilization") is not None:
+            used = 100 if window.get("status") == "rejected" else round(window["utilization"] * 100)
+            windows.append(vars(LimitWindow(*WINDOWS[name], min(used, 100), _epoch(window.get("resetsAt")))))
+    if not windows and info.get("status") == "rejected" and info.get("rateLimitType") in WINDOWS:
+        windows.append(vars(LimitWindow(*WINDOWS[info["rateLimitType"]], 100, _epoch(info.get("resetsAt")))))
+    return windows
+
+
+def usage_windows(usage: dict) -> list[LimitWindow] | None:
+    """The windows in a `get_usage` answer, whose utilization is a percentage; None without a plan."""
+    limits = usage.get("rate_limits")
+    if not usage.get("rate_limits_available") or not isinstance(limits, dict):
+        return None
+    return [LimitWindow(*WINDOWS[name], min(round(window["utilization"]), 100), _epoch(window.get("resets_at")))
+            for name, window in limits.items()
+            if name in WINDOWS and isinstance(window, dict) and window.get("utilization") is not None]
 
 
 def _text(content) -> str:
@@ -181,6 +222,7 @@ class ClaudeSession:
         self.background: list[dict] = []
         self.message_id = ""            # the assistant message streaming now
         self.blocks: dict[str, int] = {}  # message id → content blocks seen, which numbers the next
+        self.limit: dict | None = None  # the usage limit this turn stopped at, from Claude's error reply
 
     @property
     def alive(self) -> bool:
@@ -276,6 +318,14 @@ class ClaudeSession:
             return self._turn_opened()
         if kind == "stream_event" and message.get("parent_tool_use_id") is None:
             return self._stream(message.get("event") or {})
+        if kind == "assistant" and message.get("is_api_error_message"):
+            # Claude's own reply for a failed request, such as "You've hit your session limit". The
+            # result repeats it as the turn's error, so it is said once, as a failure, not as a reply.
+            info = (message.get("api_error_params") or {}).get("rate_limit_info") or {}
+            if message.get("error") == "rate_limit":
+                self.limit = {"window": WINDOWS.get(info.get("rateLimitType"), (None, None))[1],
+                              "resets_at": _epoch(info.get("resetsAt"))}
+            return []
         if kind == "assistant" and message.get("parent_tool_use_id") is None:
             return self._assistant(message.get("message") or {})
         if kind == "user" and message.get("parent_tool_use_id") is None:
@@ -289,6 +339,9 @@ class ClaudeSession:
         if kind == "system" and subtype == "api_retry":
             error = message.get("error") or "the request to Claude failed"
             return [AgentEvent("error", {"message": f"{error}; retrying", "will_retry": True})]
+        if kind == "rate_limit_event":
+            windows = event_windows(message.get("rate_limit_info") or {})
+            return [AgentEvent("limits", {"windows": windows})] if windows else []
         if kind == "result":
             return self._result(message)
         return []
@@ -356,6 +409,13 @@ class ClaudeSession:
     def _result(self, message: dict) -> list[AgentEvent]:
         self.in_turn = False
         self.blocks.clear()
+        events = []
+        usage = message.get("usage") or {}
+        cache_read, cache_write = usage.get("cache_read_input_tokens") or 0, usage.get("cache_creation_input_tokens") or 0
+        tokens = {"input": (usage.get("input_tokens") or 0) + cache_read + cache_write, "cached": cache_read,
+                  "output": usage.get("output_tokens") or 0}
+        if tokens["input"] or tokens["output"]:
+            events.append(AgentEvent("usage", tokens))
         subtype = message.get("subtype")
         if subtype == "success" and not message.get("is_error"):
             status, error = "completed", None
@@ -366,7 +426,10 @@ class ClaudeSession:
             status = "failed"
             error = "; ".join(map(str, errors)) or message.get("result") or subtype or "the turn failed"
         self.interrupting = False
-        return [AgentEvent("turn_completed", {"status": status, "error": error})]
+        limit, self.limit = self.limit, None
+        events.append(AgentEvent("turn_completed", {"status": status, "error": error,
+                                                    **({"limit": limit} if limit and status == "failed" else {})}))
+        return events
 
     # Approvals
 
@@ -425,6 +488,41 @@ class ClaudeAgent:
 
     async def models(self) -> list[ModelOption]:
         return MODELS
+
+    async def limits(self) -> list[LimitWindow] | None:
+        """From the `get_usage` control request, in a process that is closed again without a turn."""
+        if not shutil.which(self.command[0]):
+            return None
+        process = await asyncio.create_subprocess_exec(
+            *self.command, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "--setting-sources", "user", "--strict-mcp-config", cwd=Path.home(), stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=STREAM_LIMIT, start_new_session=True)
+        request = {"type": "control_request", "request_id": "limits",
+                   "request": {"subtype": "get_usage", "skip_behaviors": True}}
+        try:
+            process.stdin.write(json.dumps(request).encode() + b"\n")
+            await process.stdin.drain()
+            async with asyncio.timeout(LIMITS_TIMEOUT_S):
+                while line := await process.stdout.readline():
+                    try:
+                        message = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    response = message.get("response") or {}
+                    if message.get("type") == "control_response" and response.get("request_id") == "limits":
+                        if response.get("subtype") != "success":
+                            log.info("claude can't report its limits: %s", response.get("error"))
+                            return None
+                        return usage_windows(response.get("response") or {})
+            return None
+        finally:
+            if process.returncode is None:
+                process.stdin.close()
+                try:
+                    await asyncio.wait_for(process.wait(), CLOSE_GRACE_S)
+                except asyncio.TimeoutError:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    await process.wait()
 
     async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy, on_event: EventSink,
                    on_approval: ApprovalHandler) -> ClaudeSession:

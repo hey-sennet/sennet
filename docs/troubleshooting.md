@@ -32,6 +32,8 @@ It checks each part and prints a fix beside anything in red. The log has more:
   agent runs; it records that shell's `PATH`.
 - **A task won't start, and Settings says the agent doesn't support this mode.** The
   classifier mode is Claude Code only. Pick another mode for that project.
+- **Settings shows no usage for an agent.** It's only shown for a subscription login. An agent
+  logged in with an API key has no plan limits to show.
 - **The agent can't run commands.** With Claude Code, `never` and `workspace` together
   can't run commands that aren't read-only. Use `ask` or `auto`, or see
   [Approvals](using.md#approvals).

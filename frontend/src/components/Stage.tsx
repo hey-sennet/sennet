@@ -22,7 +22,7 @@ const voiceSources = { user: voice().source, agent: voice().playback.source }
  * goes to the selected task, or starts a new one in `project`. Beneath it, in order: what is
  * being said, an approval waiting on you, then the selected task's progress or last reply.
  */
-export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, model, onSelectTask, onAddProject, className }: {
+export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, model, limit, onSelectTask, onAddProject, className }: {
   target: Target
   project?: Project
   task?: Task
@@ -33,6 +33,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
   projects: Project[]
   compact: boolean // typing: the disc steps back, as it does for an approval
   model?: Omit<ComponentProps<typeof ModelMenu>, 'className'> // who your words go to, with where
+  limit?: { line: string; reached: boolean } // the agent's usage limit, once close to it or reached
   onSelectTask: (id: number) => void // makes it the one this device asks about
   onAddProject: () => void
   className?: string
@@ -119,7 +120,12 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
           ? <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className="size-full" />
           : <Strata state={state} sources={voiceSources} className="size-full" />}
       </button>
-      <div className="w-full max-w-[34rem]">
+      <div className="relative w-full max-w-[34rem]">
+        {limit && !approval && (
+          // In the gap above the label, out of the layout, so the disc and the words don't move for it.
+          <p className={cn('absolute bottom-full mb-2.5 truncate text-[13px]', limit.reached ? 'text-destructive' : 'text-warn')}
+            title={limit.line}>{limit.line}</p>
+        )}
         <p className={cn('eyebrow mb-3 flex min-h-5 items-center gap-1.5 text-muted-foreground transition-colors duration-400',
           state === 'listening' && 'text-foreground', (state === 'speaking' || state === 'thinking') && 'text-agent',
           state === 'approval' && !words && 'text-warn')}>
@@ -143,6 +149,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
             {elsewhere.length > 1 ? `${elsewhere.length} other approvals need you` : `Another task needs you${projectOf(elsewhere[0].task_id) ? ` in ${projectOf(elsewhere[0].task_id)!.name}` : ''}`}
           </button>
         )}
+
       </div>
     </main>
   )

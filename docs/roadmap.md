@@ -9,8 +9,6 @@ change. To help with one, or to suggest something, open an issue.
   ([adding an agent](adding-an-agent.md)).
 - **A "hey sennet" wake word**, trained for the project and free to ship, replacing the
   pre-trained phrases, which are for non-commercial use only (`training/wakeword`).
-- **Usage at a glance.** Tokens per task, and the agents' five-hour and weekly limits
-  with their reset times ([adapter-signals.md](adapter-signals.md)).
 - **macOS speech numbers** on Apple Silicon, and GPU speech there if it helps.
 - **Safari**, on iOS and macOS: conversations and echo cancellation haven't been tested.
 

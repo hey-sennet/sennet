@@ -4,6 +4,9 @@ One app-server process per task session. The thread is persisted by Codex, so a
 closed session resumes later with `thread/resume`; the thread id is the resume
 token. Codex's own statuses, kinds and modes are translated here and go no further.
 The model and reasoning effort go with each turn, so they change between turns.
+
+Usage limits come from `account/rateLimits/updated` during turns and from
+`account/rateLimits/read` otherwise, which reads the account's usage without using any.
 """
 from __future__ import annotations
 
@@ -19,7 +22,8 @@ from pathlib import Path
 
 from .. import __version__
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, Decision, EventSink, FileChange, ModelOption, TurnPolicy, spoken_instructions)
+                   Capabilities, Decision, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy,
+                   spoken_instructions)
 from .callbacks import CallbackServer
 
 log = logging.getLogger(__name__)
@@ -37,7 +41,11 @@ COMMAND_DECISION = {"approve": "accept", "approve_always": "accept", "decline": 
 TURN_STATUS = {"completed": "completed", "interrupted": "cancelled", "failed": "failed"}
 ITEM_STATUS = {"inProgress": "running", "completed": "completed", "failed": "failed", "declined": "declined"}
 STEP_STATUS = {"pending": "pending", "inProgress": "active", "completed": "done"}
-# Codex's tool for asking the user mid-turn, which a voice user can't answer (see SPOKEN_INSTRUCTIONS).
+# Codex's limit windows by their length in minutes: the contract's id and title for each.
+WINDOWS = {300: ("session", "5-hour"), 10080: ("weekly", "weekly")}
+# Token counts in `thread/tokenUsage/updated`, as the contract's. Input includes the cached part.
+TOKENS = {"inputTokens": "input", "cachedInputTokens": "cached", "outputTokens": "output"}
+# Codex's own tool for asking the user mid-turn, which a voice user can't answer (see SPOKEN_INSTRUCTIONS).
 INSTRUCTIONS = spoken_instructions("request_user_input_async")
 
 
@@ -75,6 +83,30 @@ def _change_kind(kind: dict) -> str:
 
 class CodexError(Exception):
     pass
+
+
+def limit_windows(snapshot: dict) -> list[LimitWindow]:
+    """The windows in one of Codex's rate-limit snapshots. A rolling update may leave some out."""
+    windows = []
+    bucket = snapshot.get("limitId")
+    for key in ("primary", "secondary"):
+        window = snapshot.get(key)
+        if not isinstance(window, dict) or window.get("usedPercent") is None:
+            continue
+        minutes = window.get("windowDurationMins")
+        window_id, title = WINDOWS.get(minutes) or (key, f"{round(minutes / 60)}-hour" if minutes else key)
+        if bucket not in (None, "codex"):  # a separate limit, such as one model's own
+            window_id, title = f"{bucket}:{window_id}", f"{snapshot.get('limitName') or bucket} {title}"
+        resets_at = window.get("resetsAt")
+        windows.append(LimitWindow(window_id, title, max(0, min(int(window["usedPercent"]), 100)),
+                                   float(resets_at) if resets_at else None))
+    return windows
+
+
+async def read_limits(connection: Connection) -> list[LimitWindow] | None:
+    result = await connection.request("account/rateLimits/read", {"excludeResetCreditDetails": True})
+    buckets = result.get("rateLimitsByLimitId") or {"codex": result.get("rateLimits") or {}}
+    return [w for snapshot in buckets.values() if isinstance(snapshot, dict) for w in limit_windows(snapshot)]
 
 
 async def list_models(connection: Connection) -> list[ModelOption]:
@@ -208,6 +240,8 @@ class CodexSession:
         self.watcher: asyncio.Task | None = None
         self.model: str | None = None   # sent with each turn; None leaves it to Codex
         self.effort: str | None = None
+        self.tokens = dict.fromkeys(TOKENS.values(), 0)  # used so far in this turn
+        self.jobs: set[asyncio.Task] = set()
 
     @property
     def alive(self) -> bool:
@@ -273,6 +307,7 @@ class CodexSession:
             await self.connection.close()
         if self.watcher:
             await self.watcher
+        await asyncio.gather(*self.jobs, return_exceptions=True)
 
     async def _watch(self):
         """If the process dies mid-turn, end the turn so the task does not hang."""
@@ -284,13 +319,46 @@ class CodexSession:
     async def _notification(self, method: str, params: dict):
         if params.get("threadId") not in (None, self.resume_token):
             return
+        if method == "thread/tokenUsage/updated":
+            # `last` is one model response's; a turn may take several.
+            last = (params.get("tokenUsage") or {}).get("last") or {}
+            for key, name in TOKENS.items():
+                self.tokens[name] += last.get(key) or 0
+            return
+        if method == "account/rateLimits/updated":
+            if windows := limit_windows(params.get("rateLimits") or {}):
+                await self.on_event(AgentEvent("limits", {"windows": [vars(w) for w in windows]}))
+            return
         event = self._translate(method, params)
         if event:
             if event.kind == "turn_completed":
                 if self.turn_done.is_set():
                     return
                 self.turn_done.set()
+                tokens, self.tokens = self.tokens, dict.fromkeys(TOKENS.values(), 0)
+                if any(tokens.values()):
+                    await self.on_event(AgentEvent("usage", tokens))
+                if ((params.get("turn") or {}).get("error") or {}).get("codexErrorInfo") == "usageLimitExceeded":
+                    # Which limit, and when it resets, takes a request, which can't be answered while
+                    # this notification holds up the reader.
+                    job = asyncio.create_task(self._limit_reached(event))
+                    self.jobs.add(job)
+                    job.add_done_callback(self.jobs.discard)
+                    return
             await self.on_event(event)
+
+    async def _limit_reached(self, event: AgentEvent):
+        limit = {"window": None, "resets_at": None}
+        try:
+            windows = await read_limits(self.connection) or []
+            await self.on_event(AgentEvent("limits", {"windows": [vars(w) for w in windows]}))
+            # The full one that frees up last is the one in the way.
+            full = sorted((w for w in windows if w.used >= 100), key=lambda w: w.resets_at or 0)
+            if full:
+                limit = {"window": full[-1].title, "resets_at": full[-1].resets_at}
+        except (CodexError, asyncio.TimeoutError) as error:
+            log.info("couldn't read codex's limits: %s", error)
+        await self.on_event(AgentEvent("turn_completed", {**event.data, "limit": limit}))
 
     def _translate(self, method: str, params: dict) -> AgentEvent | None:
         item = params.get("item") or {}
@@ -390,6 +458,22 @@ class CodexAgent:
         if account.get("type") == "apiKey":
             return AgentStatus(True, True, "logged in with an API key (subscription login is recommended)")
         return AgentStatus(True, True, f"logged in ({account.get('planType') or 'ChatGPT'} plan)")
+
+    async def limits(self) -> list[LimitWindow] | None:
+        if not shutil.which(self.command[0]):
+            return None
+        process = await asyncio.create_subprocess_exec(
+            *self.command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, limit=STREAM_LIMIT)
+        connection = Connection(process, _ignore_notification, _no_request)
+        try:
+            await _initialize(connection)
+            account = (await connection.request("account/read", {})).get("account")
+            if account is None or account.get("type") == "apiKey":
+                return None  # an API key has no plan limits
+            return await read_limits(connection)
+        finally:
+            await connection.close()
 
     async def models(self) -> list[ModelOption]:
         """From `model/list`, kept a few minutes: it takes a process to ask."""

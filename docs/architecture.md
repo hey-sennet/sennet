@@ -40,6 +40,8 @@ A few rules hold everywhere, and changes should keep them:
 | `db.py` | SQLite: projects, tasks, messages, events, approvals, devices, and migrations. |
 | `projects.py` | Project rules shared by the CLI and the API. |
 | `tasks.py` | The task manager: runs agent turns, queues follow-ups, keeps agents warm, limits concurrency. |
+| `search.py` | Finding tasks by what was said in them: exact matches from the index, then near misses for typos. |
+| `usage.py` | The agents' usage limits: merged from what they report, asked for when stale, and put into words. |
 | `approvals.py` | The approval policy: what's destructive, remembered "always" rules, waiting for an answer. |
 | `events.py` | Fans live events out to connected clients. |
 | `tailscale.py` | What Tailscale says about this machine, for setup and doctor. |

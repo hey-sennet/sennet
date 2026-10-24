@@ -19,6 +19,11 @@ The first release.
 - Replies read out in a version the agent writes to be heard, and "read me the details"
   for the whole reply.
 - The model and effort per project and per task.
+- Each agent's five-hour and weekly usage limits in Settings, with reset times, a spoken
+  warning when one is nearly used up, a clear message when one is reached, and the tokens
+  each task used.
+- A task list that starts with the latest tasks, search across every task's conversation,
+  and deleting finished tasks.
 - Device pairing by link, QR code or typed code, and phone access through Tailscale or a
   reverse proxy.
 - `sennet setup`, a user service on Linux and macOS, `sennet doctor`, `upgrade` and

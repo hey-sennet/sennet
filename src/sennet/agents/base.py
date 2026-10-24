@@ -116,13 +116,22 @@ EVENT_FIELDS: dict[str, dict[str, tuple | None]] = {
     "turn_started": {"by": get_args(TurnStarter)},
     # The work still running after the turn, each {"id", "description"}; empty once it is done.
     "background": {"tasks": None},
+    # Tokens the turn used, sent before its `turn_completed`: all input (cached included), the
+    # part of it read from cache, and output (reasoning included).
+    "usage": {"input": None, "cached": None, "output": None},
+    # The account's usage limits as the agent last reported them, each window a LimitWindow's
+    # fields. They belong to the account, not the task; a report may hold only some windows.
+    "limits": {"windows": None},
 }
 # Fields an adapter may add when its provider reports them. Anything else is not the contract's.
 OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "command_started": ("cwd",),          # the directory the command runs in
     "command_finished": ("duration_ms",),
     "error": ("will_retry",),             # the agent retries on its own, so the turn goes on
+    # The turn failed at a usage limit: {"window": its title, "resets_at"}, either None when unknown.
+    "turn_completed": ("limit",),
 }
+LIMIT_WINDOW_FIELDS = {"id", "title", "used", "resets_at"}
 
 
 def check_event(event: AgentEvent) -> list[str]:
@@ -146,6 +155,13 @@ def check_event(event: AgentEvent) -> list[str]:
         for task in event.data.get("tasks") or []:
             if set(task) != {"id", "description"}:
                 problems.append(f"background task {task!r} isn't just an id and a description")
+    if event.kind == "limits":
+        for window in event.data.get("windows") or []:
+            if set(window) != LIMIT_WINDOW_FIELDS:
+                problems.append(f"limit window {window!r} doesn't have just {sorted(LIMIT_WINDOW_FIELDS)}")
+    if event.kind == "turn_completed" and (limit := event.data.get("limit")) is not None:
+        if set(limit) != {"window", "resets_at"}:
+            problems.append(f"turn_completed limit {limit!r} isn't just a window and resets_at")
     if event.kind == "plan":
         for step in event.data.get("steps") or []:
             if step.get("status") not in get_args(StepStatus):
@@ -232,6 +248,16 @@ EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalHandler = Callable[[ApprovalRequest], Awaitable[Decision]]
 
 
+@dataclass(frozen=True)
+class LimitWindow:
+    """One of the account's usage limits, such as the five-hour one, as the agent reports it."""
+
+    id: str                            # stable across reports: "session" (five hours), "weekly", ...
+    title: str                         # as the user knows it, e.g. "5-hour"; read out as "Claude's 5-hour limit"
+    used: int                          # percent of it used, 0 to 100
+    resets_at: float | None            # Unix time
+
+
 @dataclass
 class AgentStatus:
     installed: bool
@@ -278,6 +304,10 @@ class Agent(Protocol):
 
     async def models(self) -> list[ModelOption]:
         """The models the user may pick from, the agent's default marked if it is known."""
+
+    async def limits(self) -> list[LimitWindow] | None:
+        """The account's usage limits, asked for without using any; None when the agent can't say
+        (not logged in, or logged in without a plan that has them)."""
 
     async def open(self, cwd: Path, resume_token: str | None, policy: TurnPolicy,
                    on_event: EventSink, on_approval: ApprovalHandler) -> AgentSession:

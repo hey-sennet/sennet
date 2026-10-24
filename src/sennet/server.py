@@ -42,7 +42,8 @@ from .db import Database
 from .events import EventBus, batches
 from .speech import Speech
 from .speech import models as speech_models
-from .tasks import TaskError, TaskManager
+from . import search
+from .tasks import TaskBusy, TaskError, TaskManager
 from .voice import VoiceHub, VoiceSession
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).parent / "web"
 CSRF_HEADER = "x-sennet"
 UNPAIRED = 4401                 # WebSocket close code: pair this device, don't just reconnect
+EARLIER = 10                    # finished tasks the page starts with; "Show more" asks for the rest
 SWEEP_S = 30                    # how often open sockets are checked for devices revoked elsewhere
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 OPEN = ("/api/pair", "/api/health")    # the API paths an unpaired device may use
@@ -260,10 +262,19 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.get("/api/state")
     async def state(request: Request):
         database = db(request)
-        return {"version": __version__, "projects": database.projects(), "tasks": database.tasks(),
+        limits = request.app.state.tasks.limits
+        limits.refresh()  # those older than a few minutes; the answers arrive as `limits` events
+        tasks, more = database.current_tasks(EARLIER)
+        return {"version": __version__, "projects": database.projects(), "tasks": tasks, "more_tasks": more,
                 "approvals": [request.app.state.approvals.present(a) for a in database.approvals("pending")],
-                "rules": database.rules(),
+                "rules": database.rules(), "limits": limits.snapshot(),
                 "settings": {"approvals": vars(settings.approvals), "tasks": vars(settings.tasks)}}
+
+    @app.get("/api/limits")
+    async def limits(request: Request):
+        """The agents' usage limits as last known, asking again for any a few minutes old."""
+        request.app.state.tasks.limits.refresh()
+        return request.app.state.tasks.limits.snapshot()
 
     @app.get("/api/agents")
     async def agent_status():
@@ -365,6 +376,28 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             return await request.app.state.tasks.create(body.project_id, body.text, body.model, body.effort)
         except TaskError as error:
             raise HTTPException(400, str(error))
+
+    @app.get("/api/tasks")
+    async def earlier_tasks(before: float, before_id: int, request: Request, limit: int = 20):
+        """Finished tasks older than the one given, for the task list's "Show more"."""
+        tasks, more = db(request).earlier_tasks(before, before_id, max(1, min(limit, 100)))
+        return {"tasks": tasks, "more": more}
+
+    @app.get("/api/search")
+    async def search_tasks(q: str, request: Request):
+        """Tasks by their titles and what was said in them, best first."""
+        return search.search(db(request), q[:200])
+
+    @app.delete("/api/tasks/{task_id}", status_code=204)
+    async def delete_task(task_id: int, request: Request):
+        """A finished task, from Sennet only: the agent keeps its own copy of the conversation."""
+        try:
+            await request.app.state.tasks.delete(task_id)
+        except TaskBusy as error:
+            raise HTTPException(409, str(error))
+        except TaskError as error:
+            raise HTTPException(404, str(error))
+        return Response(status_code=204)
 
     @app.get("/api/tasks/{task_id}")
     async def get_task(task_id: int, request: Request):

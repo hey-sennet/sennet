@@ -10,6 +10,7 @@ import { TaskDetail } from '@/components/TaskDetail'
 import { TaskList } from '@/components/TaskList'
 import { useAgents } from '@/lib/agents'
 import { api, type ModelChoice } from '@/lib/api'
+import { limitLine, pressing } from '@/lib/limits'
 import { approvalsHere, useMine } from '@/lib/mine'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -88,14 +89,28 @@ export default function App() {
     }
   }, [])
 
-  // A deleted project takes its tasks with it. Only a task seen in the list counts as gone:
-  // a new one can be selected (from a voice turn's `final`) before its own event arrives.
-  const seenTasks = useRef(new Set<number>())
+  // A deleted task, or one whose project was removed, stops being the one followed up. A task can
+  // be missing from the list without being gone (an older one, opened from search), so only the
+  // events, or the server after a reconnect, say so.
+  const { addTasks, reconnects, subscribe } = live
+  const projectOfSelected = useRef<number | null>(null)
+  const tasksRef = useRef(live.tasks)
   useEffect(() => {
-    if (selected === null || live.connection !== 'live') return
-    if (live.tasks.some((t) => t.id === selected)) seenTasks.current.add(selected)
-    else if (seenTasks.current.has(selected)) setSelected(null)
-  }, [live.tasks, live.connection, selected])
+    tasksRef.current = live.tasks
+    const found = live.tasks.find((t) => t.id === selected)
+    if (found) projectOfSelected.current = found.project_id
+  }, [live.tasks, selected])
+  useEffect(() => subscribe((event) => {
+    if ((event.type === 'task_removed' && event.task_id === selectedRef.current)
+      || (event.type === 'project_removed' && event.project_id === projectOfSelected.current)) setSelected(null)
+  }), [subscribe])
+  // After a reconnect the list starts over; the selected task, if it isn't in it, is asked for. Only
+  // then: a new task can be selected (from a voice turn) before its own event arrives.
+  useEffect(() => {
+    const id = selectedRef.current
+    if (!reconnects || id === null || tasksRef.current.some((t) => t.id === id)) return
+    api.task(id).then((found) => addTasks([found]), () => setSelected((now) => (now === id ? null : now)))
+  }, [reconnects, addTasks])
 
   const selectedApprovals = live.approvals.filter((a) => a.task_id === selected)
   // The stage asks only about this device's tasks; another device may be following the rest.
@@ -179,6 +194,11 @@ export default function App() {
     },
   } : undefined
 
+  // A limit in the way of what you say next, or close to it, for the agent it would go to.
+  const limitAgent = task?.agent ?? homeProject?.agent
+  const limitWindow = limitAgent ? pressing(live.limits[limitAgent]) : null
+  const limit = limitAgent && limitWindow ? { line: limitLine(agents?.[limitAgent]?.title ?? limitAgent, limitWindow), reached: limitWindow.used >= 100 } : undefined
+
   const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
   const timeline = detail && (
     <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals}
@@ -233,8 +253,10 @@ export default function App() {
               </Button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto opacity-90">
-              <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={openTask} />
+              <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} agents={agents} selected={selected}
+                more={live.more_tasks} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
             </div>
+
           </div>
         </aside>
       )}
@@ -250,6 +272,7 @@ export default function App() {
         projects={live.projects}
         compact={typing}
         model={modelMenu}
+        limit={limit}
         onSelectTask={setSelected}
         onAddProject={() => setSettingsOpen(true)}
         className="lg:col-start-2 lg:row-start-2"
@@ -335,14 +358,15 @@ export default function App() {
                     <Plus /> New task
                   </Button>
                 </div>
-                <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} selected={selected} onSelect={openTask} />
+                <TaskList tasks={live.tasks} projects={live.projects} approvals={live.approvals} agents={agents} selected={selected}
+                more={live.more_tasks} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
               </>
             )}
           </section>
         </>
       )}
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings} version={live.version}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} projects={live.projects} rules={live.rules} settings={live.settings} version={live.version} limits={live.limits}
         subscribe={live.subscribe} />
       <Toaster position="top-center" />
     </div>

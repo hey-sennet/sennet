@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { refreshAgents, useAgents } from '@/lib/agents'
-import { api, type Access, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
+import { api, type Access, type AgentLimits, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Devices } from './Devices'
 import { FolderBrowser } from './FolderBrowser'
+import { Limits } from './Limits'
 import { ModelPicker } from './ModelPicker'
 
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
@@ -53,19 +54,22 @@ async function attempt(action: () => Promise<unknown>, failure: string) {
   }
 }
 
-export function SettingsDialog({ open, onOpenChange, projects, rules, settings, version, subscribe }: {
+export function SettingsDialog({ open, onOpenChange, projects, rules, settings, version, limits, subscribe }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   projects: Project[]
   rules: Rule[]
   settings: State['settings'] | null
   version: string | null
+  limits: Record<string, AgentLimits> // usage limits by agent, for agents that report them
   subscribe: (listener: (event: ServerEvent) => void) => () => void
 }) {
   const agents = useAgents()
 
   useEffect(() => {
-    if (open) void refreshAgents()
+    if (!open) return
+    void refreshAgents()
+    api.limits().catch(() => {}) // asks again for limits a few minutes old; they arrive as live events
   }, [open])
 
   return (
@@ -85,12 +89,15 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
               {Object.entries(agents).map(([name, status]) => {
                 const ready = status.installed && status.logged_in
                 return (
-                  <div key={name} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-                    <span className="font-medium">{status.title}</span>
-                    <span className={cn('flex min-w-0 items-center gap-2 text-right', ready ? 'text-muted-foreground' : 'text-warn')}>
-                      <span className={cn('size-1.5 shrink-0 rounded-full', ready ? 'bg-agent' : 'bg-warn')} />
-                      {status.detail}
-                    </span>
+                  <div key={name} className="flex flex-col gap-3 px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="font-medium">{status.title}</span>
+                      <span className={cn('flex min-w-0 items-center gap-2 text-right', ready ? 'text-muted-foreground' : 'text-warn')}>
+                        <span className={cn('size-1.5 shrink-0 rounded-full', ready ? 'bg-agent' : 'bg-warn')} />
+                        {status.detail}
+                      </span>
+                    </div>
+                    {!!limits[name]?.windows.length && <Limits limits={limits[name]} />}
                   </div>
                 )
               })}

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from sennet import access, cli, server
-from sennet.db import Database
+from sennet.db import SCHEMA_VERSION, Database
 from sennet.server import create_app
 from conftest import HEADERS, pair, paired
 
@@ -171,7 +171,8 @@ def test_a_device_revoked_from_the_terminal_loses_its_sockets(settings, paths, m
         with pytest.raises(WebSocketDisconnect) as closed:
             with client.websocket_connect("/api/events") as websocket:
                 client.app.state.db.remove_device(me["id"])
-                websocket.receive_text()
+                while True:  # live events, such as the agents' limits, may come before the close
+                    websocket.receive_text()
     assert closed.value.code == server.UNPAIRED
 
 
@@ -220,7 +221,7 @@ def test_a_database_from_before_pairing_gains_the_tables(paths):
     old.close()
     db = Database(paths.database)
     assert db.devices() == []
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     db.close()
 
 

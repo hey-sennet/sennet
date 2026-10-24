@@ -3,6 +3,7 @@ import { Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
+import { tokenCount } from '@/lib/limits'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
 import { Diff } from './Diff'
@@ -46,7 +47,14 @@ export function TaskDetail({ detail, streaming, project, approvals }: {
 
   return (
     <div>
-      <p className="text-xs text-muted-foreground">{project?.name ?? 'Removed project'} · {detail.agent}</p>
+      <p className="text-xs text-muted-foreground">
+        {project?.name ?? 'Removed project'} · {detail.agent}
+        {detail.input_tokens + detail.output_tokens > 0 && (
+          <span title={`${detail.input_tokens.toLocaleString()} input tokens, ${detail.cached_tokens.toLocaleString()} of them from cache; ${detail.output_tokens.toLocaleString()} output`}>
+            {' '}· {tokenCount(detail.input_tokens)} in, {tokenCount(detail.output_tokens)} out
+          </span>
+        )}
+      </p>
       <h2 className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
       <div className="mt-2.5 flex items-center justify-between gap-3">
         <StatusBadge status={detail.status} />
@@ -138,6 +146,8 @@ function EventItem({ event }: { event: TaskEvent }) {
   if (kind === 'turn_completed') {
     const status = data.status as TurnStatus
     const said = status === 'cancelled' ? 'Stopped' : status === 'failed' ? "This didn't finish" : 'Ended'
+    // At a usage limit the error is Sennet's own sentence, saying which and when it resets.
+    if (data.limit && data.error) return <li className="text-xs text-warn">{data.error}</li>
     return <li className={cn('text-xs', status === 'failed' ? 'text-warn' : 'text-muted-foreground')}>{said}{data.error ? `: ${data.error}` : ''}</li>
   }
   return null

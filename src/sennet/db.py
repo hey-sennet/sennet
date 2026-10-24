@@ -1,4 +1,8 @@
-"""SQLite storage for projects, tasks, messages, events, approvals and paired devices."""
+"""SQLite storage for projects, tasks, messages, events, approvals and paired devices.
+
+Task titles and messages are indexed for search (FTS5 with the trigram tokenizer, so part
+of a word matches), kept in step by triggers, including when a task's rows are deleted.
+"""
 from __future__ import annotations
 
 import json
@@ -32,6 +36,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     model TEXT,                    -- overrides the project's model; null to follow it
     effort TEXT,
     error TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,   -- summed over the task's turns; input includes cached
+    cached_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -52,6 +59,24 @@ CREATE TABLE IF NOT EXISTS task_events (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS task_events_task ON task_events(task_id, id);
+-- Search: a message's row is its message id, a title's its task id.
+CREATE VIRTUAL TABLE IF NOT EXISTS search_messages USING fts5(text, tokenize = 'trigram');
+CREATE VIRTUAL TABLE IF NOT EXISTS search_titles USING fts5(title, tokenize = 'trigram');
+CREATE TRIGGER IF NOT EXISTS task_messages_searched AFTER INSERT ON task_messages BEGIN
+    INSERT INTO search_messages (rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS task_messages_unsearched AFTER DELETE ON task_messages BEGIN
+    DELETE FROM search_messages WHERE rowid = old.id;
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_searched AFTER INSERT ON tasks BEGIN
+    INSERT INTO search_titles (rowid, title) VALUES (new.id, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_retitled AFTER UPDATE OF title ON tasks BEGIN
+    UPDATE search_titles SET title = new.title WHERE rowid = new.id;
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_unsearched AFTER DELETE ON tasks BEGIN
+    DELETE FROM search_titles WHERE rowid = old.id;
+END;
 CREATE TABLE IF NOT EXISTS approvals (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -92,7 +117,10 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 8
+
+# A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
+FINISHED = ("completed", "failed", "cancelled", "unknown")
 
 # Rows written before version 2 hold Codex's own words; these map them to the contract's.
 _V2_ACCESS = {"read-only": "read-only", "workspace-write": "workspace", "danger-full-access": "full"}
@@ -108,16 +136,23 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
-        self._migrate()
+        version = self._migrate()
         self.conn.executescript(SCHEMA)
+        if version is not None and version < 8:
+            # The search index is new in version 8: fill it from what is already there.
+            self.conn.execute("INSERT INTO search_messages (rowid, text) SELECT id, text FROM task_messages")
+            self.conn.execute("INSERT INTO search_titles (rowid, title) SELECT id, title FROM tasks")
         self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.lock = threading.Lock()
 
-    def _migrate(self):
+    def _migrate(self) -> int | None:
+        """Bring an older database up to date; its version before, or None for a new one."""
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         exists = self.conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'projects'").fetchone()
-        if not exists or version >= SCHEMA_VERSION:
-            return  # a new database gets the current schema as it stands
+        if not exists:
+            return None  # a new database gets the current schema as it stands
+        if version >= SCHEMA_VERSION:
+            return version
         self.conn.execute("BEGIN")
         try:
             if version < 2:
@@ -129,10 +164,20 @@ class Database:
             if version < 5:
                 self._to_v5()
             # Version 6 only adds tables (devices, pairing_codes), which SCHEMA creates.
+            if version < 7:
+                self._to_v7()
+            # Version 8 adds the search index (SCHEMA), filled once it exists.
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
+        return version
+
+    def _to_v7(self):
+        """Tokens used, per task. Without a tasks table yet, SCHEMA makes one with them."""
+        if self.conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'tasks'").fetchone():
+            for column in ("input_tokens", "cached_tokens", "output_tokens"):
+                self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
 
     def _to_v5(self):
         """Model and effort, per project and per task."""
@@ -219,10 +264,72 @@ class Database:
     def tasks(self, limit: int = 100) -> list[dict]:
         return self.query("SELECT * FROM tasks ORDER BY updated_at DESC LIMIT ?", limit)
 
+    def current_tasks(self, earlier: int) -> tuple[list[dict], bool]:
+        """Every task not yet finished, and the `earlier` most recently finished; and whether there are more."""
+        marks = ", ".join("?" * len(FINISHED))
+        current = self.query(f"SELECT * FROM tasks WHERE status NOT IN ({marks}) ORDER BY updated_at DESC", *FINISHED)
+        finished = self.query(f"SELECT * FROM tasks WHERE status IN ({marks}) ORDER BY updated_at DESC, id DESC LIMIT ?",
+                              *FINISHED, earlier + 1)
+        return current + finished[:earlier], len(finished) > earlier
+
+    def earlier_tasks(self, before: float, before_id: int, limit: int) -> tuple[list[dict], bool]:
+        """Finished tasks older than the one given (by `updated_at`, then id); and whether there are more."""
+        marks = ", ".join("?" * len(FINISHED))
+        rows = self.query(f"SELECT * FROM tasks WHERE status IN ({marks}) AND (updated_at < ? OR (updated_at = ? AND id < ?)) "
+                          "ORDER BY updated_at DESC, id DESC LIMIT ?", *FINISHED, before, before, before_id, limit + 1)
+        return rows[:limit], len(rows) > limit
+
+    def delete_task(self, task_id: int):
+        """With its messages, events and approvals, and its place in the search index."""
+        self.execute("DELETE FROM tasks WHERE id = ?", task_id)
+
+    def search(self, query: str, limit: int) -> list[tuple[dict, str]]:
+        """Tasks whose title or messages hold every word of `query` (three letters or more, any
+        part of a word), best first, each with the text it matched in."""
+        words = [w for w in query.lower().split() if len(w) >= 3]
+        if not words:
+            return []
+        match = " AND ".join('"' + w.replace('"', '""') + '"' for w in words)
+        # bm25 is negative, better matches lower; a title match counts as more than one message.
+        rows = self.query(
+            "SELECT task_id, text, MIN(rank) AS rank FROM ("
+            " SELECT rowid AS task_id, title AS text, bm25(search_titles) * 2 AS rank FROM search_titles WHERE search_titles MATCH ?"
+            " UNION ALL"
+            " SELECT m.task_id, s.text, bm25(search_messages) AS rank FROM search_messages s"
+            " JOIN task_messages m ON m.id = s.rowid WHERE search_messages MATCH ?"
+            ") GROUP BY task_id ORDER BY rank LIMIT ?", match, match, limit)
+        return [(task, row["text"]) for row in rows if (task := self.task(row["task_id"]))]
+
+    def search_candidates(self, query: str, limit: int) -> list[tuple[dict, str]]:
+        """Messages and titles sharing any three letters in a row with `query`, for a fuzzy match
+        to rank: those with the most in common come first, but not all of them are close."""
+        grams = sorted({w[i:i + 3] for w in query.lower().split() if len(w) >= 3 for i in range(len(w) - 2)})
+        if not grams:
+            return []
+        match = " OR ".join('"' + g.replace('"', '""') + '"' for g in grams)
+        rows = self.query(
+            "SELECT rowid AS task_id, title AS text, bm25(search_titles) AS rank FROM search_titles WHERE search_titles MATCH ?"
+            " UNION ALL"
+            " SELECT m.task_id, s.text, bm25(search_messages) AS rank FROM search_messages s"
+            " JOIN task_messages m ON m.id = s.rowid WHERE search_messages MATCH ? ORDER BY rank LIMIT ?", match, match, limit)
+        tasks: dict[int, dict | None] = {}
+        found = []
+        for row in rows:
+            if row["task_id"] not in tasks:
+                tasks[row["task_id"]] = self.task(row["task_id"])
+            if tasks[row["task_id"]]:
+                found.append((tasks[row["task_id"]], row["text"]))
+        return found
+
     def update_task(self, task_id: int, **fields):
         fields["updated_at"] = time.time()
         assignments = ", ".join(f"{key} = ?" for key in fields)
         self.execute(f"UPDATE tasks SET {assignments} WHERE id = ?", *fields.values(), task_id)
+
+    def add_usage(self, task_id: int, input: int, cached: int, output: int):
+        """A turn's tokens, added to the task's; not a change to the task, so `updated_at` stays."""
+        self.execute("UPDATE tasks SET input_tokens = input_tokens + ?, cached_tokens = cached_tokens + ?, "
+                     "output_tokens = output_tokens + ? WHERE id = ?", input, cached, output, task_id)
 
     # Messages and events
 

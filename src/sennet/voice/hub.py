@@ -18,6 +18,10 @@ the last reply in full, without its spoken version.
 A turn the agent starts itself (it finished work it left running) has no request:
 its reply is spoken on the task's owner, if connected, after the approval chime,
 since it can come minutes after anything was said.
+
+A turn that stops at a usage limit says which limit and when it resets, in Sennet's
+words (tasks.py writes them), not the agent's. After a reply, a limit past 80 or 95
+percent is mentioned once at each level, until it resets.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ from dataclasses import dataclass, field
 from ..events import EventBus
 from ..speech import Speech
 from ..tasks import TaskError, TaskManager
+from ..usage import Warnings, limit_warning
 from . import asking
 from . import summary
 from .dispatch import Cancel, Details, Stop, parse
@@ -88,6 +93,7 @@ class VoiceHub:
         self.early: dict[int, list[str]] = {}          # task id → spoken versions said before their message ended
         self.live: dict[int, Live] = {}                # task id → its spoken version being said as it streams
         self.heard: dict[VoiceSession, int] = {}       # session → the task it last heard a reply from
+        self.warnings = Warnings()
         self.watcher: asyncio.Task | None = None
         speech.listeners.add(self._speech_changed)
 
@@ -286,6 +292,13 @@ class VoiceHub:
                 del self.turns[task_id]
                 self._forget(task_id)
                 self._reply(task_id, pending)
+        elif kind == "task_removed":
+            task_id = event["task_id"]
+            self.owners.pop(task_id, None)
+            self.turns.pop(task_id, None)
+            self._forget(task_id)
+            for session in [s for s, heard in self.heard.items() if heard == task_id]:
+                del self.heard[session]  # "read me the details" has nothing to read now
         elif kind == "task" and event["task"]["status"] in ("failed", "unknown", "cancelled"):
             # The turn ended without finishing its message, e.g. the agent failed to start.
             task = event["task"]
@@ -317,16 +330,31 @@ class VoiceHub:
             owner.offer(approval, project["name"] if project else "The agent")
 
     def _reply(self, task_id: int, pending: Pending):
-        """The turn ended. Its messages have been spoken; only a failure is left to say."""
+        """The turn ended. Its messages have been spoken; only a failure, or a limit getting close, is left to say."""
         result = pending.result or {}
-        if result.get("status") in ("completed", "cancelled"):
-            return  # a cancelled task was the user's doing; nothing to report
+        if result.get("status") == "cancelled":
+            return  # the user's doing; nothing to report
+        if result.get("status") == "completed":
+            self._warn(task_id, pending)
+            return
         error = for_speech(result["error"]) if result.get("error") else ""
-        text = f"That task failed{': ' + error if error else '.'}"
+        text = error if result.get("limit") and error else f"That task failed{': ' + error if error else '.'}"
         if task_id in self.voicing:
             self._after(task_id, lambda: self._say(task_id, pending, text, failure=True))
         else:
             self._say(task_id, pending, text, failure=True)
+
+    def _warn(self, task_id: int, pending: Pending):
+        task = self.tasks.db.task(task_id)
+        if task is None:
+            return
+        agent = self.tasks.agents.get(task["agent"])
+        title = agent.title if agent else task["agent"]
+        due = self.warnings.due(task["agent"], self.tasks.limits.windows(task["agent"]))
+        if due:
+            # The nearest to full; one is enough to say.
+            text = limit_warning(title, max(due, key=lambda w: w["used"]))
+            self._in_turn(task_id, lambda: self._say(task_id, pending, text))
 
     def _stream(self, task_id: int, pending: Pending, item_id: str, delta: str):
         """Speak the message's spoken version as soon as it is complete, if the message starts with one."""

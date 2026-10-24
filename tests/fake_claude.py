@@ -8,8 +8,12 @@ Turn behaviour is driven by the user's text:
                   its own once $FAKE_CLAUDE_BG_S seconds (default 0.3) have passed
   hang            keep working until SIGINT, which ends the turn and the process
   crash           exit mid-turn
-Anything else gets a short reply. `auth status --json` reports a subscription login.
-argv and every line in are appended to $FAKE_CLAUDE_LOG.
+  near            reply, with the five-hour limit 85% used
+  limit           stop at the five-hour limit, as Claude does: its own reply, then a failed result
+Anything else gets a short reply. Every turn reports the limits (the five-hour one 40%
+used) and the tokens it took. `auth status --json` reports a subscription login, and
+without --mcp-config it answers a `get_usage` control request, as when Sennet asks for
+the limits. argv and every line in are appended to $FAKE_CLAUDE_LOG.
 """
 import asyncio
 import itertools
@@ -42,6 +46,18 @@ def option(name: str) -> str | None:
 
 if args[:2] == ["auth", "status"]:
     print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro"}))
+    sys.exit(0)
+
+RESETS_AT = 1792875600
+if "--mcp-config" not in args:  # asked for the limits
+    request = json.loads(sys.stdin.readline())
+    window = {"limit_dollars": None, "used_dollars": None, "remaining_dollars": None, "locked_reason": None}
+    print(json.dumps({"type": "control_response", "response": {
+        "subtype": "success", "request_id": request["request_id"], "response": {
+            "subscription_type": "pro", "rate_limits_available": True, "rate_limits": {
+                "five_hour": {**window, "utilization": 40, "resets_at": "2026-10-24T16:00:00.145034+00:00"},
+                "seven_day": {**window, "utilization": 20, "resets_at": "2026-10-25T09:00:00+00:00"},
+                "seven_day_opus": None}}}}), flush=True)
     sys.exit(0)
 
 log({"argv": args, "cwd": os.getcwd()})
@@ -90,11 +106,33 @@ def tool_result(use_id: str, content: str, is_error: bool = False):
 
 
 def result(subtype: str = "success"):
-    send({"type": "result", "subtype": subtype, "is_error": subtype != "success", "result": ""})
+    send({"type": "result", "subtype": subtype, "is_error": subtype != "success", "result": "",
+          "usage": {"input_tokens": 10, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 90,
+                    "output_tokens": 25}})
+
+
+def rate_limits(utilization: float, status: str = "allowed"):
+    send({"type": "rate_limit_event", "rate_limit_info": {
+        "status": status, "resetsAt": RESETS_AT, "rateLimitType": "five_hour", "unifiedWindows": {
+            "five_hour": {"utilization": utilization, "resetsAt": RESETS_AT},
+            "seven_day": {"utilization": 0.2, "resetsAt": RESETS_AT + 86400}}}})
 
 
 async def run_turn(user_text: str):
     send({"type": "system", "subtype": "init", "cwd": os.getcwd()})
+    if user_text == "limit":
+        rate_limits(1, "rejected")
+        message = "You've hit your session limit · resets 4pm (Europe/London)"
+        send({"type": "assistant", "parent_tool_use_id": None, "error": "rate_limit", "is_api_error_message": True,
+              "api_error_status": 429, "api_error": "usage_limit_reached",
+              "api_error_params": {"rate_limit_info": {"status": "rejected", "resetsAt": RESETS_AT,
+                                                       "rateLimitType": "five_hour"}},
+              "message": {"id": f"msg_{next(messages)}", "model": "<synthetic>",
+                          "content": [{"type": "text", "text": message}]}})
+        send({"type": "result", "subtype": "success", "is_error": True, "result": message, "api_error_status": 429,
+              "usage": {"input_tokens": 0, "output_tokens": 0}})
+        return
+    rate_limits(0.85 if user_text == "near" else 0.4)
     if user_text.startswith(("run:", "bg:")):
         command = user_text.split(":", 1)[1]
         background = user_text.startswith("bg:")

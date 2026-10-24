@@ -29,16 +29,21 @@ An `Agent` (see the protocols in `base.py`) has:
   doesn't list is refused before a task starts.
 - `status()`: whether the CLI is installed and logged in, for `doctor` and Settings.
 - `models()`: the models and effort levels it offers, for the model picker.
+- `limits()`: the account's usage limits as `LimitWindow`s, asked for without using any,
+  or None when the agent can't say (not logged in, or logged in with an API key).
 - `open(cwd, resume_token, policy, on_event, on_approval)`: starts or resumes a session
   in the project directory and returns an `AgentSession`, with `send`, `interrupt`,
   `set_model`, `close`, `alive` and a `resume_token` to store.
 
 During a turn the session calls `on_event` with `AgentEvent`s (`message_delta`,
 `message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`,
-`turn_completed`, and for agents with `background_turns`, `background` and
+`turn_completed`, `usage` with the tokens the turn used, `limits` whenever the agent
+reports its usage limits, and for agents with `background_turns`, `background` and
 `turn_started`), and awaits `on_approval` with an `ApprovalRequest` when the agent asks
 to do something. The last `message` before `turn_completed` is the answer, and is what
-gets spoken.
+gets spoken. A turn that stops at a usage limit says so with `turn_completed`'s `limit`
+field (which window, and when it resets, if known); Sennet words it, so the agent's own
+message about it shouldn't also be sent as a `message`.
 
 Pass the agent `spoken_instructions()` alongside its own instructions, naming its tool
 for asking the user if it has one. This is what makes its replies work when heard.

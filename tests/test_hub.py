@@ -1,7 +1,26 @@
 """Which reply the hub speaks, fed bus events directly."""
+import asyncio
+from types import SimpleNamespace
+
 from sennet.events import EventBus
 from sennet.speech import Speech
+from sennet.usage import Limits
 from sennet.voice.hub import VoiceHub
+
+
+class Tasks:
+    """What the hub reads of the task manager: each task is Claude Code's, with these limits."""
+
+    def __init__(self, windows=()):
+        self.agents = {"claude": SimpleNamespace(title="Claude Code")}
+        self.db = SimpleNamespace(task=lambda task_id: {"id": task_id, "agent": "claude"})
+        self.limits = Limits({}, publish=_ignore)
+        if windows:
+            asyncio.run(self.limits.report("claude", list(windows)))
+
+
+async def _ignore(event):
+    pass
 
 
 class Reply:
@@ -45,9 +64,9 @@ def completed(task_id, status="completed", error=None):
             "event": {"kind": "turn_completed", "data": {"status": status, "error": error}}}
 
 
-def hub_with_request(message_id=2):
+def hub_with_request(message_id=2, tasks=None):
     speech = Speech.unavailable("test")
-    hub = VoiceHub(speech, tasks=None, bus=EventBus())
+    hub = VoiceHub(speech, tasks=tasks or Tasks(), bus=EventBus())
     session = Session()
     hub.sessions.add(session)
     hub.requests[message_id] = session

@@ -17,7 +17,8 @@ The dock along the bottom has, from left to right:
 - **Wake word**, when one is set up: listen for it.
 - **Conversation**: open the mic, so you can just talk.
 - **Type instead** (`/`): a keyboard, for when you can't talk.
-- **Tasks**: every task, with its status, timeline, commands and file changes.
+- **Tasks**: your tasks, with their status, timeline, commands and file changes, and a
+  search box.
 
 ## Projects and tasks
 
@@ -38,6 +39,20 @@ To aim a request:
 
 Nothing guesses where a request should go. If there's no project selected or named,
 Sennet says so instead of picking one.
+
+### The task list
+
+Tasks that need you and tasks at work come first. Below them, **Earlier** shows the ten
+most recently finished; **Show more** brings older ones.
+
+**Search** at the top finds a task by its title or anything said in it, by you or the
+agent. Part of a word is enough ("auth" finds "authentication"), and a typo or two in a
+longer word still matches. The best 20 show, each with the words it matched.
+
+**Delete** a finished task with the trash button on its row (it appears when you point
+at the row), or on a phone by swiping the row left. A task that's still working,
+queued or waiting on you has to be stopped first. Deleting removes it from Sennet only:
+Claude Code and Codex keep their own copy of the conversation.
 
 ## Talking
 
@@ -108,6 +123,20 @@ These are acted on by Sennet itself, never sent to an agent, when they're all yo
 | "cancel", "cancel that" | Interrupts the selected task. |
 | "read me the details", "details", "read it all" | Reads the last reply in full. |
 | a project's name on its own | Nothing; name it with your request ("in backend, …"). |
+
+## Usage limits
+
+Your Claude and Codex plans have a five-hour limit and a weekly one. In Settings, under
+**Agents**, each agent shows how much of each you've used and when it resets. The
+numbers come from the agents during their turns, and Sennet asks again when you open
+Settings if they're more than a few minutes old. Asking doesn't use any of your limit.
+
+Once you're past 80% of a limit, a line above the label says so. After a spoken reply,
+Sennet mentions it once at 80% and again at 95%. If a request hits the limit, you hear
+which one and when it resets, such as "Claude Code's 5-hour limit is reached. It resets
+at 4 pm." Follow up after that time and the task carries on.
+
+Each task shows the tokens it has used, in and out, beside its project.
 
 ## Background work
 

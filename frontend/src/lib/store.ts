@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Approval, type Project, type Rule, type ServerEvent, type State, type Task, type TaskDetail } from './api'
+import { api, type AgentLimits, type Approval, type Project, type Rule, type ServerEvent, type State, type Task, type TaskDetail } from './api'
 import { markUnpaired, UNPAIRED } from './pairing'
 
 export type Connection = 'connecting' | 'live' | 'reconnecting'
@@ -10,10 +10,17 @@ interface Live {
   tasks: Task[]
   approvals: Approval[]
   rules: Rule[]
+  limits: Record<string, AgentLimits>
   settings: State['settings'] | null
+  more_tasks: boolean
 }
 
-const empty: Live = { version: null, projects: [], tasks: [], approvals: [], rules: [], settings: null }
+const empty: Live = { version: null, projects: [], tasks: [], approvals: [], rules: [], limits: {}, settings: null, more_tasks: false }
+
+/** Finished tasks: what the list calls Earlier, and what may be deleted. */
+export const FINISHED: ReadonlySet<Task['status']> = new Set(['completed', 'failed', 'cancelled', 'unknown'])
+
+const byRecent = (a: Task, b: Task) => b.updated_at - a.updated_at || b.id - a.id
 
 function upsert<T extends { id: number }>(items: T[], item: T, first = false): T[] {
   const index = items.findIndex((existing) => existing.id === item.id)
@@ -87,13 +94,32 @@ export function useLiveState() {
     return () => void listeners.current.delete(listener)
   }, [])
 
-  return { ...live, connection, updated, reconnects, reload, subscribe }
+  /** Tasks from elsewhere (an older page, a search result), added to the list. */
+  const addTasks = useCallback((tasks: Task[], more?: boolean) => {
+    setLive((state) => ({
+      ...state,
+      tasks: tasks.reduce((all, task) => all.some((t) => t.id === task.id) ? all : [...all, task], state.tasks).sort(byRecent),
+      more_tasks: more ?? state.more_tasks,
+    }))
+  }, [])
+
+  /** The next page of finished tasks, older than the oldest here. */
+  const showMore = useCallback(async () => {
+    const oldest = live.tasks.filter((t) => FINISHED.has(t.status)).sort(byRecent).at(-1)
+    if (!oldest) return
+    const page = await api.earlierTasks(oldest)
+    addTasks(page.tasks, page.more)
+  }, [live.tasks, addTasks])
+
+  return { ...live, connection, updated, reconnects, reload, subscribe, addTasks, showMore }
 }
 
 function apply(state: Live, event: ServerEvent): Live {
   switch (event.type) {
     case 'task':
-      return { ...state, tasks: upsert(state.tasks, event.task, true).sort((a, b) => b.updated_at - a.updated_at) }
+      return { ...state, tasks: upsert(state.tasks, event.task, true).sort(byRecent) }
+    case 'task_removed':
+      return { ...state, tasks: state.tasks.filter((t) => t.id !== event.task_id) }
     case 'approval': {
       const approvals = event.approval.status === 'pending'
         ? upsert(state.approvals, event.approval)
@@ -102,10 +128,15 @@ function apply(state: Live, event: ServerEvent): Live {
     }
     case 'project':
       return { ...state, projects: upsert(state.projects, event.project).sort((a, b) => a.name.localeCompare(b.name)) }
-    case 'project_removed':
-      return { ...state, projects: state.projects.filter((p) => p.id !== event.project_id) }
+    case 'project_removed': // its tasks go with it
+      return { ...state, projects: state.projects.filter((p) => p.id !== event.project_id),
+               tasks: state.tasks.filter((t) => t.project_id !== event.project_id) }
     case 'rules':
       return { ...state, rules: event.rules }
+    case 'limits': {
+      const { [event.agent]: _, ...others } = state.limits
+      return { ...state, limits: event.limits ? { ...others, [event.agent]: event.limits } : others }
+    }
     default:
       return state
   }

@@ -19,6 +19,9 @@ task is then `background`, its process stays up (the idle timer waits for the wo
 to end), and follow-ups run as usual. When the work is done the agent may start a
 turn itself; the task runs it like any other, and sends messages queued meanwhile
 after it.
+
+Tokens a turn used are added to its task. The usage limits agents report belong to
+their account, and go to `limits` (usage.py) rather than to the task.
 """
 from __future__ import annotations
 
@@ -32,7 +35,8 @@ from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decis
 from .agents.registry import ModelError, check_model
 from .approvals import Approvals
 from .config import Settings
-from .db import Database
+from .db import FINISHED, Database
+from .usage import Limits, limit_reached
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +71,10 @@ class TaskError(Exception):
     pass
 
 
+class TaskBusy(TaskError):
+    """The task is still working, or its agent's work is: it has to stop first."""
+
+
 class TaskManager:
     def __init__(self, db: Database, settings: Settings, agents: dict[str, Agent], approvals: Approvals, publish):
         self.db = db
@@ -79,6 +87,7 @@ class TaskManager:
         self.warming: set[asyncio.Task] = set()
         self.closing: set[asyncio.Task] = set()     # idle closes under way, which shutdown waits for
         self.stopping = False
+        self.limits = Limits(agents, publish)
 
     async def start(self):
         self.db.recover()
@@ -97,6 +106,7 @@ class TaskManager:
         await asyncio.gather(*self.warming, *self.closing, return_exceptions=True)
         await asyncio.gather(*(r.session.close() for r in self.runners.values() if r.session),
                              *(self._close_spare(p) for p in list(self.spares)), return_exceptions=True)
+        await self.limits.close()
 
     # Public operations
 
@@ -164,6 +174,22 @@ class TaskManager:
         if runner and runner.background:
             await self._close_session(task_id)  # the work runs in the agent's process, and ends with it
         return self.db.task(task_id)
+
+    async def delete(self, task_id: int):
+        """Delete a finished task from Sennet. The agent keeps its own copy of the conversation."""
+        task = self.db.task(task_id)
+        if task is None:
+            raise TaskError("no such task")
+        runner = self.runners.get(task_id)
+        if task["status"] not in FINISHED or (runner and (runner.background or (runner.job and not runner.job.done()))):
+            raise TaskBusy("the task is still working; stop it before deleting it")
+        if runner:
+            if runner.idle_timer:
+                runner.idle_timer.cancel()
+            await self._close_session(task_id)  # kept warm for a follow-up that won't come now
+            self.runners.pop(task_id, None)
+        self.db.delete_task(task_id)
+        await self.publish({"type": "task_removed", "task_id": task_id})
 
     async def choose_model(self, task_id: int, model: str | None, effort: str | None) -> dict:
         """Use this model and effort for the task from its next turn (None for both: the project's)."""
@@ -457,6 +483,15 @@ class TaskManager:
             await self.publish({"type": "message", "task_id": task_id,
                                 "message": self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)})
             return
+        if event.kind == "usage":
+            self.db.add_usage(task_id, event.data["input"], event.data["cached"], event.data["output"])
+            await self._publish_task(task_id)
+            return
+        if event.kind == "limits":
+            await self.limits.report(self.db.task(task_id)["agent"], event.data["windows"])
+            return
+        if event.kind == "turn_completed" and event.data.get("limit") is not None:
+            event = AgentEvent(event.kind, {**event.data, **self._limit_reached(task_id, event.data["limit"])})
         event_id = self.db.add_event(task_id, event.kind, event.data)
         await self.publish({"type": "event", "task_id": task_id,
                             "event": {"id": event_id, "kind": event.kind, "data": event.data, "created_at": time.time()}})
@@ -467,6 +502,15 @@ class TaskManager:
             await self._background_changed(task_id, event.data["tasks"])
         elif event.kind == "turn_started" and event.data["by"] == "agent":
             await self._agent_turn(task_id)
+
+    def _limit_reached(self, task_id: int, limit: dict) -> dict:
+        """The turn stopped at a usage limit: say which, and when it frees up, in Sennet's own words.
+        What the agent didn't say, the limits it reported last may."""
+        agent = self.db.task(task_id)["agent"]
+        if limit["resets_at"] is None and (full := self.limits.reached(agent)):
+            limit = {"window": full["title"], "resets_at": full["resets_at"]}
+        title = self.agents[agent].title if agent in self.agents else agent
+        return {"limit": limit, "error": limit_reached(title, limit["window"], limit["resets_at"])}
 
     async def _background_changed(self, task_id: int, work: list):
         runner = self.runners[task_id]

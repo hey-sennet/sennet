@@ -33,6 +33,9 @@ export interface Task {
   model: string | null // overrides the project's; null follows it
   effort: string | null
   error: string | null
+  input_tokens: number // summed over its turns; input includes the cached part
+  cached_tokens: number
+  output_tokens: number
   created_at: number
   updated_at: number
 }
@@ -97,12 +100,35 @@ export interface Rule {
   pattern: string
 }
 
+/** One of an account's usage limits (LimitWindow in agents/base.py). */
+export interface LimitWindow {
+  id: string // "session" (five hours), "weekly", ...
+  title: string // "5-hour", "weekly"
+  used: number // percent, 0 to 100
+  resets_at: number | null // Unix seconds
+}
+
+/** An agent's limits as last reported or asked for (usage.py). */
+export interface AgentLimits {
+  windows: LimitWindow[]
+  checked_at: number
+}
+
+/** A task found by search, with the text it matched in and the spans of it to highlight. */
+export interface SearchHit {
+  task: Task
+  snippet: string
+  highlights: [number, number][]
+}
+
 export interface State {
   version: string // the server's; the client offers a reload when it changes under it
   projects: Project[]
-  tasks: Task[]
+  tasks: Task[] // every unfinished task, and the latest finished ones
+  more_tasks: boolean // older finished tasks to page through (api.earlierTasks)
   approvals: Approval[]
   rules: Rule[]
+  limits: Record<string, AgentLimits> // by agent; an agent that can't say isn't listed
   settings: { approvals: { mode: ApprovalMode; access: Access }; tasks: { max_concurrent: number } }
 }
 
@@ -184,6 +210,8 @@ export type ServerEvent =
   | { type: 'project_removed'; project_id: number }
   | { type: 'rules'; rules: Rule[] }
   | { type: 'devices'; paired: Omit<Device, 'current'> | null }
+  | { type: 'limits'; agent: string; limits: AgentLimits | null }
+  | { type: 'task_removed'; task_id: number }
 
 export class ApiError extends Error {}
 
@@ -215,7 +243,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   state: () => request<State>('GET', '/api/state'),
   agents: () => request<Record<string, AgentStatus>>('GET', '/api/agents'),
+  /** The limits as known; the server asks the agents again for any a few minutes old, and says so in `limits` events. */
+  limits: () => request<Record<string, AgentLimits>>('GET', '/api/limits'),
   task: (id: number) => request<TaskDetail>('GET', `/api/tasks/${id}`),
+  /** Finished tasks older than `last`, newest first. */
+  earlierTasks: (last: Task, limit = 20) =>
+    request<{ tasks: Task[]; more: boolean }>('GET', `/api/tasks?before=${last.updated_at}&before_id=${last.id}&limit=${limit}`),
+  deleteTask: (id: number) => request<void>('DELETE', `/api/tasks/${id}`),
+  search: (query: string) => request<SearchHit[]>('GET', `/api/search?q=${encodeURIComponent(query)}`),
   createTask: (project_id: number, text: string, choice?: ModelChoice) =>
     request<Task>('POST', '/api/tasks', { project_id, text, ...choice }),
   followUp: (id: number, text: string) => request<Task>('POST', `/api/tasks/${id}/messages`, { text }),

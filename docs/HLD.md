@@ -442,7 +442,9 @@ sennet doctor           # agents, speech, devices, Tailscale, and whether the se
 SQLite tables: `devices` and `pairing_codes` (token and code hashes only), `projects` (including the agent, model, effort and project-config
 opt-in), `tasks` (project, agent, provider thread/session ID, model, effort, status),
 `task_events` (bounded per task), `approvals` (requests and
-decisions), `approval_rules`, `settings`. `config.toml` holds models and policy
+decisions), `approval_rules`, `settings`, and a full-text index of task titles and
+messages (FTS5, trigram) kept current by triggers. Finished tasks can be deleted, which
+removes their rows and index entries; the agent's own session is left alone. `config.toml` holds models and policy
 defaults. It is editable by hand and through the UI.
 
 Recovery: on daemon restart, tasks that were running are resumed if the provider supports

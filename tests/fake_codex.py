@@ -5,7 +5,9 @@ Turn behaviour is driven by the user's text:
   edit:<path>     ask to edit a file, then apply it if approved
   hang            keep working until interrupted
   crash           exit mid-turn
-Anything else gets a short reply. Every call is appended to $FAKE_CODEX_LOG.
+  limit           fail at the usage limit, which is then full
+Anything else gets a short reply. Each reply reports its tokens, in two model responses,
+and the limits. Every call is appended to $FAKE_CODEX_LOG.
 """
 import asyncio
 import itertools
@@ -18,6 +20,13 @@ threads = itertools.count(1)
 waiting: dict[int, asyncio.Future] = {}
 interrupted = asyncio.Event()
 turn_ids = itertools.count(1)
+limit_reached = False
+
+
+def snapshot() -> dict:
+    return {"limitId": "codex", "limitName": None, "planType": "plus", "rateLimitReachedType": None,
+            "primary": {"usedPercent": 100 if limit_reached else 30, "windowDurationMins": 300, "resetsAt": 1792870493},
+            "secondary": {"usedPercent": 10, "windowDurationMins": 10080, "resetsAt": 1793396758}}
 
 
 def log(entry: dict):
@@ -84,8 +93,23 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
         status, reply = "interrupted", None
     elif text == "crash":
         os._exit(1)
+    elif text == "limit":
+        global limit_reached
+        limit_reached = True
+        error = {"message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) "
+                            "or try again at 4:12 PM.", "codexErrorInfo": "usageLimitExceeded"}
+        notify("error", threadId=thread_id, turnId=turn_id, willRetry=False, error=error)
+        notify("turn/completed", threadId=thread_id, turn={"id": turn_id, "items": [], "status": "failed", "error": error})
+        return
     else:
         reply = f"You said: {text}"
+        for _ in range(2):
+            notify("thread/tokenUsage/updated", threadId=thread_id, turnId=turn_id, tokenUsage={
+                "total": {"inputTokens": 99999, "cachedInputTokens": 0, "outputTokens": 0, "reasoningOutputTokens": 0,
+                          "totalTokens": 99999},
+                "last": {"inputTokens": 1000, "cachedInputTokens": 800, "outputTokens": 20,
+                         "reasoningOutputTokens": 5, "totalTokens": 1020}})
+        notify("account/rateLimits/updated", rateLimits=snapshot())
     if reply:
         for word in reply.split(" "):
             notify("item/agentMessage/delta", threadId=thread_id, turnId=turn_id, itemId="msg1", delta=word + " ")
@@ -124,6 +148,8 @@ async def main():
                 {"id": "gpt-old", "model": "gpt-old", "displayName": "Old", "isDefault": False, "hidden": True,
                  "defaultReasoningEffort": None, "supportedReasoningEfforts": []}],
                 "nextCursor": None}
+        elif method == "account/rateLimits/read":
+            result = {"rateLimits": snapshot(), "rateLimitsByLimitId": {"codex": snapshot()}}
         elif method == "thread/start":
             result = {"thread": {"id": f"thread-{next(threads)}"}}
         elif method == "thread/resume":
