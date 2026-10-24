@@ -14,6 +14,8 @@ dist/
 node_modules/
 frontend/test-results/
 frontend/playwright-report/
+# Wake word reference clips and scores (training/wakeword/reference.py)
+frontend/src/voice/fixtures/
 # Built web client, packaged into the wheel at release time
 src/sennet/web/
 

@@ -3,6 +3,8 @@
 // goes as Opus both ways where the browser and server can (opus.ts), else as PCM.
 // A conversation keeps it open and streaming, and the server opens and ends turns (§12).
 // Replies play through `playback`, dropping any generation older than the floor (§7).
+// With the wake word on, the microphone stays open and its frames go only to the wake word
+// detector, in the browser, until it hears the phrase and opens a conversation.
 // React subscribes to the snapshot; Strata reads `source` and `playback.source` each frame.
 import type { ModelChoice } from '@/lib/api'
 import type { AudioSource } from '@/strata/engine'
@@ -11,6 +13,7 @@ import { MicError, Microphone } from './mic'
 import chime from './approval-chime.mp3'
 import { OpusDownlink, OpusUplink, opusSupport, parseOpusFrame } from './opus'
 import { Playback, parseFrame } from './playback'
+import { WakeDetector, wakePhrase } from './wake'
 import { VoiceSocket, type Codec, type SpeechStatus, type VoiceMessage, type VoiceState } from './socket'
 
 // An open mic with echo cancellation puts a phone in call mode, quieter and duller, so it closes
@@ -19,6 +22,7 @@ const RELEASE_MIC_AFTER_MS = 1_000
 const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session is quiet
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
 const CHIME_S = 1.4 // approval-chime.mp3
+const WAKE_QUIET_MS = 10_000 // a conversation the wake word opened closes after this long with nobody talking
 
 /** The selected task, or the project a new task starts in, on its own model if chosen. */
 export type Target = { task_id: number } | ({ project_id: number } & Partial<ModelChoice>) | Record<string, never>
@@ -40,6 +44,8 @@ export interface VoiceSnapshot {
   speaking: boolean              // a reply is playing on this device
   state: VoiceState              // the server's voice_state for this session
   words: Words | null
+  wakePhrase: string | null      // what the server's wake word model listens for; null without one
+  wake: 'off' | 'loading' | 'on' // listening for the wake word on this device
 }
 
 interface Played {
@@ -72,8 +78,12 @@ export class Voice {
   private wordsTimer: ReturnType<typeof setTimeout> | null = null
   private snapshot: VoiceSnapshot = {
     connected: false, stt: null, turnReady: false, conversation: false, listening: false, opening: false,
-    speaking: false, state: 'idle', words: null,
+    speaking: false, state: 'idle', words: null, wakePhrase: null, wake: 'off',
   }
+  private detector: WakeDetector | null = null
+  private wakeTarget: Target = {}
+  private woken = false // the open conversation is the wake word's: it closes once things go quiet
+  private wakeTimer: ReturnType<typeof setTimeout> | null = null
   private wakeLock: WakeLockSentinel | null = null
   private muted = false // told the user to tap, since speech arrived while audio was suspended
   private readonly subscribers = new Set<() => void>()
@@ -86,6 +96,8 @@ export class Voice {
         this.playback.silence()
         this.useCodecs({ uplink: 'pcm_s16le', downlink: 'pcm_s16le' }) // until the next session agrees otherwise
         if (this.snapshot.conversation) this.endConversation() // a new session starts without one
+      } else if (!this.snapshot.wakePhrase) {
+        void wakePhrase().then((phrase) => this.update({ wakePhrase: phrase }))
       }
       this.update({ connected, ...(connected ? {} : { stt: null, state: 'idle' }) })
     }
@@ -109,6 +121,7 @@ export class Voice {
     // Phones suspend a hidden page's microphone anyway: end the conversation cleanly instead.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.snapshot.conversation) this.closeConversation()
+      if (document.hidden) this.stopWake()
       if (!document.hidden) this.playback.resume()
     })
   }
@@ -150,13 +163,71 @@ export class Voice {
       this.fail(error instanceof MicError ? error.message : String(error))
       return
     }
+    if (!this.beginConversation(target)) this.releaseMicLater()
+  }
+
+  private beginConversation(target: Target): boolean {
     if (!this.socket.send({ type: 'open_mic', ...target })) {
-      this.releaseMicLater()
       this.fail('Voice is not connected yet.')
-      return
+      return false
     }
     this.update({ conversation: true })
+    if (!this.wakeLock) void this.keepAwake()
+    return true
+  }
+
+  /**
+   * Listen for the wake word: the microphone stays open, heard only by the detector here, and
+   * the phrase opens a conversation with `target`. Must be called inside a gesture.
+   */
+  async listenForWake(target: Target) {
+    if (this.snapshot.wake !== 'off') return
+    this.wakeTarget = target
+    this.playback.unlock() // replies to what's said after the wake word play without a tap
+    if (this.snapshot.stt !== 'ready' || !this.snapshot.turnReady) {
+      this.fail(this.snapshot.connected ? 'The wake word needs speech recognition and turn detection. Run `sennet setup`.'
+        : 'Voice is not connected yet.')
+      return
+    }
+    this.holdMic()
+    this.update({ wake: 'loading' })
+    const detector = new WakeDetector(() => this.woke(), (message) => {
+      if (this.detector === detector && this.snapshot.wake === 'on') {
+        this.stopWake()
+        this.fail(`The wake word stopped: ${message}`)
+      }
+    })
+    this.detector = detector
+    try {
+      await Promise.all([this.openMic(), detector.ready])
+    } catch (error) {
+      if (this.detector !== detector) return // turned off while loading
+      this.stopWake()
+      this.fail(error instanceof MicError ? error.message : `The wake word could not start: ${String(error)}`)
+      return
+    }
+    if (this.detector !== detector) return
+    this.update({ wake: 'on' })
     void this.keepAwake()
+  }
+
+  stopWake() {
+    if (this.snapshot.wake === 'off') return
+    this.detector?.close()
+    this.detector = null
+    this.update({ wake: 'off' })
+    if (!this.snapshot.conversation) {
+      if (!this.turn) this.releaseMicLater()
+      void this.wakeLock?.release().catch(() => {})
+      this.wakeLock = null
+    }
+  }
+
+  /** The wake word was heard: what's said next is a conversation's first turn. */
+  private woke() {
+    if (this.snapshot.wake !== 'on' || this.snapshot.conversation || this.turn || this.ending) return
+    if (this.snapshot.speaking) this.stop() // as talking over a reply would
+    if (this.beginConversation(this.wakeTarget)) this.woken = true
   }
 
   closeConversation() {
@@ -167,6 +238,7 @@ export class Voice {
 
   /** The selection changed: the next turn of an open conversation goes there. */
   retarget(target: Target) {
+    this.wakeTarget = target
     if (this.snapshot.conversation) this.socket.send({ type: 'target', ...target })
   }
 
@@ -256,14 +328,22 @@ export class Voice {
   private endConversation() {
     this.dropStream()
     this.turn = null
+    this.woken = false
     this.update({ conversation: false, listening: false })
+    if (this.snapshot.wake !== 'off') {
+      // Back to listening for the wake word, with the microphone and screen kept on.
+      this.detector?.reset()
+      return
+    }
     this.releaseMicLater()
     void this.wakeLock?.release().catch(() => {})
     this.wakeLock = null
   }
 
+  /** Close the microphone soon, unless the wake word is listening on it. */
   private releaseMicLater() {
     this.holdMic()
+    if (this.snapshot.wake !== 'off') return
     this.releaseTimer = setTimeout(() => this.closeMic(), RELEASE_MIC_AFTER_MS)
   }
 
@@ -288,6 +368,7 @@ export class Voice {
       // The first frame is the moment capture really started: from here, speech is heard.
       if (this.snapshot.opening) this.update({ opening: false })
       if (this.turn || this.ending || this.snapshot.conversation) this.send(frame)
+      else if (this.snapshot.wake === 'on') this.detector?.push(frame)
     })
     try {
       this.mic = await this.opening
@@ -463,6 +544,16 @@ export class Voice {
     } else if (!quiet && this.wordsTimer) {
       clearTimeout(this.wordsTimer)
       this.wordsTimer = null
+    }
+    const settled = quiet && this.woken && this.snapshot.conversation
+    if (settled && !this.wakeTimer) {
+      this.wakeTimer = setTimeout(() => {
+        this.wakeTimer = null
+        if (this.woken) this.closeConversation()
+      }, WAKE_QUIET_MS)
+    } else if (!settled && this.wakeTimer) {
+      clearTimeout(this.wakeTimer)
+      this.wakeTimer = null
     }
     for (const onChange of this.subscribers) onChange()
   }

@@ -1,0 +1,60 @@
+[project]
+name = "wakeword-training"
+version = "0.0.0"
+description = "Train the \"hey sennet\" openWakeWord model"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # openWakeWord's training script, pinned: newer commits may change train.py's steps or config keys.
+    "openwakeword @ git+https://github.com/dscripka/openWakeWord@368c03716d1e92591906a84949bc477f3a834455",
+    # Synthetic speech for the positive and adversarial clips comes from piper-sample-generator,
+    # which fetch.py checks out (its package leaves out the piper_train module the voice model
+    # needs). These are its requirements.
+    "piper-tts==1.3.0",
+    # torch 2.8 still reads audio through torchaudio's own backends; 2.9 moved that to torchcodec,
+    # which speechbrain 0.5 doesn't use. cu128 wheels run on everything from Turing to Blackwell.
+    "torch==2.8.*",
+    "torchaudio==2.8.*",
+    # What train.py and openwakeword.data import, from openWakeWord's `full` extra, minus TensorFlow
+    # (only for .tflite export, which Sennet doesn't use).
+    "torchinfo>=1.8,<2",
+    "torchmetrics>=1.2,<2",
+    "speechbrain>=0.5.14,<1",
+    "audiomentations==0.33.0",
+    "torch-audiomentations>=0.11,<0.12",
+    "mutagen>=1.47",
+    "acoustics>=0.2.6",
+    "pronouncing>=0.2",
+    "deep-phonemizer==0.0.19",
+    "pyyaml>=6",
+    "scipy<1.17",  # acoustics imports scipy.special.sph_harm, removed in 1.17
+    "numpy",
+    "onnx",
+    # Computes the training features on the GPU (on the CPU openWakeWord would use one thread,
+    # as it assumes CUDA when torch has it). Uses the CUDA libraries torch installs.
+    "onnxruntime-gpu>=1.20,<1.24",  # 1.24+ is built for CUDA 13; torch 2.8 brings CUDA 12
+    # Downloading the datasets.
+    "huggingface_hub",
+    "pyarrow",
+    "soundfile",
+    "tqdm",
+]
+
+[tool.uv]
+package = false
+override-dependencies = [
+    # openWakeWord's runtime requirements that training doesn't use: tflite inference and the
+    # speex noise suppressor (which builds from source).
+    "ai-edge-litert; sys_platform == 'never'",
+    "speexdsp-ns; sys_platform == 'never'",
+    # openWakeWord and piper-tts depend on the CPU build; onnxruntime-gpu provides the same module.
+    "onnxruntime; sys_platform == 'never'",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

@@ -15,7 +15,7 @@ for wanted in sennet/web/index.html sennet/web/licenses.txt sennet/web/notices.t
 done
 grep -q '\.dist-info/licenses/LICENSE$' <<< "$files" || fail "the wheel has no LICENSE"
 grep -q '\.dist-info/licenses/NOTICES$' <<< "$files" || fail "the wheel has no NOTICES"
-if grep -E '__pycache__|\.pyc$|\.onnx$|node_modules' <<< "$files"; then fail "the wheel has files it shouldn't"; fi
+if grep -E '__pycache__|\.pyc$|\.onnx$|\.wasm$|node_modules' <<< "$files"; then fail "the wheel has files it shouldn't"; fi
 [ "$(wc -c < "$wheel")" -lt 10000000 ] || fail "the wheel is over 10 MB"
 
 listed=$(tar tzf "$sdist")

@@ -41,6 +41,7 @@ from .config import Paths, Settings
 from .db import Database
 from .events import EventBus, batches
 from .speech import Speech
+from .speech import models as speech_models
 from .tasks import TaskError, TaskManager
 from .voice import VoiceHub, VoiceSession
 
@@ -53,6 +54,7 @@ SWEEP_S = 30                    # how often open sockets are checked for devices
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 OPEN = ("/api/pair", "/api/health")    # the API paths an unpaired device may use
 IMMUTABLE = "public, max-age=31536000, immutable"  # built assets have hashed names
+mimetypes.add_type("application/octet-stream", ".onnx")  # the wake word's models (not text/plain)
 
 
 class ProjectIn(BaseModel):
@@ -273,6 +275,33 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                        "models": [asdict(m) for m in models] if not isinstance(models, Exception) else []}
                 for (name, agent), result, models in zip(agents.items(), results, listed)}
 
+    def wake_files() -> dict[str, Path] | None:
+        """What the client's wake word fetches, once setup has downloaded it."""
+        if (model := speech_models.wake_model(paths.models, settings.speech.wake_word)) is None:
+            return None
+        folder = speech_models.path(paths.models, speech_models.OPENWAKEWORD)
+        return {"melspectrogram.onnx": folder / "melspectrogram.onnx",
+                "embedding_model.onnx": folder / "embedding_model.onnx",
+                "wakeword.onnx": model,
+                "ort-wasm-simd-threaded.wasm": speech_models.path(paths.models, speech_models.ORT_WEB)
+                / "ort-wasm-simd-threaded.wasm"}
+
+    @app.get("/api/wakeword")
+    async def wakeword():
+        """The phrase the client's wake word listens for, from the model's file name; null without one."""
+        if (files := wake_files()) is None:
+            return {"phrase": None}
+        return {"phrase": speech_models.wake_phrase(files["wakeword.onnx"])}
+
+    @app.get("/api/wakeword/{name}")
+    async def wakeword_file(name: Literal["melspectrogram.onnx", "embedding_model.onnx", "wakeword.onnx",
+                                          "ort-wasm-simd-threaded.wasm"], request: Request):
+        """openWakeWord's models and the ONNX runtime they run on in the browser, from the models
+        directory: setup downloads them, so they're never in the wheel."""
+        if (files := wake_files()) is None:
+            raise HTTPException(404, "the wake word isn't downloaded; run `sennet setup`")
+        return _built(files[name], request, "no-cache")
+
     async def check_model(agent: Agent | None, model: str | None, effort: str | None, inherited: str | None = None):
         try:
             await registry.check_model(agent, model, effort, inherited)
@@ -492,7 +521,7 @@ def _secured(response: Response, request: Request) -> Response:
     cookie is a shell on this machine."""
     host = request.headers.get("host", "")
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
         f"media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://{host} wss://{host}; "
         "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
     response.headers["X-Content-Type-Options"] = "nosniff"

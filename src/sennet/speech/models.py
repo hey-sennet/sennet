@@ -7,6 +7,7 @@ Models live under `<data dir>/models/<model>/`. They are downloaded by
 from __future__ import annotations
 
 import hashlib
+import re
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,10 @@ PARAKEET_REVISION = "0bbb45a3365852604aef28b538a8f066f4ccaa85"
 PARAKEET_URL = f"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/{PARAKEET_REVISION}/"
 KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 SMART_TURN_REVISION = "f766f81d3cfdf7737ac64aad813d91bbfd56bf93"
+OPENWAKEWORD_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/"
+# The browser's ONNX runtime: must be the onnxruntime-web version the client is built with
+# (frontend/package.json pins it; tests/test_wakeword.py checks the two agree).
+ORT_WEB_VERSION = "1.30.0"
 
 
 @dataclass(frozen=True)
@@ -29,7 +34,7 @@ class ModelFile:
 @dataclass(frozen=True)
 class Model:
     id: str
-    role: str  # vad | stt | tts | turn
+    role: str  # vad | stt | tts | turn | wake | wake_runtime | wake_word
     licence: str
     files: tuple[ModelFile, ...]
 
@@ -84,14 +89,48 @@ SMART_TURN = Model("smart-turn-v3.2", "turn", "BSD-2-Clause", (
               "smart-turn-v3.2-gpu.onnx", "ab8dc64b88713f90b571c15b714bd1330e6c883cad8763dacf65c9376dc539be", 32411198),
 ))
 
+# The wake word, run in the browser rather than here: openWakeWord's mel spectrogram and speech
+# embedding (Apache-2.0), shared by every phrase, then the phrase's own model. The server hands
+# them to the client (server.py).
+OPENWAKEWORD = Model("openwakeword-v0.5.1", "wake", "Apache-2.0", (
+    ModelFile("melspectrogram.onnx", OPENWAKEWORD_URL + "melspectrogram.onnx",
+              "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", 1087958),
+    ModelFile("embedding_model.onnx", OPENWAKEWORD_URL + "embedding_model.onnx",
+              "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f", 1326578),
+))
+
+
+def _wake_word(name: str, sha256: str, size: int) -> Model:
+    """One of openWakeWord's pre-trained phrases, beside the shared models. They're CC-BY-NC-SA-4.0
+    (trained on data with restrictive licences), so setup only fetches the one asked for."""
+    return Model(OPENWAKEWORD.id, "wake_word", "CC-BY-NC-SA-4.0",
+                 (ModelFile(f"{name}.onnx", f"{OPENWAKEWORD_URL}{name}.onnx", sha256, size),))
+
+
+# The phrases setup offers, the first preselected. "hey sennet" goes first once it's trained
+# (training/wakeword) and published.
+WAKE_WORDS = {
+    "hey_jarvis": _wake_word("hey_jarvis_v0.1", "94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb", 1271370),
+    "hey_mycroft": _wake_word("hey_mycroft_v0.1", "c2a311e8fa1338de89c31b3b46dc4dffd4af2f9a8d6ddead48893c2d301b1f18", 857691),
+    "hey_rhasspy": _wake_word("hey_rhasspy_v0.1", "5a9b3ed3be2910e35780e097905aa9f35a9c10038df47914cf2b3ec4d670f6ea", 204081),
+    "alexa": _wake_word("alexa_v0.1", "6ff566a01d12670e8d9e3c59da32651db1575d17272a601b7f8a39283dfbae3e", 854246),
+}
+ORT_WEB = Model(f"onnxruntime-web-{ORT_WEB_VERSION}", "wake_runtime", "MIT", (
+    ModelFile("ort-wasm-simd-threaded.wasm",
+              f"https://cdn.jsdelivr.net/npm/onnxruntime-web@{ORT_WEB_VERSION}/dist/ort-wasm-simd-threaded.wasm",
+              "3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2", 14239897),
+))
+
 # int8 on CPU (no accuracy cost in M0), fp32 on GPU (int8 is slow under CUDA).
 MODELS = {
-    "cpu": {"vad": SILERO, "stt": PARAKEET_INT8, "tts": KOKORO_INT8, "turn": SMART_TURN},
-    "cuda": {"vad": SILERO, "stt": PARAKEET_FP32, "tts": KOKORO_FP32, "turn": SMART_TURN},
+    "cpu": {"vad": SILERO, "stt": PARAKEET_INT8, "tts": KOKORO_INT8, "turn": SMART_TURN,
+            "wake": OPENWAKEWORD, "wake_runtime": ORT_WEB},
+    "cuda": {"vad": SILERO, "stt": PARAKEET_FP32, "tts": KOKORO_FP32, "turn": SMART_TURN,
+             "wake": OPENWAKEWORD, "wake_runtime": ORT_WEB},
 }
-# Push-to-talk works without these; only conversation sessions need them, so an install from
-# before M7 keeps working until setup fetches them.
-OPTIONAL = {"turn"}
+# Push-to-talk works without these: only conversation sessions need turn detection, and only
+# the wake word needs its models, so an older install keeps working until setup fetches them.
+OPTIONAL = {"turn", "wake", "wake_runtime"}
 
 
 def path(root: Path, model: Model) -> Path:
@@ -103,6 +142,24 @@ def present(root: Path, model: Model) -> bool:
     directory = path(root, model)
     return all((directory / f.name).is_file() and (directory / f.name).stat().st_size == f.size
                for f in model.files)
+
+
+def wake_model(root: Path, name: str) -> Path | None:
+    """The model the wake word listens with: the chosen phrase (speech.wake_word), once it, the
+    shared models and the runtime they run on are downloaded. A `wakeword.onnx` beside them (a
+    link to a trained one) replaces any pre-trained phrase."""
+    if not (present(root, OPENWAKEWORD) and present(root, ORT_WEB)):
+        return None
+    override = path(root, OPENWAKEWORD) / "wakeword.onnx"
+    if override.is_file():
+        return override
+    chosen = WAKE_WORDS.get(name)
+    return path(root, chosen) / chosen.files[0].name if chosen and present(root, chosen) else None
+
+
+def wake_phrase(model: Path) -> str:
+    """The phrase a wake word model listens for, from its file name: hey_jarvis_v0.1.onnx is "hey jarvis"."""
+    return re.sub(r"_v[\d.]+$", "", model.resolve().stem).replace("_", " ")
 
 
 class ChecksumError(Exception):

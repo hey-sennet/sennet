@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, AudioLines, Keyboard, ListTodo, Plus, Square } from 'lucide-react'
+import { ArrowUp, AudioLines, Ear, Keyboard, ListTodo, Plus, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -9,8 +9,8 @@ import { voice, type Target } from '@/voice/voice'
 const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-[color,border-color,transform] duration-300 ease-strata hover:text-foreground active:scale-94 [&_svg]:size-5'
 
 /**
- * Under the stage: on the left the new-task glyph; in the middle the conversation
- * glyph and a keyboard glyph that grows into a type bar; on the right stop while a reply plays,
+ * Under the stage: on the left the new-task glyph; in the middle the wake word glyph (when the
+ * server has a model), the conversation glyph and a keyboard glyph that grows into a type bar; on the right stop while a reply plays,
  * and on phones the tasks glyph that opens the sheet.
  */
 export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, target, onNewTask, activeTasks, needsYou, onOpenTasks, className }: {
@@ -26,7 +26,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
   onOpenTasks?: () => void
   className?: string
 }) {
-  const { speaking, conversation, stt, turnReady } = useVoice()
+  const { speaking, conversation, stt, turnReady, wake, wakePhrase } = useVoice()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -70,6 +70,15 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
       </div>
 
       <div className={cn('flex min-w-0 items-center gap-3', typing && 'flex-1 justify-center')}>
+        {wakePhrase && stt === 'ready' && turnReady && !typing && (
+          <button type="button" aria-pressed={wake !== 'off'}
+            className={cn(glyph, wake !== 'off' && 'border-foreground text-foreground', wake === 'loading' && 'animate-pulse')}
+            aria-label={wake === 'off' ? `Listen for “${wakePhrase}”` : `Stop listening for “${wakePhrase}”`}
+            title={wake === 'off' ? `Listen for “${wakePhrase}”` : `Stop listening for “${wakePhrase}”`}
+            onClick={() => (wake === 'off' ? void voice().listenForWake(target) : voice().stopWake())}>
+            <Ear />
+          </button>
+        )}
         {stt === 'ready' && turnReady && !typing && (
           <button type="button" aria-pressed={conversation}
             className={cn(glyph, conversation && 'border-foreground bg-foreground text-background hover:text-background')}

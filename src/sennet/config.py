@@ -101,6 +101,8 @@ class SpeechSettings:
     device: str = "auto"
     threads: int = 4
     voice: str = "af_heart"
+    # The phrase the browser listens for (a key of speech.models.WAKE_WORDS); empty for none. Setup sets it.
+    wake_word: str = ""
 
 
 @dataclass

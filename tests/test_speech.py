@@ -85,7 +85,8 @@ def test_fetch_keeps_files_that_already_match(tmp_path):
 
 def test_every_tier_has_every_role():
     for chosen in models.MODELS.values():
-        assert {role: m.role for role, m in chosen.items()} == {"vad": "vad", "stt": "stt", "tts": "tts", "turn": "turn"}
+        assert {role: m.role for role, m in chosen.items()} == {"vad": "vad", "stt": "stt", "tts": "tts", "turn": "turn",
+                                                                "wake": "wake", "wake_runtime": "wake_runtime"}
 
 
 def test_smart_turn_features_have_the_models_shape():

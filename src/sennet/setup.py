@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from rich.markup import escape
@@ -113,9 +114,12 @@ def _run(ui: Prompter, settings: Settings, paths: Paths, device: str | None, pau
     ui.heading("Phone access")
     _choose_address(ui, machine, settings)
 
+    speech_models = [m for m in models.MODELS[device].values() if m.role not in WAKE_ROLES]
+    speech_models += _choose_wake(ui, paths, settings)
+
     ui.heading("Downloads")
-    speech_models = list(models.MODELS[device].values())
-    downloads = [(m.id, m) for m in speech_models if not models.present(paths.models, m)]
+    downloads = [(m.files[0].name.removesuffix(".onnx") if m.role == "wake_word" else m.id, m)
+                 for m in speech_models if not models.present(paths.models, m)]
     if downloads:
         _show_downloads(ui, paths, downloads)
         total = sum(m.size for _, m in downloads)
@@ -213,6 +217,35 @@ def _choose_speech(ui: Prompter, machine: Machine, current: str | None) -> str:
     ]
     default = current if current in ("cpu", "cuda") and not (current == "cuda" and no_cuda) else advice.device
     return ui.select("Speech runs on", options, default)
+
+
+WAKE_ROLES = {"wake", "wake_runtime"}
+
+
+def _choose_wake(ui: Prompter, paths: Paths, settings: Settings) -> list[Model]:
+    """The phrase to listen for, into speech.wake_word, and the models it needs. It's optional, and
+    the pre-trained phrases are licensed for non-commercial use only, so without a terminal (--yes)
+    it stays as it was: off unless one was chosen before."""
+    ui.heading("Wake word")
+    ui.info("Say a phrase to start talking, without touching the screen; it's heard in the browser. The "
+            f"pre-trained phrases are {next(iter(models.WAKE_WORDS.values())).licence}: non-commercial use only.")
+    shared = [m for m in (models.OPENWAKEWORD, models.ORT_WEB) if not models.present(paths.models, m)]
+    current = settings.speech.wake_word if settings.speech.wake_word in models.WAKE_WORDS else ""
+    options = []
+    for name, model in models.WAKE_WORDS.items():
+        needed = sum(m.size for m in [*shared, model] if not models.present(paths.models, m))
+        options.append(Option(name, f"\"{models.wake_phrase(Path(model.files[0].name))}\"",
+                              size(needed) if needed else "downloaded",
+                              note=WAKE_NOTES.get(name, ""), tags=("current",) if name == current else ()))
+    options.append(Option("", "No wake word", tags=("current",) if not current else ()))
+    default = current or (next(iter(models.WAKE_WORDS)) if ui.interactive else "")
+    settings.speech.wake_word = ui.select("Which wake word?", options, default)
+    if not settings.speech.wake_word:
+        return []
+    return [models.OPENWAKEWORD, models.ORT_WEB, models.WAKE_WORDS[settings.speech.wake_word]]
+
+
+WAKE_NOTES = {"alexa": "Amazon devices nearby wake to it too."}
 
 
 def _models_size(device: str) -> int:
@@ -496,6 +529,8 @@ def _choose_linger(ui: Prompter, manager):
 def _show_summary(ui: Prompter, settings: Settings, device: str, running: bool):
     voice = next((v.name for v in voices.VOICES if v.id == settings.speech.voice), settings.speech.voice)
     lines = [f"[green]✓[/] Speech on {NAMES[device]}, voice {voice}"]
+    if word := models.WAKE_WORDS.get(settings.speech.wake_word):
+        lines.append(f"[green]✓[/] Wake word \"{models.wake_phrase(Path(word.files[0].name))}\"")
     if settings.server.public_url:
         lines.append(f"[green]✓[/] Phones reach it at {settings.server.public_url}")
     if running:

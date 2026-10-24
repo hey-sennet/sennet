@@ -177,3 +177,39 @@ def test_leaving_with_ctrl_c_says_how_to_continue(settings, paths, monkeypatch, 
     monkeypatch.setattr(setup, "_pause_service", lambda ui: None)
     assert setup.run(settings, paths, None, assume_yes=True) == 130
     assert "pick up where you left off" in capsys.readouterr().out
+
+
+# The wake word
+
+def test_each_wake_word_is_offered_and_the_choice_is_downloaded(settings, paths):
+    from sennet.speech import models
+
+    ui = Scripted("hey_mycroft")
+    chosen = setup._choose_wake(ui, paths, settings)
+    assert chosen == [models.OPENWAKEWORD, models.ORT_WEB, models.WAKE_WORDS["hey_mycroft"]]
+    assert settings.speech.wake_word == "hey_mycroft"
+    message, options, default = ui.asked[0]
+    assert [o.value for o in options] == [*models.WAKE_WORDS, ""]
+    assert default == next(iter(models.WAKE_WORDS))  # the first is preselected
+    assert "non-commercial" in ui.output()
+
+
+def test_no_wake_word_downloads_nothing(settings, paths):
+    settings.speech.wake_word = "hey_jarvis"
+    assert setup._choose_wake(Scripted(""), paths, settings) == []
+    assert settings.speech.wake_word == ""
+
+
+def test_without_a_terminal_the_wake_word_stays_as_it_was(settings, paths):
+    quiet = Prompter(False, Console(file=io.StringIO()))
+    assert setup._choose_wake(quiet, paths, settings) == [] and settings.speech.wake_word == ""
+    settings.speech.wake_word = "hey_rhasspy"
+    assert setup._choose_wake(quiet, paths, settings)[-1].files[0].name == "hey_rhasspy_v0.1.onnx"
+
+
+def test_a_second_run_preselects_the_current_wake_word(settings, paths):
+    settings.speech.wake_word = "alexa"
+    ui = Scripted("alexa")
+    setup._choose_wake(ui, paths, settings)
+    _, options, default = ui.asked[0]
+    assert default == "alexa" and "current" in ui.options("Which wake word?")["alexa"].tags

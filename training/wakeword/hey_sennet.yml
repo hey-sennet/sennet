@@ -1,0 +1,72 @@
+# openWakeWord training config for "hey sennet". Keys are openWakeWord's (see its
+# examples/custom_model.yml for what each does); relative paths are under the data directory
+# (train.py --data, default ./data), which fetch.py fills.
+
+model_name: "hey_sennet"
+
+# The name is pronounced like "senate". Both spellings give the TTS the same sound
+# (espeak: /sˈɛnɪt/ and /sˈɛnət/), so a little more variety in the positives.
+target_phrase:
+  - "hey sennet"
+  - "hey senate"
+
+# Phrases that must not wake it, on top of the sound-alikes openWakeWord generates.
+# Sonnet is a Claude model the user will name out loud; senator(s) is the near miss.
+custom_negative_phrases:
+  - "hey sonnet"
+  - "sonnet"
+  - "hey senator"
+  - "hey senators"
+  - "senator"
+  - "hey sentence"
+  - "hey sending"
+  - "hey seven"
+  - "hey bennett"
+  - "hey kennett"
+  - "hey dennett"
+  - "hey sunny"
+  - "hey cynic"
+  - "hey synod"
+  - "hey sinner"
+  - "hey sense"
+  - "hey net"
+  - "hey said it"
+  - "hey send it"
+  - "a senate"
+  - "the senate"
+  - "hey"
+
+# Positive clips (synthetic, LibriTTS-R voices mixed) and the same number of adversarial ones.
+# openWakeWord suggests 20,000 at least and 100,000+ for the best results.
+n_samples: 100000
+n_samples_val: 10000
+tts_batch_size: 100
+augmentation_batch_size: 16
+augmentation_rounds: 1
+
+piper_sample_generator_path: "piper-sample-generator"
+output_dir: "output"
+
+rir_paths:
+  - "mit_rirs/16khz"
+background_paths:
+  - "audioset_16k"
+  - "fma_16k"
+background_paths_duplication_rate:
+  - 1
+  - 1
+
+false_positive_validation_data_path: "features/validation_set_features.npy"
+feature_data_files:
+  "ACAV100M_sample": "features/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+batch_n_per_class:
+  "ACAV100M_sample": 1024
+  "adversarial_negative": 70
+  "positive": 70
+
+model_type: "dnn"
+layer_size: 32
+
+steps: 100000
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2

@@ -73,6 +73,17 @@ Speech
     License: BSD-2-Clause. Model from https://huggingface.co/pipecat-ai/smart-turn-v3.
     src/sennet/speech/turn.py computes its Whisper-style log-mel input in NumPy, following
     the feature extractor in Hugging Face Transformers (Apache-2.0).
+  openWakeWord v0.5.1 models
+    Copyright David Scripka (https://github.com/dscripka/openWakeWord). The mel spectrogram
+    and speech embedding models are Apache-2.0 (the embedding is Google's speech_embedding,
+    https://tfhub.dev/google/speech_embedding/1, Apache-2.0). The pre-trained wake word models
+    ("hey jarvis", "hey mycroft", "hey rhasspy", "alexa") are CC-BY-NC-SA-4.0, for
+    non-commercial use only. `sennet setup` downloads the one you choose, if any; it runs in the
+    browser.
+    frontend/src/voice/wakeword.ts follows openWakeWord's streaming feature code (Apache-2.0).
+  ONNX Runtime Web 1.30.0 WebAssembly
+    Copyright Microsoft Corporation (https://github.com/microsoft/onnxruntime). License: MIT.
+    Downloaded by `sennet setup` and served to the browser for the wake word.
   onnx-asr (MIT), ONNX Runtime (MIT), NumPy (BSD-3-Clause).
   The `cuda` extra installs NVIDIA's CUDA and cuDNN wheels under the NVIDIA software
   license agreements that come with them.

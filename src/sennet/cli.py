@@ -414,9 +414,26 @@ def speech_ok(settings: Settings, paths: Paths) -> bool:
         _line("speech", f"problem: {device} models missing ({', '.join(missing)}); run `sennet setup`")
         return False
     _line("speech", f"ok: {device} via {runtime}, models in {paths.models}")
-    optional = [m.id for role, m in chosen.items() if role in models.OPTIONAL and not models.present(paths.models, m)]
-    if optional:
-        _line("conversation", f"off: {', '.join(optional)} not downloaded; run `sennet setup` for open-mic sessions")
+    def absent(*roles: str) -> list[str]:
+        return [chosen[role].id for role in roles if not models.present(paths.models, chosen[role])]
+
+    if turn := absent("turn"):
+        _line("conversation", f"off: {', '.join(turn)} not downloaded; run `sennet setup` for open-mic sessions")
+    ok = True
+    name = settings.speech.wake_word
+    word = models.WAKE_WORDS.get(name)
+    if model := models.wake_model(paths.models, name):
+        trained = model.name == "wakeword.onnx"
+        source = f"trained, {model.resolve()}" if trained else f"pre-trained, {word.licence}"
+        _line("wake word", f"ok: \"{models.wake_phrase(model)}\" ({source})")
+    elif not name:
+        _line("wake word", "off; run `sennet setup` to choose one")
+    elif word is None:
+        _line("wake word", f"problem: speech.wake_word is {name!r}, not one of {', '.join(models.WAKE_WORDS)}")
+        ok = False
+    else:
+        wake = absent("wake", "wake_runtime") + ([] if models.present(paths.models, word) else [word.files[0].name])
+        _line("wake word", f"off: {', '.join(wake)} not downloaded; run `sennet setup` to listen for it")
     from .voice import opus
 
     if opus.available():
@@ -424,4 +441,4 @@ def speech_ok(settings: Settings, paths: Paths) -> bool:
     else:
         _line("audio", "PCM: libopus isn't installed, so voice uses about ten times the data "
               "(`sudo apt install libopus0`, or `brew install opus`)")
-    return True
+    return ok
