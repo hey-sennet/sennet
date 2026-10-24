@@ -351,12 +351,19 @@ class VoiceHub:
     def _say_live(self, task_id: int, pending: Pending, body: str, end: int):
         """Speak the spoken version's sentences up to `end`, those not said yet."""
         live = self.live.get(task_id)
+        if live is not None and end <= live.said:
+            return
+        segments = clauses(for_speech(body[live.said if live else 0:end]))
         if live is None:
+            if not segments:
+                return  # nothing to say yet: a reply queued empty would be dropped
             live = self.live[task_id] = Live()
-            self._in_turn(task_id, lambda: self._queue_live(task_id, pending, live))
-        if end > live.said:
-            live.add(clauses(for_speech(body[live.said:end])))
+            live.add(segments)  # before queueing, which may run at once and needs something to say
             live.said = end
+            self._in_turn(task_id, lambda: self._queue_live(task_id, pending, live))
+            return
+        live.add(segments)
+        live.said = end
 
     def _finish_live(self, task_id: int, pending: Pending, spoken: str):
         """The spoken version is complete: say what is left of it, and end its reply."""
