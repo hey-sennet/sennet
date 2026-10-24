@@ -171,6 +171,38 @@ test('on a phone, a long task opens at its latest, with the way back and its sto
   await expect(sheet.getByRole('searchbox', { name: 'Search tasks' })).toBeVisible()
 })
 
+test('a command shows on one line, and a tap opens the whole of it and its output', async ({ page }, info) => {
+  const name = `commands-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  const command = 'NODE_ENV=test npm run test -- --coverage "src/components/TaskDetail.test.tsx" 2>&1 | tee $HOME/test.log # all of it'
+  const task = await (await page.request.post('/api/tasks', { data: { project_id: project.id, text: `run:${command}` }, headers })).json()
+  let approval: { id: number } | undefined
+  await expect.poll(async () => {
+    approval = (await (await page.request.get('/api/state')).json()).approvals.find((a: { task_id: number }) => a.task_id === task.id)
+    return approval !== undefined
+  }).toBe(true)
+  await page.request.post(`/api/approvals/${approval!.id}`, { data: { decision: 'approve' }, headers })
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).status).toBe('completed')
+
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByText(/^run:NODE_ENV=test npm run test/).first().click()
+  const timeline = info.project.name === 'phone' ? page.getByRole('region', { name: 'Tasks' }) : page.getByRole('complementary', { name: 'Task' })
+  const row = timeline.locator('summary', { hasText: 'npm run test' })
+  await expect(row).toBeVisible()
+  const line = (await row.boundingBox())!.height
+  expect(line).toBeLessThan(24) // one line, however long the command
+  await expect(timeline.getByText('ok', { exact: true })).toBeHidden()
+  await page.screenshot({ path: `test-results/${info.project.name}-command-closed.png` })
+  await row.click()
+  await expect(timeline.getByText('ok', { exact: true })).toBeVisible()
+  expect((await row.boundingBox())!.height).toBeGreaterThan(line) // the whole command, wrapped
+  await page.screenshot({ path: `test-results/${info.project.name}-command-open.png` })
+})
+
 test('search finds a task by what was said in it, typos and all', async ({ page }, info) => {
   const word = `quokka${info.project.name}`
   await finishedTasks(page, `search-${info.project.name}`, [`feed the ${word} at noon`, 'something else'])

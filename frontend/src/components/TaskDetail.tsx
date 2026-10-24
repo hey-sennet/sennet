@@ -114,13 +114,17 @@ function EventItem({ event }: { event: TaskEvent }) {
     const result = data.status === 'declined' ? 'declined' : failed ? `exit ${data.exit_code ?? '?'}` : 'done'
     return (
       <li>
+        {/* Quieter than the agent's words, one line each; a tap opens the whole command and its output. */}
         <details className="group text-[13px]">
-          <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2.5 gap-y-1">
-            <code className="font-mono text-[12.5px] break-all">› {data.command}</code>
-            <small className={cn('text-xs', failed ? 'text-warn' : 'text-muted-foreground')}>{result}</small>
+          <summary className="flex cursor-pointer list-none items-baseline gap-2.5 text-muted-foreground transition-colors hover:text-foreground/80 group-open:text-foreground/90 [&::-webkit-details-marker]:hidden">
+            <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] group-open:whitespace-pre-wrap group-open:[overflow-wrap:anywhere]">
+              <span className="text-muted-foreground/60">›</span> {data.command}
+            </code>
+            <small className={cn('shrink-0 text-xs', failed ? 'text-warn' : 'text-muted-foreground/70')}>{result}</small>
           </summary>
           {data.output_tail && (
-            <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs leading-relaxed">{data.output_tail}</pre>
+            // What it printed: a size down and dimmer than the command, with no box to take up width.
+            <pre className="mt-1.5 max-h-64 overflow-auto font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground/70 [overflow-wrap:anywhere]">{data.output_tail}</pre>
           )}
         </details>
       </li>
