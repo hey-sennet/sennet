@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
 
 const HOLD_MS = 4000 // after you scroll the caption yourself, it stops following for this long
+const PACE = 20 // characters a second the voice speaks, until the caption has timed it
+const PACE_RANGE = [10, 32]
+const SETTLE_MS = 450 // a long sentence's first line eases into place over this
 
 /**
  * Live words in Strata's display type. Committed words are solid and provisional ones light;
@@ -11,7 +14,8 @@ const HOLD_MS = 4000 // after you scroll the caption yourself, it stops followin
  *
  * The caption scrolls within a few lines and glides to follow the words: the agent's last
  * spoken word sits one line above the bottom edge, so the next line shows what's coming; your
- * own words follow the newest one. Scrolling it yourself holds the view for a moment. A `still`
+ * own words follow the newest one. A sentence too tall for the caption starts at its first line
+ * and glides through to its end as it is spoken. Scrolling it yourself holds the view for a moment. A `still`
  * caption doesn't follow: it stays where it was left, to be scrolled and read.
  */
 export function Caption({ committed, provisional = '', speaker = 'user', still, className }: {
@@ -38,19 +42,55 @@ export function Caption({ committed, provisional = '', speaker = 'user', still, 
 
   const total = solid.length + light.length
   const followed = agent ? solid.length - 1 : total - 1
+  // The agent's words arrive a sentence at a time, as each starts playing: `sentence` is where
+  // the one playing now begins, and `last` when the one before it began, to time the voice by.
+  const sentence = useRef({ from: 0, to: 0, said: '' })
+  const last = useRef<{ at: number; chars: number } | null>(null)
+  const pace = useRef(PACE)
+  const glide = useRef(0)
+  useEffect(() => () => cancelAnimationFrame(glide.current), [])
   useEffect(() => {
     const el = box.current
     if (!el) return
     measure()
-    if (still || Date.now() < heldUntil.current) return
-    const word = el.querySelectorAll<HTMLElement>('[data-word]')[followed]
+    if (still) return
+    const words = el.querySelectorAll<HTMLElement>('[data-word]')
+    const word = words[followed]
     if (!word) return
-    const lead = agent ? parseFloat(getComputedStyle(el).lineHeight) : 0
-    const top = Math.max(0, Math.min(word.offsetTop + word.offsetHeight + lead - el.clientHeight, el.scrollHeight - el.clientHeight))
-    if (Math.abs(top - el.scrollTop) > 2) el.scrollTo({ top, behavior: 'smooth' })
+    const line = parseFloat(getComputedStyle(el).lineHeight)
+    const max = el.scrollHeight - el.clientHeight
+    const end = clamp(word.offsetTop + word.offsetHeight + (agent ? line : 0) - el.clientHeight, 0, max)
+    const said = solid.join(' ')
+    const started = agent && said !== sentence.current.said
+    if (started) {
+      const now = performance.now()
+      const more = sentence.current.said !== '' && said.startsWith(sentence.current.said + ' ')
+      const from = more ? sentence.current.to : 0
+      if (!more) last.current = null // a new reply
+      else if (last.current) learn(pace, last.current.chars / ((now - last.current.at) / 1000))
+      sentence.current = { from, to: solid.length, said }
+      last.current = { at: now, chars: solid.slice(from).join(' ').length }
+    }
+    if (Date.now() < heldUntil.current) return
+    // A sentence taller than the caption starts at its first line, with a line of what came
+    // before, then glides down through it at the voice's pace.
+    const first = words[sentence.current.from]
+    const start = agent && first ? clamp(first.offsetTop - line, 0, max) : end
+    if (start < end) {
+      if (started) {
+        cancelAnimationFrame(glide.current)
+        follow(el, start, end, (last.current!.chars / pace.current) * 1000, heldUntil, glide)
+      }
+      return // still gliding through it
+    }
+    cancelAnimationFrame(glide.current)
+    if (Math.abs(end - el.scrollTop) > 2) el.scrollTo({ top: end, behavior: 'smooth' })
   }, [followed, total, agent, still])
 
-  const hold = () => { heldUntil.current = Date.now() + HOLD_MS }
+  const hold = () => {
+    heldUntil.current = Date.now() + HOLD_MS
+    cancelAnimationFrame(glide.current)
+  }
   const fade = (edge: boolean) => (edge ? 'transparent' : '#000')
   const mask: CSSProperties | undefined = edges.top || edges.bottom
     ? { maskImage: `linear-gradient(${fade(edges.top)}, #000 1lh, #000 calc(100% - 1lh), ${fade(edges.bottom)})` }
@@ -74,3 +114,29 @@ export function Caption({ committed, provisional = '', speaker = 'user', still, 
 }
 
 const split = (text: string) => text.split(/\s+/).filter(Boolean)
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
+
+/** Learns the voice's pace from a sentence's characters per second of playing. A wait for the
+ * agent to write the next sentence isn't speech, so a pace far off the voice's is ignored. */
+function learn(pace: { current: number }, measured: number) {
+  if (measured >= PACE_RANGE[0] && measured <= PACE_RANGE[1]) pace.current += (measured - pace.current) * 0.3
+}
+
+/** Eases to `from`, then moves to `to` in step with the voice, ending as the sentence does.
+ * Scrolling it yourself (`heldUntil`) lets go of it; `frame` is the animation frame to cancel. */
+function follow(el: HTMLElement, from: number, to: number, ms: number, heldUntil: { current: number },
+  frame: { current: number }) {
+  const begin = el.scrollTop
+  const t0 = performance.now()
+  const step = (t: number) => {
+    if (Date.now() < heldUntil.current) return
+    const elapsed = t - t0
+    el.scrollTop = elapsed < SETTLE_MS
+      ? begin + (from - begin) * ease(elapsed / SETTLE_MS)
+      : from + (to - from) * Math.min(1, (elapsed - SETTLE_MS) / Math.max(ms - SETTLE_MS, 1))
+    if (elapsed < ms) frame.current = requestAnimationFrame(step)
+  }
+  frame.current = requestAnimationFrame(step)
+}
+
+const ease = (t: number) => 1 - (1 - t) ** 5 // near --ease-strata, cubic-bezier(0.22, 1, 0.36, 1)
