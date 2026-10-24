@@ -22,7 +22,7 @@ const voiceSources = { user: voice().source, agent: voice().playback.source }
  * goes to the selected task, or starts a new one in `project`. Beneath it, in order: what is
  * being said, an approval waiting on you, then the selected task's progress or last reply.
  */
-export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, model, limit, onSelectTask, onAddProject, className }: {
+export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, discless, model, limit, onSelectTask, onAddProject, className }: {
   target: Target
   project?: Project
   task?: Task
@@ -32,6 +32,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
   tasks: Task[]
   projects: Project[]
   compact: boolean // typing: the disc steps back, as it does for an approval
+  discless: boolean // typing on a phone, its keyboard up: that needs the room, and the words are what you're answering
   model?: Omit<ComponentProps<typeof ModelMenu>, 'className'> // who your words go to, with where
   limit?: { line: string; reached: boolean } // the agent's usage limit, once close to it or reached
   onSelectTask: (id: number) => void // makes it the one this device asks about
@@ -109,7 +110,8 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
 
   return (
     <main className={cn('stage flex min-h-0 flex-col items-center justify-center gap-(--gap) overflow-hidden px-6 lg:px-14', className)}>
-      <button
+      {/* The label keeps the state in its colour meanwhile: working, speaking, needs you. */}
+      {!discless && <button
         {...talk.props}
         className={cn('aspect-square shrink-0 touch-none rounded-full outline-none select-none focus-visible:ring-1 focus-visible:ring-ring',
           'transition-[width] duration-700 ease-strata enabled:cursor-pointer',
@@ -119,7 +121,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
         {strataPreview
           ? <Strata state={strataPreview.state} sources={strataPreview.sources} frozenAt={strataPreview.frozenAt} className="size-full" />
           : <Strata state={state} sources={voiceSources} className="size-full" />}
-      </button>
+      </button>}
       <div className="relative w-full max-w-[34rem]">
         {limit && !approval && (
           // In the gap above the label, out of the layout, so the disc and the words don't move for it.

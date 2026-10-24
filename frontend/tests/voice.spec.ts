@@ -48,7 +48,7 @@ test('a new task starts blank, without the words sent to the last one', async ({
   await chooseProject(page, name)
   // A task that keeps working, so the words said to it linger while it does.
   await page.getByRole('button', { name: 'Type instead' }).click()
-  const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
+  const composer = page.getByPlaceholder('Start a new task')
   await composer.fill('hang')
   await composer.press('Enter')
   const stage = page.getByRole('main')
@@ -75,7 +75,7 @@ test('tap to start and tap again to send a follow-up', async ({ page }, info) =>
   await page.goto('/')
   await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
-  const composer = page.getByPlaceholder(`Ask codex to do something in ${name}`)
+  const composer = page.getByPlaceholder('Start a new task')
   await composer.fill('first')
   await composer.press('Enter')
   const stage = page.getByRole('main')
@@ -111,6 +111,28 @@ test('a conversation hears you without the button, and pressing sends it', async
 
   await page.getByRole('button', { name: 'End the conversation' }).click()
   await expect(page.getByRole('button', { name: /Start a conversation/ })).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('typing on a phone sets the disc aside for the words while its keyboard is up; a laptop keeps it', async ({ page }, info) => {
+  const name = `voice-typing-${info.project.name}`
+  await addProject(page, name)
+  await page.goto('/')
+  await chooseProject(page, name)
+  const disc = page.getByRole('button', { name: 'Hold to talk' })
+  await expect(disc).toBeVisible()
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  const phone = info.project.name === 'phone'
+  if (phone) await page.setViewportSize({ width: 412, height: 480 }) // the keyboard up
+  await expect(disc).toHaveCount(phone ? 0 : 1)
+  await expect(page.getByRole('main').getByText('New task', { exact: true })).toBeVisible() // the state, in the label
+  if (phone) {
+    // Android's back button puts the keyboard away and leaves the type bar open: the disc comes back.
+    await page.setViewportSize({ width: 412, height: 839 })
+    await expect(disc).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Close typing' })).toBeVisible()
+  }
+  await page.getByRole('button', { name: 'Close typing' }).click()
+  await expect(disc).toBeVisible()
 })
 
 test('sliding off the button cancels', async ({ page }, info) => {

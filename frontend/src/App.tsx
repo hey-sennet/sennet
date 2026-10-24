@@ -13,6 +13,7 @@ import { api, type ModelChoice } from '@/lib/api'
 import { limitLine, pressing } from '@/lib/limits'
 import { approvalsHere, useMine } from '@/lib/mine'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
+import { useKeyboardUp } from '@/lib/keyboard'
 import { cn } from '@/lib/utils'
 import { voice, type Target } from '@/voice/voice'
 import { toast } from 'sonner'
@@ -48,6 +49,7 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [sheet, setSheet] = useState<'closed' | 'list' | 'task'>('closed')
+  const keyboardUp = useKeyboardUp()
   const homeProject = live.projects.find((p) => p.id === homeProjectId) ?? live.projects[0]
   const task = live.tasks.find((t) => t.id === selected)
   const project = task ? live.projects.find((p) => p.id === task.project_id) : homeProject
@@ -302,6 +304,7 @@ export default function App() {
         tasks={live.tasks}
         projects={live.projects}
         compact={typing}
+        discless={typing && !desktop && keyboardUp}
         model={modelMenu}
         limit={limit}
         onSelectTask={select}
@@ -313,7 +316,8 @@ export default function App() {
         typing={typing}
         onTypingChange={setTyping}
         disabled={!project}
-        placeholder={task ? 'Follow up on this task' : homeProject ? `Ask ${homeProject.agent} to do something in ${homeProject.name}` : 'Add a project first'}
+        // Short enough for one line on a phone: the label and the header already name the project and model.
+        placeholder={task ? 'Follow up on this task' : homeProject ? 'Start a new task' : 'Add a project first'}
         onSend={async (text) => {
           if (selected !== null) {
             await api.followUp(selected, text)

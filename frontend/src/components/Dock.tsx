@@ -110,7 +110,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
             aria-hidden={!typing}
             onChange={(event) => {
               setText(event.target.value)
-              // Grows with what's typed, to about four lines, then scrolls.
+              // Grows with what's typed, to about four lines, then scrolls, without a scrollbar.
               event.target.style.height = ''
               event.target.style.height = `${Math.min(event.target.scrollHeight, 104)}px`
             }}
@@ -124,6 +124,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
             }}
             placeholder={placeholder}
             className={cn('h-[42px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-[10px] text-[15px] leading-[22px] outline-none placeholder:text-muted-foreground',
+              '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
               'transition-opacity delay-150 duration-300', typing ? 'opacity-100' : 'pointer-events-none opacity-0')}
           />
           <button type="submit" aria-label="Send" disabled={!typing || !text.trim() || busy || disabled}
