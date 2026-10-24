@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode } from 'react'
-import { Square, X } from 'lucide-react'
+import { useEffect, type ComponentProps, type ReactNode } from 'react'
+import { Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Project, type Task, type TaskDetail } from '@/lib/api'
@@ -12,6 +12,7 @@ import { usePushToTalk } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
 import { useDecide } from './ApprovalCard'
 import { Caption } from './Caption'
+import { ModelMenu } from './ModelMenu'
 import { plainText, spokenPart } from './Markdown'
 
 const voiceSources = { user: voice().source, agent: voice().playback.source }
@@ -21,7 +22,7 @@ const voiceSources = { user: voice().source, agent: voice().playback.source }
  * goes to the selected task, or starts a new one in `project`. Beneath it, in order: what is
  * being said, an approval waiting on you, then the selected task's progress or last reply.
  */
-export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, onClearTask, onSelectTask, onAddProject, className }: {
+export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, model, onSelectTask, onAddProject, className }: {
   target: Target
   project?: Project
   task?: Task
@@ -31,7 +32,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
   tasks: Task[]
   projects: Project[]
   compact: boolean // typing: the disc steps back, as it does for an approval
-  onClearTask: () => void
+  model?: Omit<ComponentProps<typeof ModelMenu>, 'className'> // who your words go to, with where
   onSelectTask: (id: number) => void // makes it the one this device asks about
   onAddProject: () => void
   className?: string
@@ -67,9 +68,9 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
     : state === 'speaking' ? 'Speaking'
     : snapshot.state === 'transcribing' ? 'Hearing you'
     : state === 'approval' && !words ? (approvals.length > 1 ? `Needs you · 1 of ${approvals.length}` : 'Needs you')
-    : state === 'thinking' ? `Working in ${project?.name ?? 'the project'}`
+    : state === 'thinking' ? 'Working' // the header names the project
     : !talk.ready ? (snapshot.connected ? 'Voice isn’t set up · type instead' : 'Connecting')
-    : task ? 'Following up' : project ? `New task · ${project.name}` : 'Add a project'
+    : task ? 'Following up' : project ? 'New task' : 'Add a project'
 
   let body: ReactNode
   if (words) {
@@ -123,14 +124,11 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
           state === 'listening' && 'text-foreground', (state === 'speaking' || state === 'thinking') && 'text-agent',
           state === 'approval' && !words && 'text-warn')}>
           <span className="shrink-0">{snapshot.conversation && state !== 'listening' && state !== 'speaking' ? `Conversation · ${label}` : label}</span>
-          {label === 'Following up' && task && (
-            // Plain to see, so words meant for a new task don't land on an old one by accident.
-            <span className="-my-1 inline-flex min-w-0 items-center gap-1 rounded-full border border-border bg-card py-0.5 pr-0.5 pl-2.5 text-[12px] font-normal tracking-normal text-foreground normal-case">
-              <span className="truncate">{task.title}</span>
-              <button className="rounded-full p-1 text-muted-foreground hover:text-foreground" aria-label="New task instead" title="New task instead" onClick={onClearTask}>
-                <X className="size-3" />
-              </button>
-            </span>
+          {model && (label === 'Following up' || label === 'New task') && (
+            <>
+              <span aria-hidden>·</span>
+              <ModelMenu {...model} />
+            </>
           )}
         </p>
         <div className="min-h-[4.5em] font-serif text-[clamp(26px,6vw,34px)]">{body}</div>

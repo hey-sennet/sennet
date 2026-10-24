@@ -1,26 +1,24 @@
-import { type ComponentProps, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, AudioLines, Keyboard, ListTodo, Plus, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useVoice } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
-import { ModelMenu } from './ModelMenu'
 
 const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-[color,border-color,transform] duration-300 ease-strata hover:text-foreground active:scale-94 [&_svg]:size-5'
 
 /**
- * Under the stage: the new-task glyph, the conversation glyph, a keyboard glyph that grows into a
- * type bar, and the model glyph; then stop while a reply plays, and on phones the tasks glyph
- * that opens the sheet.
+ * Under the stage: on the left the new-task glyph; in the middle the conversation
+ * glyph and a keyboard glyph that grows into a type bar; on the right stop while a reply plays,
+ * and on phones the tasks glyph that opens the sheet.
  */
-export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, model, target, onNewTask, activeTasks, needsYou, onOpenTasks, className }: {
+export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, target, onNewTask, activeTasks, needsYou, onOpenTasks, className }: {
   typing: boolean
   onTypingChange: (typing: boolean) => void
   placeholder: string
   onSend: (text: string) => Promise<unknown>
   disabled?: boolean
-  model?: Omit<ComponentProps<typeof ModelMenu>, 'className'>
   target: Target // where a conversation's turns go
   onNewTask?: () => void // set while following up a task: what's said next starts a new one instead
   activeTasks: number
@@ -60,15 +58,18 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
   }
 
   return (
-    <div className={cn('relative flex items-center gap-3 px-5 pt-2 pb-[max(18px,env(safe-area-inset-bottom))] lg:justify-center lg:pb-7',
-      typing ? 'justify-center' : 'justify-between', className)}>
-      <div className={cn('flex min-w-0 items-center gap-3', typing && 'flex-1 justify-center')}>
+    <div className={cn('relative flex items-center gap-3 px-5 pt-2 pb-[max(18px,env(safe-area-inset-bottom))] lg:pb-7', className)}>
+      {/* Equal sides keep the middle pair centred; typing, the type bar takes the room instead. */}
+      <div className={cn('flex items-center gap-3', !typing && 'flex-1 basis-0')}>
         {!typing && (
           <button type="button" className={cn(glyph, !onNewTask && 'pointer-events-none opacity-40')}
             aria-label="New task" title="New task (N)" disabled={!onNewTask} onClick={onNewTask}>
             <Plus />
           </button>
         )}
+      </div>
+
+      <div className={cn('flex min-w-0 items-center gap-3', typing && 'flex-1 justify-center')}>
         {stt === 'ready' && turnReady && !typing && (
           <button type="button" aria-pressed={conversation}
             className={cn(glyph, conversation && 'border-foreground bg-foreground text-background hover:text-background')}
@@ -121,23 +122,23 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, mo
             <ArrowUp className="size-4" />
           </button>
         </form>
-        {model && <ModelMenu {...model} className={glyph} />}
       </div>
 
-      {speaking && !typing && (
-        <button type="button" className={glyph}
-          aria-label="Stop speaking" title="Stop speaking" onClick={() => voice().stop()}>
-          <Square className="!size-4" />
-        </button>
-      )}
-
-      {onOpenTasks && (
-        <button type="button" className={cn(glyph, 'relative', typing && 'pointer-events-none absolute right-5 opacity-0')}
-          aria-label="Tasks" title="Tasks" onClick={onOpenTasks}>
-          {activeTasks ? <span className="text-[13px] font-medium tabular-nums">{activeTasks}</span> : <ListTodo />}
-          {needsYou && <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-background bg-warn" />}
-        </button>
-      )}
+      <div className={cn('flex items-center justify-end gap-3', !typing && 'flex-1 basis-0')}>
+        {speaking && !typing && (
+          <button type="button" className={glyph}
+            aria-label="Stop speaking" title="Stop speaking" onClick={() => voice().stop()}>
+            <Square className="!size-4" />
+          </button>
+        )}
+        {onOpenTasks && (
+          <button type="button" className={cn(glyph, 'relative', typing && 'pointer-events-none absolute right-5 opacity-0')}
+            aria-label="Tasks" title="Tasks" onClick={onOpenTasks}>
+            {activeTasks ? <span className="text-[13px] font-medium tabular-nums">{activeTasks}</span> : <ListTodo />}
+            {needsYou && <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-background bg-warn" />}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { Popover } from '@base-ui/react/popover'
-import { Check, Sparkles } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import type { AgentStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { describeChoice, type Inherited } from './ModelPicker'
@@ -8,8 +8,9 @@ const row = 'flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py
 const chip = 'rounded-full border px-2.5 py-1 text-xs transition-colors hover:text-foreground'
 
 /**
- * The dock's model glyph and the popover it opens: the model and effort for the selected task, or
- * for the next one started. A dot on the glyph marks a choice of its own.
+ * The model in the stage's label, after where your words go, and the popover it opens: the model
+ * and effort for the selected task, or for the next one started. A choice of its own shows it
+ * brighter.
  */
 export function ModelMenu({ agent, model, effort, inherited, heading, note, onChange, className }: {
   agent?: AgentStatus
@@ -27,12 +28,14 @@ export function ModelMenu({ agent, model, effort, inherited, heading, note, onCh
   const label = `Model: ${model ? current?.title ?? model : `Default (${fallback})`}${effort ? `, ${effort} effort` : ''}`
   return (
     <Popover.Root>
-      <Popover.Trigger aria-label={label} title={label} className={cn('relative', className)}>
-        <Sparkles />
-        {(model || effort) && <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-background bg-foreground/70" />}
+      <Popover.Trigger aria-label={label} title={label}
+        className={cn('-my-1 inline-flex min-w-0 items-center gap-1 rounded-full py-1 uppercase transition-colors hover:text-foreground data-popup-open:text-foreground',
+          (model || effort) && 'text-foreground', className)}>
+        <span className="min-w-0 truncate">{current?.title ?? model ?? fallback}</span>
+        <ChevronDown className="size-3 shrink-0" />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner side="top" sideOffset={10} className="z-50">
+        <Popover.Positioner side="bottom" align="start" sideOffset={8} className="z-50">
           <Popover.Popup className={cn('w-[min(288px,calc(100vw-32px))] rounded-2xl border bg-popover p-2 text-popover-foreground shadow-lg outline-none',
             'origin-(--transform-origin) transition-[opacity,scale] duration-200 ease-strata data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0')}>
             <Popover.Title className="eyebrow px-2.5 pt-1.5 pb-1 text-muted-foreground">{heading}</Popover.Title>

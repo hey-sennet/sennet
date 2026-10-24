@@ -150,6 +150,7 @@ export default function App() {
     else setSheet('task')
   }
   const newTask = () => {
+    if (task) setHomeProjectId(task.project_id) // the header showed the task's project: start there
     setSelected(null)
     setPanelOpen(false)
   }
@@ -196,7 +197,7 @@ export default function App() {
         </button>
         <div className="flex min-w-0 items-center gap-2">
           {live.projects.length > 0 && homeProject && (
-            <ProjectMenu projects={live.projects} current={homeProject} agents={agents} onChange={(id) => {
+            <ProjectMenu projects={live.projects} current={project ?? homeProject} agents={agents} onChange={(id) => {
               setHomeProjectId(id)
               setSelected(null)
             }} />
@@ -248,7 +249,7 @@ export default function App() {
         tasks={live.tasks}
         projects={live.projects}
         compact={typing}
-        onClearTask={newTask}
+        model={modelMenu}
         onSelectTask={setSelected}
         onAddProject={() => setSettingsOpen(true)}
         className="lg:col-start-2 lg:row-start-2"
@@ -270,7 +271,6 @@ export default function App() {
             setDraft({ project_id: null, model: null, effort: null })
           }
         }}
-        model={modelMenu}
         target={target}
         onNewTask={selected !== null ? newTask : undefined}
         activeTasks={activeTasks}
