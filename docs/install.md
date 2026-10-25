@@ -21,9 +21,13 @@
 ## Install
 
 ```sh
-uv tool install sennet
+uv tool install --python 3.14 sennet
 sennet setup
 ```
+
+`--python 3.14` matters: uv otherwise installs on its default Python, which may be newer than
+Sennet's speech libraries support yet (3.15 has no onnxruntime yet). uv downloads 3.14 if
+you don't have it, and upgrades keep it.
 
 Setup looks at the CPU, RAM and GPU, then asks each question as a list of every option.
 The recommended one is marked and explained, options that won't fit say so, and running
@@ -130,7 +134,7 @@ git clone https://github.com/hey-sennet/sennet.git
 cd sennet
 (cd frontend && npm ci && npm run build)
 uv build
-uv tool install dist/sennet-*.whl
+uv tool install --python 3.14 dist/sennet-*.whl
 sennet setup
 ```
 

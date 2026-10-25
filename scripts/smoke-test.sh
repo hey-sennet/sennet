@@ -17,7 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-uv tool install --quiet "sennet[$extra] @ $wheel"
+uv tool install --quiet --python 3.14 "sennet[$extra] @ $wheel"
 bin=$UV_TOOL_BIN_DIR/sennet
 echo "installed: $("$bin" --version)"
 

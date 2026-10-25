@@ -19,8 +19,11 @@ checkout" and "a stranger installs it from PyPI and it is still running tomorrow
 - **One wheel, pure Python.** `py3-none-any`, with the built client inside. Nothing
   native is ours: the ONNX runtime and espeak-ng come from their own wheels, and the
   models are downloaded by `setup`. Users never need Node, Docker or a compiler.
-- **`uv tool install` is the documented install.** uv fetches a suitable Python, and
-  `setup` already knows how to reinstall a uv tool with an extra. `pip install` and
+- **`uv tool install --python 3.14` is the documented install.** uv fetches that Python if
+  it's missing, and `setup` already knows how to reinstall a uv tool with an extra (on the
+  same Python). The `--python` is needed: uv picks its default interpreter, not one that
+  fits `requires-python`, and the first release run's macOS smoke test failed on Homebrew's
+  3.15, which onnxruntime has no wheels for yet. `pip install` and
   `pipx` work, but aren't what the README leads with.
 - **The service runs the installed `sennet serve`, as the user.** A systemd
   `--user` unit on Linux, a LaunchAgent on macOS. No root, no system-wide install, no

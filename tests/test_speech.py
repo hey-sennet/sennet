@@ -259,7 +259,8 @@ def test_setup_reinstalls_a_uv_tool_with_the_chosen_extra(tmp_path, monkeypatch)
         '[tool]\nrequirements = [{ name = "sennet", specifier = ">=0.1" }]\n')
     monkeypatch.setattr(sys, "prefix", str(tmp_path))
     command, rerun = setup._install_command("cuda")
-    assert command == ["uv", "tool", "install", "--reinstall", "sennet[cuda]>=0.1"]
+    assert command == ["uv", "tool", "install", "--reinstall", "--python", f"{sys.version_info.major}.{sys.version_info.minor}",
+                       "sennet[cuda]>=0.1"]
     assert rerun
 
 

@@ -8,6 +8,8 @@ from sennet import __version__, install, service, setup
 from sennet.config import Paths
 from sennet.db import Database
 
+PYTHON = f"{sys.version_info.major}.{sys.version_info.minor}"
+
 
 def receipt(tmp_path, monkeypatch, requirement: str):
     (tmp_path / "uv-receipt.toml").write_text(f"[tool]\nrequirements = [{requirement}]\n")
@@ -201,7 +203,7 @@ def test_setup_reinstalls_a_wheel_file_with_the_extra(tmp_path, monkeypatch):
     receipt(tmp_path, monkeypatch, f'{{ name = "sennet", path = "{wheel}" }}')
     assert install.uv_tool_spec("cuda") == f"sennet[cuda] @ {wheel.as_uri()}"
     command, _ = setup._install_command("cuda")
-    assert command == ["uv", "tool", "install", "--reinstall", f"sennet[cuda] @ {wheel.as_uri()}"]
+    assert command == ["uv", "tool", "install", "--reinstall", "--python", PYTHON, f"sennet[cuda] @ {wheel.as_uri()}"]
 
 
 def test_a_directory_install_cant_be_reinstalled_with_an_extra(tmp_path, monkeypatch):
