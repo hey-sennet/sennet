@@ -26,6 +26,14 @@ Some decisions are settled, and changes that undo them won't be merged:
 - **It runs on the host, as a user service.** No Docker-first install.
 - **Self-hosted, free and open source.** Not a hosted service.
 
+Not planned for now, though not ruled out: Windows, native mobile apps, and languages
+other than English.
+
+What might come next is in the issues, labelled
+[`next`](https://github.com/hey-sennet/sennet/issues?q=is%3Aopen+label%3Anext) (planned
+for soon) and [`idea`](https://github.com/hey-sennet/sennet/issues?q=is%3Aopen+label%3Aidea)
+(possible, not yet planned). To help with one, comment on its issue.
+
 The [design](docs/HLD.md) and the milestone notes (`docs/m*.md`) say why things are the
 way they are, including what was tried and dropped. Please read the relevant one before
 proposing to change something it covers.

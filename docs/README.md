@@ -7,7 +7,6 @@
 - [Using Sennet](using.md): projects, talking, conversations, approvals and voice commands
 - [Configuration](configuration.md)
 - [Troubleshooting](troubleshooting.md)
-- [Roadmap](roadmap.md)
 
 ## Contributing
 

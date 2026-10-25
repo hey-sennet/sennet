@@ -33,7 +33,7 @@ results, in a version the agent writes to be heard.
 Scope for v1: Linux and macOS, English only, push-to-talk and open-mic conversations
 (§6.5), an optional wake word heard in the browser, phone and desktop browsers over HTTPS
 (Tailscale recommended, any reverse proxy works), Codex and Claude Code. Deferred: Gemini
-CLI, Windows, native mobile apps, other languages ([roadmap](roadmap.md)).
+CLI, Windows, native mobile apps, other languages (see the [issues](https://github.com/hey-sennet/sennet/issues)).
 
 ## 2. Architecture
 
@@ -327,7 +327,7 @@ or project. There are no spoken commands, project names or approval answers: a f
 phrase that does something other than what the agent would make of it is opaque ("read
 me the details" read the last reply when a fresh summary was meant), and the disc, Stop
 task and the approval card already do what they did. Telling such phrases from requests
-is a job for a local model, if they come back (roadmap: a front desk). The exact
+is a job for a local model, if they come back ([a front desk](https://github.com/hey-sennet/sennet/issues/8)). The exact
 dispatched text is shown in the UI.
 
 M3 first put a local LLM with tool calling in front of the agents to choose the

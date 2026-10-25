@@ -24,7 +24,7 @@ under your existing subscription, approve what it wants to do, and hear what it 
   [Tailscale](https://tailscale.com) or any HTTPS reverse proxy.
 
 **Status:** 0.1, the first release. Codex and Claude Code work today; Gemini CLI is
-coming. Linux, and macOS as experimental. English only. See the [roadmap](https://github.com/hey-sennet/sennet/blob/main/docs/roadmap.md).
+coming. Linux, and macOS as experimental. English only. See what [might come next](https://github.com/hey-sennet/sennet/issues?q=is%3Aopen+label%3Anext%2Cidea).
 
 ## Quick start
 

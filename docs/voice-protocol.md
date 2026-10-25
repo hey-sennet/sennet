@@ -241,7 +241,7 @@ For Q8, and not part of the wire format.
 - Push-to-talk is per device: one open turn per session (§2).
 - No spoken commands or approval answers (§8, §9): a word that does something other than
   what the agent would make of it makes the system opaque. Phrases like these may come
-  back with a local model to tell them apart from requests (roadmap: a front desk).
+  back with a local model to tell them apart from requests ([a front desk](https://github.com/hey-sennet/sennet/issues/8)).
 - No retraction window in M2. Push-to-talk already has two chances to back out before
   anything is sent: slide off to `cancel` the turn, or stop the task once it starts. A
   retraction window would hold every dispatch for a few seconds, or race the agent
