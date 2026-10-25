@@ -25,7 +25,7 @@ test('pair a browser with the code a paired one shows, then unpair it', async ({
 
   await stranger.getByLabel('Pairing code').fill(code!.toLowerCase())
   await stranger.getByRole('button', { name: 'Pair' }).click()
-  await expect(stranger.getByTitle('Connected')).toBeVisible()
+  await expect(stranger.locator('header[data-connection="live"]')).toBeVisible()
 
   // The paired device hears about it, and lists the new one.
   // Named from the browser's user agent: the desktop project's says Windows.
@@ -43,7 +43,7 @@ test('a pairing link pairs straight away, once', async ({ page, browser }, info)
   const link = new URL(shown.link)
   const stranger = await unpaired(browser, info)
   await stranger.goto(link.pathname + link.hash)
-  await expect(stranger.getByTitle('Connected')).toBeVisible()
+  await expect(stranger.locator('header[data-connection="live"]')).toBeVisible()
   expect(new URL(stranger.url()).hash).toBe('')
 
   const another = await unpaired(browser, info)

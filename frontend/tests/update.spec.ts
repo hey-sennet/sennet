@@ -20,7 +20,7 @@ test('a page offers to reload when the server comes back newer', async ({ page }
   })
 
   await page.goto('/')
-  await expect(page.getByTitle('Connected')).toBeVisible()
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
   await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByRole('dialog')).toContainText(`Sennet ${version}`)
   for (const [name, file] of [['Notices', '/notices.txt'], ['licenses', '/licenses.txt']]) {
@@ -33,5 +33,5 @@ test('a page offers to reload when the server comes back newer', async ({ page }
   await events!.close({ code: 1012, reason: 'restarting' })
   await expect(page.getByText('Sennet was updated')).toBeVisible()
   await page.getByRole('button', { name: 'Reload' }).click()
-  await expect(page.getByTitle('Connected')).toBeVisible()
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
 })

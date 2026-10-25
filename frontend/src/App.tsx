@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type UIEvent } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Settings } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Ear, EarOff, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { Dock } from '@/components/Dock'
@@ -15,6 +15,7 @@ import { approvalsHere, useMine } from '@/lib/mine'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { useKeyboardUp } from '@/lib/keyboard'
 import { cn } from '@/lib/utils'
+import { useVoice } from '@/voice/usePushToTalk'
 import { voice, type Target } from '@/voice/voice'
 import { toast } from 'sonner'
 
@@ -240,7 +241,7 @@ export default function App() {
         'lg:grid-cols-[var(--rail)_minmax(0,1fr)_var(--panel)] lg:transition-[grid-template-columns] lg:duration-600 lg:ease-strata')}
       style={{ '--rail': railOpen ? '280px' : '0px', '--panel': panelOpen ? 'min(424px, 36vw)' : '0px' } as React.CSSProperties}
     >
-      <header className="col-span-full flex items-center justify-between gap-3 px-5 lg:px-8">
+      <header data-connection={live.connection} className="col-span-full flex items-center justify-between gap-3 px-5 lg:px-8">
         <button className="font-serif text-[22px] tracking-[0.08em] uppercase" onClick={newTask}>
           Sennet<span className="-ml-[0.08em] text-muted-foreground">.</span>
         </button>
@@ -252,6 +253,7 @@ export default function App() {
             }} />
           )}
           <ConnectionDot connection={live.connection} />
+          <Wake />
           <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings />
           </Button>
@@ -408,11 +410,30 @@ export default function App() {
   )
 }
 
+/** The wake word, when it is on in Settings: whether it is listening, and a tap to pause or resume it. */
+function Wake() {
+  const { wakeEnabled, wakePhrase, wake, wakePaused, stt, turnReady } = useVoice()
+  if (!wakeEnabled || !wakePhrase || stt !== 'ready' || !turnReady) return null
+  const label = wake === 'on' ? `Listening for “${wakePhrase}”: tap to pause`
+    : wake === 'loading' ? `Starting to listen for “${wakePhrase}”`
+    : wakePaused ? `Paused: tap to listen for “${wakePhrase}”` : `Tap to listen for “${wakePhrase}”`
+  return (
+    // Its own tap is its own: the page's taps start the wake word (voice.ts), and this one may pause it.
+    <Button variant="ghost" size="icon" data-wake-control aria-pressed={wake !== 'off'} aria-label={label} title={label}
+      className={cn(wake === 'off' ? 'text-muted-foreground' : 'text-foreground', wake === 'loading' && 'animate-pulse')}
+      onClick={() => voice().pauseWake(wake !== 'off')}>
+      {wake === 'off' ? <EarOff /> : <Ear />}
+    </Button>
+  )
+}
+
+/** Shown only while it isn't connected: connected is what the page working already says. */
 function ConnectionDot({ connection }: { connection: Connection }) {
-  const label = { connecting: 'Connecting', live: 'Connected', reconnecting: 'Reconnecting' }[connection]
+  if (connection === 'live') return null
+  const label = { connecting: 'Connecting', reconnecting: 'Reconnecting' }[connection]
   return (
     <span className="flex items-center gap-2 px-1 text-xs text-muted-foreground" title={label}>
-      <span className={cn('size-2 rounded-full', connection === 'live' ? 'bg-foreground/60' : 'animate-pulse bg-warn')} />
+      <span className="size-2 animate-pulse rounded-full bg-warn" />
       <span className="sr-only">{label}</span>
     </span>
   )

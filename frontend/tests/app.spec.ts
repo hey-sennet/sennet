@@ -17,7 +17,7 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   })
 
   await page.goto('/')
-  await expect(page.getByTitle('Connected')).toBeVisible()
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'Settings' }).click()
   const dialog = page.getByRole('dialog')
@@ -324,7 +324,7 @@ test('an approval is asked on the device that started its task; another sees a q
     if (/approval-chime/.test(request.url())) chimes.push(request.url())
   })
   await phone.goto('/')
-  await expect(phone.getByTitle('Connected')).toBeVisible()
+  await expect(phone.locator('header[data-connection="live"]')).toBeVisible()
 
   await page.goto('/')
   await chooseProject(page, name)
@@ -352,7 +352,7 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   const directory = path.join(home, name)
   mkdirSync(directory, { recursive: true })
   await page.goto('/')
-  await expect(page.getByTitle('Connected')).toBeVisible()
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'Settings' }).click()
   const dialog = page.getByRole('dialog')
@@ -413,7 +413,7 @@ test('an open task catches up on what it missed while the phone was offline', as
   await page.request.post('/api/projects', { headers, data: { path: directory, name } })
 
   await page.goto('/')
-  await expect(page.getByTitle('Connected')).toBeVisible()
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
   await chooseProject(page, name)
   await page.getByRole('button', { name: 'Type instead' }).click()
   await page.getByPlaceholder('Start a new task').fill('hello')
