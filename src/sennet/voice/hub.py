@@ -20,7 +20,9 @@ failure, so they are heard in order.
 
 A turn the agent starts itself (it finished work it left running) has no request:
 its reply is spoken on the task's owner, if connected, after a chime,
-since it can come minutes after anything was said.
+since it can come minutes after anything was said. An agent that doesn't start
+one (no `background_turns`) gets a line in Sennet's words instead, once all of
+that work has finished.
 
 A turn that stops at a usage limit says which limit and when it resets, in Sennet's
 words (tasks.py writes them), not the agent's. After a reply, a limit past 80 or 95
@@ -60,6 +62,15 @@ class Pending:
 
 
 @dataclass
+class Leftover:
+    """Work a task's agent left running, for an agent that won't report it itself."""
+
+    running: set[str]               # item ids not yet finished
+    finished: int = 0
+    failed: int = 0
+
+
+@dataclass
 class Live:
     """A spoken version being said while it streams, a sentence at a time."""
 
@@ -93,6 +104,7 @@ class VoiceHub:
         self.streams: dict[int, dict[str, str | None]] = {}  # task id → message item → text so far, None once read
         self.early: dict[int, list[str]] = {}          # task id → spoken versions said before their message ended
         self.live: dict[int, Live] = {}                # task id → its spoken version being said as it streams
+        self.leftover: dict[int, Leftover] = {}        # task id → its work left running, to say when it's done
         self.warnings = Warnings()
         self.watcher: asyncio.Task | None = None
         speech.listeners.add(self._speech_changed)
@@ -225,6 +237,8 @@ class VoiceHub:
             owner = self.owners.get(task_id)
             if event["event"]["data"].get("by") == "agent" and owner in self.sessions and task_id not in self.turns:
                 self.turns[task_id] = Pending(owner, None, cue=True)
+        elif kind == "event" and event["event"]["kind"] in ("background", "command_finished"):
+            self._leftover(task_id, event["event"]["kind"], event["event"]["data"])
         elif kind == "event" and event["event"]["kind"] == "turn_completed" and task_id in self.turns:
             pending = self.turns[task_id]
             pending.result = event["event"]["data"]
@@ -235,6 +249,7 @@ class VoiceHub:
         elif kind == "task_removed":
             task_id = event["task_id"]
             self.owners.pop(task_id, None)
+            self.leftover.pop(task_id, None)
             self.turns.pop(task_id, None)
             self._forget(task_id)
         elif kind == "task" and event["task"]["status"] in ("failed", "unknown", "cancelled"):
@@ -246,6 +261,42 @@ class VoiceHub:
                 pending.result = pending.result or {"status": "failed" if task["status"] != "cancelled"
                                                     else "cancelled", "error": task.get("error")}
                 self._reply(task["id"], pending)
+
+    def _leftover(self, task_id: int, kind: str, data: dict):
+        """Follow work left running by an agent that won't report it, and say when all of it is done.
+        Work that ends without finishing (the task was stopped) isn't mentioned."""
+        if kind == "command_finished":
+            if (work := self.leftover.get(task_id)) is not None and data["item_id"] in work.running:
+                work.running.discard(data["item_id"])
+                work.finished += 1
+                work.failed += data["status"] == "failed" or (data.get("exit_code") or 0) != 0
+            return
+        ids = {t["id"] for t in data["tasks"]}
+        if ids:
+            if not self._reports_itself(task_id):
+                work = self.leftover.setdefault(task_id, Leftover(set()))
+                work.running |= ids
+            return
+        work = self.leftover.pop(task_id, None)
+        owner = self.owners.get(task_id)
+        if work is None or work.running or not work.finished or owner not in self.sessions:
+            return
+        task = self.tasks.db.task(task_id)
+        agent = self.tasks.agents.get(task["agent"]) if task else None
+        title = agent.title if agent else "The agent"
+        what = "The command" if work.finished == 1 else "The commands"
+        if work.failed == 0:
+            text = f"{what} {title} left running {'has' if work.finished == 1 else 'have'} finished."
+        elif work.finished == 1:
+            text = f"The command {title} left running failed."
+        else:
+            text = f"The commands {title} left running have finished, and {work.failed} failed."
+        self._say(task_id, Pending(owner, None, cue=True), text)
+
+    def _reports_itself(self, task_id: int) -> bool:
+        task = self.tasks.db.task(task_id)
+        agent = self.tasks.agents.get(task["agent"]) if task else None
+        return bool(agent and agent.capabilities.background_turns)
 
     def _reply(self, task_id: int, pending: Pending):
         """The turn ended. Its messages have been spoken; only a failure, or a limit getting close, is left to say."""

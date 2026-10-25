@@ -93,9 +93,9 @@ class AgentEvent:
     A turn may send several `message`s (commentary, then the answer); the last
     `message` before `turn_completed` is the turn's answer, and is what gets spoken.
 
-    An agent with `background_turns` may keep work running after its turn ends
-    (`background` lists it) and start a turn of its own when that work is done:
-    `turn_started` with `by: "agent"`, then the turn's events and `turn_completed`.
+    An agent may keep work running after its turn ends (`background` lists it, between
+    turns too). One with `background_turns` starts a turn of its own when that work is
+    done: `turn_started` with `by: "agent"`, then the turn's events and `turn_completed`.
     """
 
     kind: str
@@ -239,7 +239,7 @@ class Capabilities:
     live_approvals: bool               # asks for approval mid-turn, so `ask` mode works
     approval_modes: tuple[str, ...]    # of APPROVAL_MODES
     access_levels: tuple[str, ...]     # of ACCESS_LEVELS
-    background_turns: bool             # keeps working after its turn ends, and may start a turn itself
+    background_turns: bool             # starts a turn itself to report work it left running
     project_config: bool               # leaves a project's own configuration out unless the project opts in
     live_model_change: bool            # changes model and effort between turns; else its process restarts, resuming
 

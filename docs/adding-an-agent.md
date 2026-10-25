@@ -38,8 +38,8 @@ An `Agent` (see the protocols in `base.py`) has:
 During a turn the session calls `on_event` with `AgentEvent`s (`message_delta`,
 `message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`,
 `turn_completed`, `usage` with the tokens the turn used, `limits` whenever the agent
-reports its usage limits, and for agents with `background_turns`, `background` and
-`turn_started`), and awaits `on_approval` with an `ApprovalRequest` when the agent asks
+reports its usage limits, `background` for work left running after a turn, and for
+agents with `background_turns`, `turn_started`), and awaits `on_approval` with an `ApprovalRequest` when the agent asks
 to do something. The last `message` before `turn_completed` is the answer, and is what
 gets spoken. A turn that stops at a usage limit says so with `turn_completed`'s `limit`
 field (which window, and when it resets, if known); Sennet words it, so the agent's own

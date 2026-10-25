@@ -11,9 +11,10 @@ from sennet.voice.hub import VoiceHub
 class Tasks:
     """What the hub reads of the task manager: each task is Claude Code's, with these limits."""
 
-    def __init__(self, windows=()):
-        self.agents = {"claude": SimpleNamespace(title="Claude Code")}
-        self.db = SimpleNamespace(task=lambda task_id: {"id": task_id, "agent": "claude"})
+    def __init__(self, windows=(), agent="claude"):
+        self.agents = {"claude": SimpleNamespace(title="Claude Code", capabilities=SimpleNamespace(background_turns=True)),
+                       "codex": SimpleNamespace(title="Codex", capabilities=SimpleNamespace(background_turns=False))}
+        self.db = SimpleNamespace(task=lambda task_id: {"id": task_id, "agent": agent})
         self.limits = Limits({}, publish=_ignore)
         if windows:
             asyncio.run(self.limits.report("claude", list(windows)))
@@ -279,4 +280,53 @@ def test_another_device_does_not_take_over():
     hub.add(laptop)
     hub._observe(agent(7, "Done."))
     assert laptop.spoken == []
+    speech.close()
+
+
+def background(task_id, *ids):
+    return {"type": "event", "task_id": task_id,
+            "event": {"kind": "background", "data": {"tasks": [{"id": i, "description": "npm test"} for i in ids]}}}
+
+
+def command_finished(task_id, item_id, exit_code=0):
+    return {"type": "event", "task_id": task_id, "event": {"kind": "command_finished", "data": {
+        "item_id": item_id, "command": "npm test", "status": "completed" if exit_code == 0 else "failed",
+        "exit_code": exit_code}}}
+
+
+def test_sennet_says_when_codex_finishes_work_it_left_running():
+    hub, session, speech = hub_with_request(tasks=Tasks(agent="codex"))
+    hub.owners[7] = session
+    for event in [background(7, "c1"), command_finished(7, "c1"), background(7)]:
+        hub._observe(event)
+    assert session.spoken == [("The command Codex left running has finished.", 7)]
+    assert session.cues == [True]
+    speech.close()
+
+
+def test_sennet_says_how_many_of_codexs_commands_failed():
+    hub, session, speech = hub_with_request(tasks=Tasks(agent="codex"))
+    hub.owners[7] = session
+    for event in [background(7, "c1", "c2"), command_finished(7, "c1", exit_code=1), background(7, "c2"),
+                  command_finished(7, "c2"), background(7)]:
+        hub._observe(event)
+    assert session.spoken == [("The commands Codex left running have finished, and 1 failed.", 7)]
+    speech.close()
+
+
+def test_work_stopped_before_it_finished_is_not_announced():
+    hub, session, speech = hub_with_request(tasks=Tasks(agent="codex"))
+    hub.owners[7] = session
+    hub._observe(background(7, "c1"))
+    hub._observe(background(7))  # the task was stopped: the process ended, and the work with it
+    assert session.spoken == []
+    speech.close()
+
+
+def test_an_agent_that_reports_its_own_work_gets_no_extra_line():
+    hub, session, speech = hub_with_request()
+    hub.owners[7] = session
+    for event in [background(7, "c1"), command_finished(7, "c1"), background(7)]:
+        hub._observe(event)
+    assert session.spoken == []
     speech.close()

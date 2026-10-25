@@ -2,6 +2,7 @@
 
 Turn behaviour is driven by the user's text:
   run:<command>   ask to run a command, then run it if approved
+  bg:<seconds>    start a command and end the turn with it running; it finishes that much later
   edit:<path>     ask to edit a file, then apply it if approved
   hang            keep working until interrupted
   crash           exit mid-turn
@@ -21,6 +22,7 @@ waiting: dict[int, asyncio.Future] = {}
 interrupted = asyncio.Event()
 turn_ids = itertools.count(1)
 limit_reached = False
+background: set[asyncio.Task] = set()  # commands left running after their turn
 
 
 def snapshot() -> dict:
@@ -71,6 +73,18 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
                item={**item, "status": "completed" if accepted else "declined",
                      "exitCode": 0 if accepted else None, "durationMs": 5, "aggregatedOutput": "ok\n"})
         reply = "Ran it." if accepted else "Okay, I won't run it."
+    elif text.startswith("bg:"):
+        item = {"type": "commandExecution", "id": f"bg{turn_id}", "command": "/bin/bash -lc 'sleep 25'",
+                "cwd": "/tmp", "processId": "4242", "status": "inProgress"}
+        notify("item/started", threadId=thread_id, turnId=turn_id, startedAtMs=0, item=item)
+
+        async def finish():
+            await asyncio.sleep(float(text[3:]))
+            notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0,
+                   item={**item, "status": "completed", "exitCode": 0, "durationMs": 25000, "aggregatedOutput": ""})
+        background.add(task := asyncio.ensure_future(finish()))
+        task.add_done_callback(background.discard)
+        reply = "Started it in the background."
     elif text.startswith("edit:"):
         changes = [{"path": text[5:], "kind": {"type": "update", "move_path": None}, "diff": "-a\n+b\n"}]
         item = {"type": "fileChange", "id": "edit1", "changes": changes, "status": "inProgress"}

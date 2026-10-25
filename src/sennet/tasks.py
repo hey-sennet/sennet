@@ -14,11 +14,10 @@ session for its project, which the task takes over if it matches. Unused, either
 after `PREWARM_IDLE_S`. And when an interrupt ends an agent's process (Claude's ends on
 SIGINT), the session is resumed at once, since a correction usually follows.
 
-An agent with `background_turns` may leave work running when its turn ends: the
-task is then `background`, its process stays up (the idle timer waits for the work
-to end), and follow-ups run as usual. When the work is done the agent may start a
-turn itself; the task runs it like any other, and sends messages queued meanwhile
-after it.
+An agent may leave work running when its turn ends: the task is then `background`,
+its process stays up (the idle timer waits for the work to end), and follow-ups run
+as usual. When the work is done an agent with `background_turns` starts a turn
+itself; the task runs it like any other, and sends messages queued meanwhile after it.
 
 Tokens a turn used are added to its task. The usage limits agents report belong to
 their account, and go to `limits` (usage.py) rather than to the task.

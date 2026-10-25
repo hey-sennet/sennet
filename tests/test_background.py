@@ -105,3 +105,37 @@ def test_background_work_does_not_survive_a_restart(tmp_path):
     db.recover()
     assert db.task(task_id)["status"] == "unknown"
     db.close()
+
+
+# Codex: a command can outlast its turn, and Codex says nothing of its own when it ends (spikes/codex).
+
+def test_a_codex_command_left_running_keeps_the_task_in_the_background(client, project):
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "bg:1"}).json()
+    task = wait_for(client, task["id"], lambda t: t["status"] == "background")
+    assert [e["data"] for e in task["events"] if e["kind"] == "background"] == [
+        {"tasks": [{"id": "bgturn-1", "description": "sleep 25"}]}]
+    task = wait_for(client, task["id"], lambda t: t["status"] == "completed")
+    assert [e["data"] for e in task["events"] if e["kind"] == "background"][-1] == {"tasks": []}
+    assert [e["data"]["exit_code"] for e in task["events"] if e["kind"] == "command_finished"] == [0]
+    assert replies(task) == ["Started it in the background."]  # no turn of its own
+
+
+def test_a_codex_follow_up_runs_while_its_command_goes_on(client, project):
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "bg:3"}).json()
+    task = wait_for(client, task["id"], lambda t: t["status"] == "background")
+    client.post(f"/api/tasks/{task['id']}/messages", json={"text": "what is 2 + 2?"})
+    task = wait_for(client, task["id"], lambda t: t["status"] == "background" and len(replies(t)) == 2)
+    assert replies(task)[-1] == "You said: what is 2 + 2?"
+    wait_for(client, task["id"], lambda t: t["status"] == "completed")
+
+
+def test_codex_commands_from_two_turns_both_count_until_each_ends(client, project):
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "bg:3"}).json()
+    wait_for(client, task["id"], lambda t: t["status"] == "background")
+    client.post(f"/api/tasks/{task['id']}/messages", json={"text": "bg:1"})
+    task = wait_for(client, task["id"], lambda t: len(replies(t)) == 2)
+    work = [e["data"]["tasks"] for e in task["events"] if e["kind"] == "background"]
+    assert [t["id"] for t in work[-1]] == ["bgturn-1", "bgturn-2"]
+    task = wait_for(client, task["id"], lambda t: t["status"] == "completed")
+    work = [[t["id"] for t in e["data"]["tasks"]] for e in task["events"] if e["kind"] == "background"]
+    assert work[-2:] == [["bgturn-1"], []]  # the second turn's ended first

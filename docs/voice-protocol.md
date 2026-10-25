@@ -216,6 +216,9 @@ request like any other.
   ended, answers no request. Its messages are spoken the same way on the session that
   owns the task, if it is connected, and the first carries `cue: true`: the report can
   come minutes later, so it opens with the chime rather than out of silence.
+- An agent that doesn't report such work itself (Codex) gets a line in Sennet's words
+  when all of it has finished, spoken the same way: "The command Codex left running has
+  finished", or how many of them failed.
 
 ## 10. Mapping to Strata
 

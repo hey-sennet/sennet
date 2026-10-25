@@ -120,9 +120,10 @@ description) and an `extra` dict of provider detail that is shown raw and never
 interpreted. The engine, not the adapter, writes the summary, classifies the risk and
 decides whether "always" can apply (a command prefix, all edits, or one tool by name).
 
-An agent with `background_turns` may leave work running when its turn ends
-(`background` lists it, and is sent empty when it is done) and start a turn itself to
-report it (`turn_started` with `by: "agent"`). The task is `background` meanwhile:
+An agent may leave work running when its turn ends (`background` lists it, and is
+sent empty when it is done). One with `background_turns` (Claude Code) starts a turn
+itself to report it (`turn_started` with `by: "agent"`); for one without (Codex), Sennet
+says the work finished, in its own words. The task is `background` meanwhile:
 follow-ups run as usual, the process isn't closed for idleness, and cancelling stops
 it, which ends the work. The agent's own turn runs like any other, messages queued
 during it go after it, and its reply is spoken on the task's owner after the approval

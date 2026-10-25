@@ -7,6 +7,10 @@ The model and reasoning effort go with each turn, so they change between turns.
 
 Usage limits come from `account/rateLimits/updated` during turns and from
 `account/rateLimits/read` otherwise, which reads the account's usage without using any.
+
+A turn can end with a command still running (Codex's background terminals): that is the
+task's background work until the command's `item/completed` arrives, between turns.
+Codex doesn't start a turn of its own when it ends (spikes/codex, #3).
 """
 from __future__ import annotations
 
@@ -236,6 +240,8 @@ class CodexSession:
         self.turn_id: str | None = None
         self.connection: Connection | None = None
         self.file_changes: dict[str, list[dict]] = {}
+        self.commands: dict[str, str] = {}    # running command item → the command, as typed
+        self.background: list[dict] = []      # those a turn ended with, still running
         self.turn_done: asyncio.Event = asyncio.Event()
         self.watcher: asyncio.Task | None = None
         self.model: str | None = None   # sent with each turn; None leaves it to Codex
@@ -310,11 +316,14 @@ class CodexSession:
         await asyncio.gather(*self.jobs, return_exceptions=True)
 
     async def _watch(self):
-        """If the process dies mid-turn, end the turn so the task does not hang."""
+        """If the process dies mid-turn, end the turn so the task does not hang, and its work with it."""
         await self.connection.closed.wait()
         if self.turn_id and not self.turn_done.is_set():
             self.turn_done.set()
             await self.on_event(AgentEvent("turn_completed", {"status": "failed", "error": "agent process exited"}))
+        if self.background:
+            self.background = []
+            await self.on_event(AgentEvent("background", {"tasks": []}))
 
     async def _notification(self, method: str, params: dict):
         if params.get("threadId") not in (None, self.resume_token):
@@ -335,6 +344,11 @@ class CodexSession:
                 if self.turn_done.is_set():
                     return
                 self.turn_done.set()
+                # Commands still running go on after a finished turn; one that ended otherwise took them with it.
+                if event.data["status"] == "completed" and self.commands:
+                    self.background += [{"id": i, "description": c} for i, c in self.commands.items()]
+                    await self.on_event(AgentEvent("background", {"tasks": self.background}))
+                self.commands = {}
                 tokens, self.tokens = self.tokens, dict.fromkeys(TOKENS.values(), 0)
                 if any(tokens.values()):
                     await self.on_event(AgentEvent("usage", tokens))
@@ -346,6 +360,9 @@ class CodexSession:
                     job.add_done_callback(self.jobs.discard)
                     return
             await self.on_event(event)
+            if event.kind == "command_finished" and any(t["id"] == event.data["item_id"] for t in self.background):
+                self.background = [t for t in self.background if t["id"] != event.data["item_id"]]
+                await self.on_event(AgentEvent("background", {"tasks": self.background}))
 
     async def _limit_reached(self, event: AgentEvent):
         limit = {"window": None, "resets_at": None}
@@ -366,6 +383,7 @@ class CodexSession:
         if method == "item/agentMessage/delta":
             return AgentEvent("message_delta", {"item_id": params["itemId"], "delta": params["delta"]})
         if method == "item/started" and kind == "commandExecution":
+            self.commands[item["id"]] = unwrap(item["command"])
             return AgentEvent("command_started", {"item_id": item["id"], "command": unwrap(item["command"]),
                                                   "cwd": item.get("cwd")})
         if method == "item/started" and kind == "fileChange":
@@ -374,6 +392,7 @@ class CodexSession:
         if method == "item/completed" and kind == "agentMessage":
             return AgentEvent("message", {"item_id": item["id"], "text": item["text"]})
         if method == "item/completed" and kind == "commandExecution":
+            self.commands.pop(item["id"], None)
             output = item.get("aggregatedOutput") or ""
             return AgentEvent("command_finished", {
                 "item_id": item["id"], "command": unwrap(item["command"]), "status": _item_status(item),
@@ -427,8 +446,8 @@ class CodexAgent:
     name = "codex"
     title = "Codex"
     default_command = ["codex", "app-server"]
-    # Interrupts, resumes threads, and asks mid-turn in every mode. Its work ends with its turn.
-    # It has no classifier to hand approvals to.
+    # Interrupts, resumes threads, and asks mid-turn in every mode. A command can outlast its turn,
+    # but Codex doesn't start a turn to report it. It has no classifier to hand approvals to.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
                                 approval_modes=tuple(m for m in APPROVAL_MODES if m != "classifier"),
                                 access_levels=ACCESS_LEVELS,
