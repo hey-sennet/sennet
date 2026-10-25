@@ -158,7 +158,9 @@ ignored.
   each send, so a slow link slows synthesis rather than growing a queue.
 - **Socket closed mid-turn:** the turn is discarded. **Closed mid-speech:** the rest of
   the reply isn't spoken; the text is still in the task timeline. On reconnect the
-  client gets a fresh `ready` with generation 0.
+  client gets a fresh `ready` with generation 0. The device's new session takes over
+  what its last one was waiting for: replies to its requests still running, and its
+  tasks' own reports, are spoken there from then on.
 
 ## 7. Playback generation
 

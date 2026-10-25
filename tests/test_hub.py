@@ -35,7 +35,8 @@ class Reply:
 
 
 class Session:
-    def __init__(self):
+    def __init__(self, device=None):
+        self.device = device
         self.replies = []
         self.cues = []
 
@@ -228,4 +229,54 @@ def test_an_agent_turn_that_fails_says_so():
     hub._observe(completed(7, "failed", "rate limited"))
     assert session.spoken == [("That task failed: rate limited.", 7)]
     assert session.cues == [True]
+    speech.close()
+
+
+def test_a_device_that_comes_back_hears_the_rest_of_the_reply():
+    hub, _, speech = hub_with_request(message_id=2)
+    hub.sessions.clear()
+    away = Session(device=1)
+    hub.add(away)
+    hub.requests[2] = away
+    hub.owners[7] = away
+    hub._observe(user(7, 2, "sent"))
+    hub._observe(agent(7, "I'll look at the tests."))
+    hub.remove(away)  # the phone closed the page
+    hub._observe(agent(7, "Said while it was away."))
+    back = Session(device=1)
+    hub.add(back)
+    hub._observe(agent(7, "Said once it was back."))
+    hub._observe(completed(7))
+    hub._observe(user(7, 2, "done"))
+    assert away.spoken == [("I'll look at the tests.", 7)]
+    assert back.spoken == [("Said once it was back.", 7)]
+    assert hub.owner(7) is back
+    speech.close()
+
+
+def test_a_device_back_before_its_old_socket_closes_still_takes_over():
+    hub, _, speech = hub_with_request(message_id=2)
+    hub.sessions.clear()
+    old, new = Session(device=1), Session(device=1)
+    hub.add(old)
+    hub.requests[2] = old
+    hub._observe(user(7, 2, "sent"))
+    hub.add(new)
+    hub.remove(old)
+    hub._observe(agent(7, "Done."))
+    assert new.spoken == [("Done.", 7)]
+    speech.close()
+
+
+def test_another_device_does_not_take_over():
+    hub, _, speech = hub_with_request(message_id=2)
+    hub.sessions.clear()
+    phone, laptop = Session(device=1), Session(device=2)
+    hub.add(phone)
+    hub.requests[2] = phone
+    hub._observe(user(7, 2, "sent"))
+    hub.remove(phone)
+    hub.add(laptop)
+    hub._observe(agent(7, "Done."))
+    assert laptop.spoken == []
     speech.close()

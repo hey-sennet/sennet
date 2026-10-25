@@ -484,7 +484,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         if (device := await admit(websocket)) is None:
             return
         hub: VoiceHub = websocket.app.state.voice
-        session = VoiceSession(websocket, websocket.app.state.speech, hub)
+        session = VoiceSession(websocket, websocket.app.state.speech, hub, device["id"])
         hub.add(session)
         try:
             await session.run()

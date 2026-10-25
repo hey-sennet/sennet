@@ -6,6 +6,10 @@ message from `sent` to `done` on the event bus and speaks each agent message in
 between as it arrives, so a preamble ("I'll move it to Trash") is heard as soon as
 it is written. Approvals are answered on their card, never by voice.
 
+A device's next session takes over what its last one was waiting for, so a page
+that reloads, or a phone that closed it and came back, hears the replies still to
+come. What was said while it was away is in the timeline.
+
 A long message starts with the agent's own version to be heard, in <spoken> tags
 (agents.base.SPOKEN_INSTRUCTIONS). The hub follows the message as it streams and
 speaks that version a sentence at a time as each is written, as one reply that
@@ -98,15 +102,38 @@ class VoiceHub:
 
     def add(self, session: VoiceSession):
         self.sessions.add(session)
+        if session.device is not None:
+            self._hand_over(lambda s: s not in self.sessions and s.device == session.device, session)
 
     def remove(self, session: VoiceSession):
         self.sessions.discard(session)
+        if session.device is not None:
+            # The device may already be back (a phone's old socket can close after its new one
+            # opens); if not, its next session takes over in `add`.
+            successors = [s for s in self.sessions if s.device == session.device]
+            if successors:
+                self._hand_over(lambda s: s is session, successors[-1])
+            return
         for task_id in [t for t, owner in self.owners.items() if owner is session]:
             del self.owners[task_id]
         for message_id in [m for m, owner in self.requests.items() if owner is session]:
             del self.requests[message_id]
         for task_id in [t for t, pending in self.turns.items() if pending.session is session]:
             del self.turns[task_id]
+
+    def _hand_over(self, gone, session: VoiceSession):
+        """Give `session` the tasks, requests and running turns of the sessions `gone` picks."""
+        for task_id, owner in self.owners.items():
+            if gone(owner):
+                self.owners[task_id] = session
+        for message_id, owner in self.requests.items():
+            if gone(owner):
+                self.requests[message_id] = session
+        for task_id, pending in self.turns.items():
+            if gone(pending.session):
+                pending.session = session
+                if (live := self.live.pop(task_id, None)) is not None:
+                    live.close()  # its reply was the old session's: the spoken version starts again here
 
     def status(self) -> dict:
         """What `ready` and `speech_status` report."""

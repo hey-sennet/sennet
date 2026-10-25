@@ -93,10 +93,11 @@ class Reply:
 
 
 class VoiceSession:
-    def __init__(self, websocket: WebSocket, speech: Speech, hub: VoiceHub):
+    def __init__(self, websocket: WebSocket, speech: Speech, hub: VoiceHub, device: int | None = None):
         self.ws = websocket
         self.speech = speech
         self.hub = hub
+        self.device = device  # the paired device's id: its next session takes over this one's replies
         self.id = secrets.token_hex(8)
         self.generation = 0
         self.state = "idle"
