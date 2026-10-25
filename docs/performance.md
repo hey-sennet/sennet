@@ -1,6 +1,6 @@
 # Performance: network data
 
-Status: steps 0, 1 and 3 to 6 done; step 2 proposed. Date: 2026-10-23.
+Status: steps 0, 1 and 3 to 8 done; step 2 proposed. Date: 2026-10-25.
 
 Sennet is used from a phone, often over Tailscale and mobile data. A first test on
 rural mobile data felt fast, so nothing here is urgent. This document lists where bytes
@@ -328,6 +328,69 @@ Tailscale, for a barge-in 16 ms later on average (the latest, 100 ms after PCM's
 60 ms for 20 ms packets) and no change in words or turns. The end of a turn didn't move. The capture worklet still makes 20 ms frames; the
 encoder gathers them into packets.
 
+## Main-thread work
+
+Steps 7 and 8 are about time rather than bytes: the phone's main thread while a reply streams,
+and the daemon's event loop while an agent works. Both were measured on copies of the real
+database (9 tasks; the largest has 116 messages and 329 events), before and after, with
+throwaway scripts that weren't kept.
+
+### 7. Re-render only the streaming reply (done)
+
+Every batch of deltas (step 3) re-rendered the whole page: `useTaskDetail` kept the streamed
+text in `App`'s state, and nothing was memoized, so each batch drew the task list, the stage
+and every past message again, parsing all of their markdown each time. The streamed text now
+lives outside React state (`Streaming` in `frontend/src/lib/store.ts`), and only the line
+showing it re-renders; past messages and events are memoized.
+
+Measured in Chromium with the CPU slowed 4x (DevTools' mid-tier mobile), while a real
+3,482-character reply streamed into the largest task at a real reply's pace (109 batches over
+18.6 s). Medians of 3 runs:
+
+| | Phone before | Phone after | Desktop before | Desktop after |
+| --- | --- | --- | --- | --- |
+| Script time per second | 776 ms | 214 ms | 831 ms | 165 ms |
+| Long tasks (over 50 ms) | 108 | 0 | 108 | 0 |
+| Longest task | 158 ms | none | 173 ms | none |
+| Frame rate | 19 fps | 60 fps | 17 fps | 60 fps |
+| Worst gap between frames | 167 ms | 33 ms | 183 ms | 17 ms |
+
+The page's idle script time is about 190 ms a second on the phone, so streaming's own cost
+went from about 590 ms a second to about 25. Before, each batch was a stall of up to 160 ms,
+and the cost grew with the task's length. Opening the task (about 2.1 s throttled) didn't
+change; its first render is the same.
+
+### 8. Cheaper database writes, and two indexes (done)
+
+The database runs on the event loop, so a slow write holds up everything, voice frames
+included. Each agent event was two commits (the event, then trimming the task to 500), each
+synced to disk (`synchronous=FULL`, SQLite's default). Now it is one commit, and
+`synchronous=NORMAL`, which in WAL mode syncs at checkpoints rather than on every commit: still
+consistent after a crash, and a power cut loses only the last moments.
+
+Storing the largest task's 3,290 events (its 329 ten times over) on the real disk (NVMe, ext4),
+in alternating runs:
+
+| Per event | Before (5 runs) | After (3 runs) |
+| --- | --- | --- |
+| Median | 2.6 to 2.9 ms | 0.02 to 0.03 ms |
+| Slowest 1% | 4.6 to 125 ms | 1.4 to 1.9 ms |
+| Slowest | 13 ms to 7.1 s | 14 to 259 ms |
+
+What is left of the slowest is checkpoints, which still sync.
+
+`task_messages` had no index on `task_id`, so finding a task's messages scanned every message,
+on every turn (the next queued message, the agent's title, voice's dispatch) and every task
+open. `approvals` had none on `status`, which `/api/state` filters by. Both are indexed now. At
+today's size it makes no difference; on a copy grown 20 times (180 tasks, 6,620 messages):
+
+| Median | Before | After |
+| --- | --- | --- |
+| Next queued message | 0.455 ms | 0.008 ms |
+| Has the agent replied yet (`_retitle`) | 0.49 ms | 0.037 ms |
+| A task's messages and events | 1.9 ms | 1.37 ms |
+| Pending approvals | 0.004 ms | 0.002 ms |
+
 ## Suggested order
 
 | Step | Size | Do when |
@@ -338,6 +401,8 @@ encoder gathers them into packets.
 | 4. Reload the open task on reconnect | small | done |
 | 2. Lazy-load markdown | small | after step 1, if first load still matters |
 | 5. Opus, 6. Larger uplink frames | large | done |
+| 7. Re-render only the streaming reply | small | done |
+| 8. Cheaper database writes, two indexes | small | done |
 
 Steps 1, 3 and 4 are independent of M6 and M7. Steps 5 and 6 still need a real phone.
 

@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS task_messages (
     state TEXT NOT NULL,           -- queued | sent | done
     created_at REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS task_messages_task ON task_messages(task_id, id);
 CREATE TABLE IF NOT EXISTS task_events (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -89,6 +90,7 @@ CREATE TABLE IF NOT EXISTS approvals (
     created_at REAL NOT NULL,
     decided_at REAL
 );
+CREATE INDEX IF NOT EXISTS approvals_status ON approvals(status);
 CREATE TABLE IF NOT EXISTS approval_rules (
     id INTEGER PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -147,6 +149,9 @@ class Database:
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        # Every write runs on the event loop. In WAL, NORMAL syncs at checkpoints rather than on each
+        # commit: still consistent after a crash, and a power cut loses only the last moments.
+        self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         version = self._migrate()
         self.conn.executescript(SCHEMA)
@@ -369,9 +374,17 @@ class Database:
         self.execute("UPDATE task_messages SET state = ? WHERE id = ?", state, message_id)
 
     def add_event(self, task_id: int, kind: str, data: dict) -> int:
-        event_id = self.execute("INSERT INTO task_events (task_id, kind, data, created_at) VALUES (?, ?, ?, ?)",
-                                task_id, kind, json.dumps(data), time.time())
-        self.execute("DELETE FROM task_events WHERE task_id = ? AND id <= ?", task_id, event_id - MAX_EVENTS_PER_TASK)
+        with self.lock:  # one commit for the event and the trim
+            self.conn.execute("BEGIN")
+            try:
+                event_id = self.conn.execute("INSERT INTO task_events (task_id, kind, data, created_at) VALUES (?, ?, ?, ?)",
+                                             (task_id, kind, json.dumps(data), time.time())).lastrowid
+                self.conn.execute("DELETE FROM task_events WHERE task_id = ? AND id <= ?",
+                                  (task_id, event_id - MAX_EVENTS_PER_TASK))
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
         return event_id
 
     def events(self, task_id: int) -> list[dict]:

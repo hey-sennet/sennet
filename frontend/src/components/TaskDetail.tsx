@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { ChevronDown, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
+import { useStreaming, type Streaming } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
 import { Diff } from './Diff'
@@ -20,7 +21,7 @@ const VISIBLE_EVENTS = new Set(['command_started', 'command_finished', 'file_cha
  */
 export function TaskDetail({ detail, streaming, project, approvals, stop = true }: {
   detail: Detail
-  streaming: string
+  streaming: Streaming
   project?: Project
   approvals: Approval[]
   stop?: boolean // false where the stop button is pinned above the timeline instead (the phone's sheet)
@@ -71,15 +72,7 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
         {entries.map((entry) =>
           'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} /> : <EventItem key={`e${entry.key}`} event={entry.event} working={working} />,
         )}
-        {streaming && <li><Markdown className="font-serif text-[16px] leading-[1.6] text-muted-foreground">{streaming}</Markdown></li>}
-        {active && !streaming && !approvals.length && (
-          <li role="status" aria-label="Working" className="flex h-4 items-center gap-1 text-agent">
-            {/* The stage's rising dots, small. */}
-            {[0, 1, 2].map((i) => (
-              <span key={i} className="animate-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />
-            ))}
-          </li>
-        )}
+        <StreamingReply streaming={streaming} working={active && !approvals.length} />
         {approvals.map((approval) => <li key={approval.id}><ApprovalCard approval={approval} project={project} /></li>)}
         {detail.error && <li className="text-sm text-destructive">{detail.error}</li>}
       </ol>
@@ -153,8 +146,24 @@ export function StopTask({ detail, className }: { detail: Detail; className?: st
   )
 }
 
+/** The reply as it streams in, or the working dots until it starts. Only this re-renders for each
+ *  delta: the rest of the timeline stays as it is (memo), its markdown not parsed again. */
+function StreamingReply({ streaming, working }: { streaming: Streaming; working: boolean }) {
+  const text = useStreaming(streaming)
+  if (text) return <li><Markdown className="font-serif text-[16px] leading-[1.6] text-muted-foreground">{text}</Markdown></li>
+  if (!working) return null
+  return (
+    <li role="status" aria-label="Working" className="flex h-4 items-center gap-1 text-agent">
+      {/* The stage's rising dots, small. */}
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="animate-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />
+      ))}
+    </li>
+  )
+}
+
 /** Your messages sit in a bubble on the right, like a chat; the agent's replies run as prose. */
-function MessageItem({ message }: { message: Message }) {
+const MessageItem = memo(function MessageItem({ message }: { message: Message }) {
   const faded = cn(message.state === 'queued' && 'opacity-60', message.state === 'cancelled' && 'line-through opacity-40')
   if (message.role === 'agent') {
     return <li className={faded}><Markdown className="font-serif text-[16px] leading-[1.6]">{message.text}</Markdown></li>
@@ -167,9 +176,9 @@ function MessageItem({ message }: { message: Message }) {
       {message.state === 'queued' && <span className="mt-1 block text-right text-xs text-muted-foreground">Queued</span>}
     </li>
   )
-}
+})
 
-function EventItem({ event, working }: { event: TaskEvent; working: boolean }) {
+const EventItem = memo(function EventItem({ event, working }: { event: TaskEvent; working: boolean }) {
   const { kind, data } = event
   if (kind === 'command_started' || kind === 'command_finished') {
     // A command shows as it starts, with light passing over it while it runs; one the task
@@ -228,7 +237,7 @@ function EventItem({ event, working }: { event: TaskEvent; working: boolean }) {
     return <li className={cn('text-xs', status === 'failed' ? 'text-warn' : 'text-muted-foreground')}>{said}{data.error ? `: ${data.error}` : ''}</li>
   }
   return null
-}
+})
 
 /** Files the agent edited; each one with a diff opens to show it. */
 function FileChangeEntry({ data }: { data: TaskEvent['data'] }) {

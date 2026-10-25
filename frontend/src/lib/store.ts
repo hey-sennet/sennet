@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { api, type AgentLimits, type Approval, type Project, type Rule, type ServerEvent, type State, type Task, type TaskDetail } from './api'
 import { markUnpaired, UNPAIRED } from './pairing'
 
@@ -200,14 +200,46 @@ export function applyEvent(detail: TaskDetail, event: ServerEvent, held = false)
   }
 }
 
+/** Text streaming into a task's timeline, outside React state: a delta re-renders only what
+ *  shows it (`useStreaming`), not the whole page, several times a second while a reply streams. */
+export class Streaming {
+  private items: Record<string, string> = {}
+  private text = ''
+  private readonly listeners = new Set<() => void>()
+
+  add(item: string, delta: string) {
+    this.items = { ...this.items, [item]: (this.items[item] ?? '') + delta }
+    this.text = Object.values(this.items).join('\n\n')
+    this.listeners.forEach((listener) => listener())
+  }
+
+  clear() {
+    if (!this.text) return
+    this.items = {}
+    this.text = ''
+    this.listeners.forEach((listener) => listener())
+  }
+
+  readonly get = () => this.text
+
+  readonly subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => void this.listeners.delete(listener)
+  }
+}
+
+export function useStreaming(streaming: Streaming): string {
+  return useSyncExternalStore(streaming.subscribe, streaming.get)
+}
+
 export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeof useLiveState>['subscribe'],
                               reconnects: number) {
   const [detail, setDetail] = useState<TaskDetail | null>(null)
-  const [streaming, setStreaming] = useState<Record<string, string>>({})
+  const [streaming] = useState(() => new Streaming())
 
   useEffect(() => {
     setDetail(null)
-    setStreaming({})
+    streaming.clear()
     if (taskId === null) return
     let current = true
     // Events that arrive while the snapshot loads are held, then applied to it: a fast reply can
@@ -224,17 +256,14 @@ export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeo
       if (event.type === 'task' && event.task.id !== taskId) return
       if (held) held.push(event)
       else setDetail((detail) => (detail ? applyEvent(detail, event) : detail))
-      if (event.type === 'delta') {
-        setStreaming((s) => ({ ...s, [event.item_id]: (s[event.item_id] ?? '') + event.delta }))
-      } else if (event.type === 'message' && event.message.role === 'agent') {
-        setStreaming({})
-      }
+      if (event.type === 'delta') streaming.add(event.item_id, event.delta)
+      else if (event.type === 'message' && event.message.role === 'agent') streaming.clear()
     })
     return () => {
       current = false
       unsubscribe()
     }
-  }, [taskId, subscribe])
+  }, [taskId, subscribe, streaming])
 
   const seen = useRef(reconnects)
   useEffect(() => {
@@ -246,10 +275,10 @@ export function useTaskDetail(taskId: number | null, subscribe: ReturnType<typeo
     api.task(taskId).then((task) => {
       if (!current) return
       setDetail(task)
-      setStreaming({})
+      streaming.clear()
     }).catch(() => {})
     return () => void (current = false)
-  }, [reconnects, taskId])
+  }, [reconnects, taskId, streaming])
 
-  return { detail, streaming: Object.values(streaming).join('\n\n') }
+  return { detail, streaming }
 }
