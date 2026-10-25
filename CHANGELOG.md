@@ -3,6 +3,12 @@
 Notable changes in each release. Versions follow [semantic versioning](https://semver.org/);
 until 1.0, a minor version may change how things work.
 
+## Unreleased
+
+- Tasks in one project run side by side instead of queueing behind each other. Only
+  `tasks.max_concurrent` limits how many run at once, now 8 by default rather than 3
+  (a config file saved earlier keeps the number in it).
+
 ## 0.1.0 (2026-10-25)
 
 The first release. Linux is the tested platform; macOS is experimental.

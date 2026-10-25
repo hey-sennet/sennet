@@ -1,11 +1,11 @@
 """Task manager: runs agent turns, queues follow-ups, enforces concurrency.
 
 A task is one piece of agent work in one project: an agent conversation plus the
-messages sent to it. Messages queue; each becomes one agent turn. At most one task
-runs per project (two agents editing one working tree conflict), and at most
-`max_concurrent` run overall. Agent processes stay warm for `idle_timeout_s` after
-a turn so follow-ups start instantly; after that the conversation is resumed from
-its resume token, when the agent can resume.
+messages sent to it. Messages queue; each becomes one agent turn. Tasks in one project
+run side by side, as people run agents; keeping them out of each other's way (a git
+worktree each, say) is up to the user. At most `max_concurrent` run overall. Agent
+processes stay warm for `idle_timeout_s` after a turn so follow-ups start instantly;
+after that the conversation is resumed from its resume token, when the agent can resume.
 
 A process can also start before its message arrives (`prewarm`): when someone starts talking
 or typing to a task or project, since saying and transcribing a request takes longer than
@@ -220,15 +220,11 @@ class TaskManager:
     def _schedule(self):
         if self.stopping:
             return
-        running = [t for t in self.db.query("SELECT id, project_id FROM tasks WHERE status IN ('running', 'awaiting_approval')")]
-        busy_projects = {t["project_id"] for t in running}
+        running = self.db.query("SELECT id FROM tasks WHERE status IN ('running', 'awaiting_approval')")
         slots = self.settings.tasks.max_concurrent - len(running)
-        for task in self.db.query("SELECT id, project_id FROM tasks WHERE status = 'queued' ORDER BY updated_at, id"):
+        for task in self.db.query("SELECT id FROM tasks WHERE status = 'queued' ORDER BY updated_at, id"):
             if slots <= 0:
                 break
-            if task["project_id"] in busy_projects:
-                continue
-            busy_projects.add(task["project_id"])
             slots -= 1
             self.db.update_task(task["id"], status="running")
             runner = self.runners.setdefault(task["id"], Runner())

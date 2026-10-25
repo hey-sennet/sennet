@@ -25,9 +25,10 @@ The dock along the bottom has, from left to right:
 
 A request goes to a **project**: a directory with an agent and a name. Add
 projects with `sennet project add` or in Settings. Each request starts a **task**, which
-keeps its conversation with the agent, so follow-ups pick up where it left off. A project
-runs one task at a time, and later requests to it queue. Up to three tasks run at once
-across projects (`tasks.max_concurrent`).
+keeps its conversation with the agent, so follow-ups pick up where it left off. Tasks in
+a project run side by side, so keep them out of each other's way (a git worktree each,
+say) if they edit the same files. Up to eight tasks run at once in all
+(`tasks.max_concurrent`); more queue.
 
 To aim a request, **select** a project or task on screen, then talk. With a task
 selected, what you say is a follow-up to it. Nothing guesses where a request should go:

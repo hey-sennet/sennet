@@ -16,7 +16,7 @@ public_url = ""         # the address phones use, for pairing links; setup fills
 log_level = "info"      # debug | info | warning | error, for `sennet service logs`
 
 [tasks]
-max_concurrent = 3      # tasks running at once, across projects; one per project regardless
+max_concurrent = 8      # tasks running at once, across all projects
 idle_timeout_s = 600    # how long an agent stays warm after a turn, so follow-ups start at once
 
 [approvals]             # the defaults; each project can override both in Settings

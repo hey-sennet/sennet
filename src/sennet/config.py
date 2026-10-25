@@ -71,7 +71,7 @@ class ServerSettings:
 
 @dataclass
 class TaskSettings:
-    max_concurrent: int = 3
+    max_concurrent: int = 8
     # Keep an agent process warm after a turn so follow-ups start instantly.
     idle_timeout_s: int = 600
 

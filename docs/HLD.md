@@ -161,9 +161,9 @@ become the single adapter path. Decide after the Codex adapter works natively.
 ### 4.3 Concurrency
 
 - Many tasks may run at once, each with its own agent process/session.
-- Default: one running task per project. Additional tasks for the same project queue,
-  to avoid two agents editing one working tree. Configurable; git worktrees are a later option.
-- Global limit on concurrent agent processes (configurable, default 3).
+- Tasks in one project run side by side, as people run agents. Keeping them out of each
+  other's way (a git worktree each, say) is up to the user.
+- Global limit on concurrent agent processes (configurable, default 8).
 - Shared local inference (STT, TTS) is one instance each, with priority
   STT > TTS. Agent processes are never blocked by speech work.
 - Agent processes start before their message where one is likely coming: when a voice

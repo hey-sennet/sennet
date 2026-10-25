@@ -183,19 +183,13 @@ def test_agent_crash_fails_the_task(client, project):
     assert task["error"] == "agent process exited"
 
 
-def test_one_running_task_per_project(client, project, tmp_path):
+def test_tasks_in_one_project_run_side_by_side(client, project):
     first = client.post("/api/tasks", json={"project_id": project["id"], "text": "hang"}).json()
     wait_for(client, first["id"], done("running"))
     second = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi"}).json()
-    assert client.get(f"/api/tasks/{second['id']}").json()["status"] == "queued"
-
-    (tmp_path / "other").mkdir()
-    other = client.post("/api/projects", json={"path": str(tmp_path / "other")}).json()
-    third = client.post("/api/tasks", json={"project_id": other["id"], "text": "hi"}).json()
-    wait_for(client, third["id"], done())
-
-    client.post(f"/api/tasks/{first['id']}/cancel")
     wait_for(client, second["id"], done())
+    assert client.get(f"/api/tasks/{first['id']}").json()["status"] == "running"
+    client.post(f"/api/tasks/{first['id']}/cancel")
 
 
 def test_global_concurrency_limit(settings, paths, tmp_path, codex_log):
@@ -269,6 +263,7 @@ def test_shutdown_does_not_start_queued_tasks(settings, paths, codex_log, tmp_pa
     from sennet.server import create_app
     from conftest import HEADERS
 
+    settings.tasks.max_concurrent = 1
     (tmp_path / "repo").mkdir()
     with paired(TestClient(create_app(settings, paths), headers=HEADERS)) as client:
         project = client.post("/api/projects", json={"path": str(tmp_path / "repo")}).json()
