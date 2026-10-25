@@ -10,9 +10,9 @@ import { Diff } from './Diff'
 import { Markdown } from './Markdown'
 import { StatusBadge } from './StatusBadge'
 
-type Entry = { at: number; message: Message } | { at: number; event: TaskEvent }
+type Entry = { at: number; message: Message } | { at: number; key: number; event: TaskEvent }
 
-const VISIBLE_EVENTS = new Set(['command_finished', 'file_change', 'plan', 'error', 'turn_completed', 'background', 'turn_started'])
+const VISIBLE_EVENTS = new Set(['command_started', 'command_finished', 'file_change', 'plan', 'error', 'turn_completed', 'background', 'turn_started'])
 
 /**
  * A task's timeline (design/README.md): your request in a bubble, then commands with their results,
@@ -26,15 +26,28 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
   stop?: boolean // false where the stop button is pinned above the timeline instead (the phone's sheet)
 }) {
   const active = detail.status === 'running' || detail.status === 'awaiting_approval'
+  const working = active || detail.status === 'background' // a command can outlast its turn
 
   const entries = useMemo<Entry[]>(() => {
     const messages: Entry[] = detail.messages.map((message) => ({ at: message.created_at, message }))
     // Only the latest plan matters; earlier ones are superseded.
     const lastPlan = detail.events.findLast((e) => e.kind === 'plan')
-    const events: Entry[] = detail.events
-      .filter((e) => VISIBLE_EVENTS.has(e.kind) && (e.kind !== 'plan' || e === lastPlan))
-      .filter((e) => e.kind !== 'turn_completed' || e.data.status !== 'completed')
-      .map((event) => ({ at: event.created_at, event }))
+    const events: Entry[] = []
+    const running = new Map<string, Entry & { event: TaskEvent }>() // command item → its row, until it finishes
+    for (const event of detail.events) {
+      if (!VISIBLE_EVENTS.has(event.kind) || (event.kind === 'plan' && event !== lastPlan)) continue
+      if (event.kind === 'turn_completed' && event.data.status === 'completed') continue
+      const started = event.kind === 'command_finished' ? running.get(event.data.item_id) : undefined
+      if (started) {
+        // A command's result takes the place of its running row, where it started.
+        started.event = event
+        running.delete(event.data.item_id)
+        continue
+      }
+      const entry = { at: event.created_at, key: event.id, event }
+      if (event.kind === 'command_started') running.set(event.data.item_id, entry)
+      events.push(entry)
+    }
     return [...messages, ...events].sort((a, b) => a.at - b.at)
   }, [detail.messages, detail.events])
 
@@ -56,7 +69,7 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
         {entries.map((entry) =>
-          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} /> : <EventItem key={`e${entry.event.id}`} event={entry.event} />,
+          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} /> : <EventItem key={`e${entry.key}`} event={entry.event} working={working} />,
         )}
         {streaming && <li><Markdown className="font-serif text-[16px] leading-[1.6] text-muted-foreground">{streaming}</Markdown></li>}
         {active && !streaming && !approvals.length && (
@@ -107,17 +120,22 @@ function MessageItem({ message }: { message: Message }) {
   )
 }
 
-function EventItem({ event }: { event: TaskEvent }) {
+function EventItem({ event, working }: { event: TaskEvent; working: boolean }) {
   const { kind, data } = event
-  if (kind === 'command_finished') {
-    const failed = data.status !== 'completed' || (data.exit_code ?? 0) !== 0
-    const result = data.status === 'declined' ? 'declined' : failed ? `exit ${data.exit_code ?? '?'}` : 'done'
+  if (kind === 'command_started' || kind === 'command_finished') {
+    // A command shows as it starts, with light passing over it while it runs; one the task
+    // stopped without finishing is left still.
+    const running = kind === 'command_started' && working
+    const failed = kind === 'command_finished' && (data.status !== 'completed' || (data.exit_code ?? 0) !== 0)
+    const result = kind === 'command_started' ? (running ? 'running' : 'stopped')
+      : data.status === 'declined' ? 'declined' : failed ? `exit ${data.exit_code ?? '?'}` : 'done'
     return (
       <li>
         {/* Quieter than the agent's words, one line each; a tap opens the whole command and its output. */}
         <details className="group text-[13px]">
           <summary className="flex cursor-pointer list-none items-baseline gap-2.5 text-muted-foreground transition-colors hover:text-foreground/80 group-open:text-foreground/90 [&::-webkit-details-marker]:hidden">
-            <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] group-open:whitespace-pre-wrap group-open:[overflow-wrap:anywhere]">
+            <code className={cn('min-w-0 flex-1 truncate font-mono text-[12.5px] group-open:whitespace-pre-wrap group-open:[overflow-wrap:anywhere]',
+              running && 'animate-shimmer')}>
               <span className="text-muted-foreground/60">›</span> {data.command}
             </code>
             <small className={cn('shrink-0 text-xs', failed ? 'text-warn' : 'text-muted-foreground/70')}>{result}</small>

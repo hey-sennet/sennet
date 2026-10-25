@@ -5,6 +5,8 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- A command shows in the task's timeline as it starts, with light passing over it while
+  it runs, and its result takes its place; it showed only once it had finished.
 - Tasks get short titles written by their agent at the start of its first reply, in
   place of your first words; until then, those words without "um"s and "okay so"s.
 - Push notifications, per device and off by default: a task waiting for approval,

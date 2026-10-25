@@ -202,6 +202,30 @@ test('a command shows on one line, and a tap opens the whole of it and its outpu
   await page.screenshot({ path: `test-results/${info.project.name}-command-open.png` })
 })
 
+test('a command shows while it runs, shimmering, and its result takes its place', async ({ page }, info) => {
+  const name = `running-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  // The fake agent leaves `sleep 25` running after its turn, and says it finished this much later.
+  await page.request.post('/api/tasks', { data: { project_id: project.id, text: 'bg:6' }, headers })
+
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByText('bg:6').first().click()
+  const timeline = info.project.name === 'phone' ? page.getByRole('region', { name: 'Tasks' }) : page.getByRole('complementary', { name: 'Task' })
+  const row = timeline.locator('summary', { hasText: 'sleep 25' })
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('running')
+  await expect(row.locator('code')).toHaveClass(/animate-shimmer/)
+  await page.waitForTimeout(1000) // past the row's fade in
+  await page.screenshot({ path: `test-results/${info.project.name}-command-running.png` })
+  await expect(row).toContainText('done', { timeout: 15_000 })
+  await expect(row).toHaveCount(1)
+  await expect(row.locator('code')).not.toHaveClass(/animate-shimmer/)
+})
+
 test('search finds a task by what was said in it, typos and all', async ({ page }, info) => {
   const word = `quokka${info.project.name}`
   await finishedTasks(page, `search-${info.project.name}`, [`feed the ${word} at noon`, 'something else'])
