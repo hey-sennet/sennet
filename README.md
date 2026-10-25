@@ -34,7 +34,7 @@ logged in: the [Codex CLI](https://developers.openai.com/codex) (`codex login`) 
 subscription).
 
 ```sh
-uv tool install --python 3.14 sennet
+uv tool install sennet
 sennet setup                                   # speech, the phone address, the background service
 sennet project add ~/code/my-app --name app    # a project you can talk to
 sennet pair                                    # a one-time link or QR code for this browser or your phone

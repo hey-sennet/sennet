@@ -17,6 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# A wheel file needs the Python named: uv ignores its requires-python (an index install doesn't).
 uv tool install --quiet --python 3.14 "sennet[$extra] @ $wheel"
 bin=$UV_TOOL_BIN_DIR/sennet
 echo "installed: $("$bin" --version)"

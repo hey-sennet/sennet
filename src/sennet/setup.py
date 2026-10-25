@@ -284,8 +284,8 @@ def _install_command(extra: str) -> tuple[list[str] | None, list[str] | None]:
         spec = install.uv_tool_spec(extra)
         if spec is None:
             return None, None
-        # On the same Python: uv would otherwise take its default, which may be one Sennet's
-        # dependencies don't support yet (requires-python doesn't steer it).
+        # On the same Python: for a wheel file uv would otherwise take its default, which may be
+        # one Sennet's dependencies don't support yet (it ignores a wheel's requires-python).
         python = f"{sys.version_info.major}.{sys.version_info.minor}"
         return ["uv", "tool", "install", "--reinstall", "--python", python, spec], [shutil.which("sennet") or "sennet"]
     rerun = [sys.executable, "-m", "sennet"]
