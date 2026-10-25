@@ -5,7 +5,7 @@ description = "Talk to your coding agents: a self-hosted voice interface for Cod
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICES"]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
 authors = [{ name = "The Sennet contributors" }]
 keywords = ["voice", "coding agents", "codex", "claude code", "speech recognition", "self-hosted"]
 classifiers = [
