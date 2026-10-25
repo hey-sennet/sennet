@@ -33,6 +33,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from . import __version__, access, projects
+from .aio import settle
 from .agents import registry
 from .agents.base import Agent
 from .agents.callbacks import CallbackServer
@@ -474,7 +475,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         finally:
             for job in jobs:
                 job.cancel()
-            await asyncio.gather(*jobs, return_exceptions=True)
+            await settle(jobs)
             bus.unsubscribe(subscriber)
             release(websocket, device)
 

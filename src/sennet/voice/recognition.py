@@ -13,6 +13,7 @@ from typing import Awaitable, Callable
 
 import numpy as np
 
+from ..aio import settle
 from ..speech import RATE, Speech
 from ..speech.base import AudioBuffer
 from ..speech.stt import Caption, StreamingTranscriber
@@ -77,7 +78,7 @@ class Recognition:
     async def stop(self):
         """Stop captions and any background passes not yet needed (cancel, or the socket closed)."""
         self.caption_job.cancel()
-        await asyncio.gather(self.caption_job, return_exceptions=True)
+        await settle([self.caption_job])
 
     def cancel(self):
         self.caption_job.cancel()

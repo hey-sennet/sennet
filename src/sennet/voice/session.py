@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from starlette.websockets import WebSocket, WebSocketState
 
+from ..aio import settle
 from ..speech import RATE, Speech
 from ..speech.stt import Caption
 from .conversation import ECHO_WINDOW_S, Conversation
@@ -151,7 +152,7 @@ class VoiceSession:
                 jobs.append(self.turn.job)
                 self.turn.job.cancel()
             self.turn = None
-            await asyncio.gather(*jobs, return_exceptions=True)
+            await settle(jobs)
             if self.ignored_frames:
                 log.debug("voice session %s ignored %d frames outside a turn", self.id, self.ignored_frames)
 

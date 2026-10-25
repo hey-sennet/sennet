@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ..aio import settle
 from ..speech import RATE
 from ..speech.base import AudioBuffer
 from ..speech.stt import Caption
@@ -111,7 +112,7 @@ class Conversation:
     async def close(self):
         """Stop listening. A turn still being heard is dropped; one being transcribed finishes."""
         self.job.cancel()
-        await asyncio.gather(self.job, return_exceptions=True)
+        await settle([self.job])
         if self.turn is not None and self.endpoint.state == "ending":
             self.endpoint.reset()
             self._settle()
@@ -123,7 +124,7 @@ class Conversation:
         await self.close()
         for job in list(self.concluding):
             job.cancel()
-        await asyncio.gather(*self.concluding, return_exceptions=True)
+        await settle(self.concluding)
 
     # The listening loop
 
@@ -228,7 +229,7 @@ class Conversation:
         """Speech came back within the grace: the same turn carries on, from its start."""
         self.final.cancel()
         self.recognition.cancel()
-        await asyncio.gather(self.final, return_exceptions=True)
+        await settle([self.final])
         self.final = None
         self._listen(self.turn)
         await self._feed()
