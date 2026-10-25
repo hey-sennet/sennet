@@ -115,6 +115,9 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
         notify("error", threadId=thread_id, turnId=turn_id, willRetry=False, error=error)
         notify("turn/completed", threadId=thread_id, turn={"id": turn_id, "items": [], "status": "failed", "error": error})
         return
+    elif text.startswith("title:"):
+        # A first reply that starts with the task's title, as the instructions ask; it streams a word at a time.
+        reply = f"<sennet-title>{text[6:]}</sennet-title>\n\nOn it, done."
     else:
         reply = f"You said: {text}"
         for _ in range(2):

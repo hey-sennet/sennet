@@ -5,6 +5,8 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- Tasks get short titles written by their agent at the start of its first reply, in
+  place of your first words; until then, those words without "um"s and "okay so"s.
 - Push notifications, per device and off by default: a task waiting for approval,
   finishing or failing notifies a device that doesn't have Sennet showing, and tapping
   the notification opens the task. They use the browser's own push service, encrypted

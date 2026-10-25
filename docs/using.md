@@ -39,6 +39,9 @@ if no project is selected, Sennet says so instead of picking one.
 Tasks that need you and tasks at work come first. Below them, **Earlier** shows the ten
 most recently finished; **Show more** brings older ones.
 
+A task is named from what you first said, without "um"s and "okay so"s, until the agent
+starts its first reply: it writes a short title for the task, which replaces that.
+
 **Search** at the top finds a task by its title or anything said in it, by you or the
 agent. Part of a word is enough ("auth" finds "authentication"), and a typo or two in a
 longer word still matches. The best 20 show, each with the words it matched.

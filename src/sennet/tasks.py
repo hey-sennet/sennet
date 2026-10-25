@@ -19,6 +19,9 @@ its process stays up (the idle timer waits for the work to end), and follow-ups 
 as usual. When the work is done an agent with `background_turns` starts a turn
 itself; the task runs it like any other, and sends messages queued meanwhile after it.
 
+A task is titled from its first message, then renamed with the title its agent writes at
+the start of its first reply, which never reaches the timeline or speech (titles.py).
+
 Tokens a turn used are added to its task. The usage limits agents report belong to
 their account, and go to `limits` (usage.py) rather than to the task.
 """
@@ -34,6 +37,7 @@ from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decis
 from .agents.registry import ModelError, check_model
 from .approvals import Approvals
 from .config import Settings
+from . import titles
 from .db import FINISHED, Database
 from .usage import Limits, limit_reached
 
@@ -55,6 +59,8 @@ class Runner:
     background: list = field(default_factory=list)  # the agent's work still running after its turn
     choice: tuple[str | None, str | None] = (None, None)  # the session's model and effort
     opening: asyncio.Lock = field(default_factory=asyncio.Lock)  # one session start at a time
+    streams: dict = field(default_factory=dict)  # message item → its text as it streams, title held back
+    titled: bool = False                          # the agent's title is in
 
 
 @dataclass
@@ -119,7 +125,7 @@ class TaskManager:
         except ModelError as error:
             raise TaskError(str(error)) from None
         text = _clean(text)
-        task_id = self.db.add_task(project_id, project["agent"], _title(text), model, effort)
+        task_id = self.db.add_task(project_id, project["agent"], titles.from_request(text), model, effort)
         self.db.add_message(task_id, "user", text, "queued")
         await self._publish_task(task_id)
         self._schedule()
@@ -471,10 +477,20 @@ class TaskManager:
             log.warning("agent event breaks the contract: %s", "; ".join(problems))
         if event.kind == "message_delta":
             # Streamed text is shown live but only the completed message is stored.
-            await self.publish({"type": "delta", "task_id": task_id, **event.data})
+            title, delta = runner.streams.setdefault(event.data["item_id"], titles.Stream()).feed(event.data["delta"])
+            if title:
+                await self._retitle(task_id, title)
+            if delta:
+                await self.publish({"type": "delta", "task_id": task_id, **event.data, "delta": delta})
             return
         if event.kind == "message":
-            message_id = self.db.add_message(task_id, "agent", event.data["text"], "done")
+            runner.streams.pop(event.data["item_id"], None)
+            title, text = titles.take(event.data["text"])
+            if title:
+                await self._retitle(task_id, title)
+            if not text:
+                return  # nothing but its title
+            message_id = self.db.add_message(task_id, "agent", text, "done")
             await self.publish({"type": "message", "task_id": task_id,
                                 "message": self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)})
             return
@@ -544,6 +560,15 @@ class TaskManager:
                 self.db.update_task(task_id, status="running")
                 await self._publish_task(task_id)
 
+    async def _retitle(self, task_id: int, title: str):
+        """The agent's title for the task: from its first message only, once."""
+        runner = self.runners[task_id]
+        if runner.titled or self.db.one("SELECT 1 FROM task_messages WHERE task_id = ? AND role = 'agent'", task_id):
+            return
+        runner.titled = True
+        self.db.update_task(task_id, title=title)
+        await self._publish_task(task_id)
+
     def approvals_pending(self, task_id: int) -> bool:
         return any(self.db.approval(p.approval_id)["task_id"] == task_id for p in self.approvals.pending.values())
 
@@ -572,8 +597,3 @@ def _clean(text: str) -> str:
     if len(text) > 32000:
         raise TaskError("message is too long")
     return text
-
-
-def _title(text: str) -> str:
-    line = text.splitlines()[0]
-    return line if len(line) <= 80 else line[:77].rstrip() + "…"
