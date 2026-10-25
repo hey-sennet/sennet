@@ -24,6 +24,7 @@ const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session 
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
 const CHIME_S = 1.4 // approval-chime.mp3
 const WAKE_KEY = 'sennet.wake' // the wake word setting, per device
+const MUTED_KEY = 'sennet.muted' // replies muted on this device
 const WAKE_QUIET_MS = 10_000 // a conversation the wake word opened closes after this long with nobody talking
 
 /** The selected task, or the project a new task starts in, on its own model if chosen. */
@@ -50,6 +51,7 @@ export interface VoiceSnapshot {
   wake: 'off' | 'loading' | 'on' // listening for the wake word on this device
   wakeEnabled: boolean           // Settings: listen for it on this device, from the first tap on the page
   wakePaused: boolean            // paused from the stage until tapped again, or the page reloads
+  muted: boolean                 // replies play on this device unheard: captions and all, no sound
 }
 
 interface Played {
@@ -85,7 +87,7 @@ export class Voice {
   private snapshot: VoiceSnapshot = {
     connected: false, stt: null, turnReady: false, conversation: false, listening: false, opening: false,
     speaking: false, state: 'idle', words: null, wakePhrase: null, wake: 'off',
-    wakeEnabled: loadWakeEnabled(), wakePaused: false,
+    wakeEnabled: loadFlag(WAKE_KEY), wakePaused: false, muted: loadFlag(MUTED_KEY),
   }
   private detector: WakeDetector | null = null
   private selection: Target = {} // what is on screen: the wake word opens a conversation with it
@@ -97,6 +99,7 @@ export class Voice {
   private readonly errorSubscribers = new Set<(message: string) => void>()
 
   constructor() {
+    this.playback.setMuted(this.snapshot.muted)
     this.socket.onOpenChange = (connected) => {
       // A closed socket ends its session: the rest of the reply isn't spoken (§6).
       if (!connected) {
@@ -226,14 +229,17 @@ export class Voice {
 
   /** The Settings choice: listen for the wake word on this device. Called inside a gesture. */
   setWakeEnabled(on: boolean) {
-    try {
-      localStorage.setItem(WAKE_KEY, on ? 'on' : 'off')
-    } catch {
-      // kept for this page only
-    }
+    saveFlag(WAKE_KEY, on)
     this.update({ wakeEnabled: on, wakePaused: false })
     if (on) void this.listenForWake(this.selection)
     else this.stopWake()
+  }
+
+  /** Mute replies on this device, or hear them again. They keep coming either way. */
+  setMuted(muted: boolean) {
+    saveFlag(MUTED_KEY, muted)
+    this.playback.setMuted(muted)
+    this.update({ muted })
   }
 
   /** Pause it from the stage, until it is tapped again. Called inside a gesture to resume. */
@@ -627,10 +633,18 @@ export function voice(): Voice {
 
 export type { VoiceMessage }
 
-function loadWakeEnabled(): boolean {
+function loadFlag(key: string): boolean {
   try {
-    return localStorage.getItem(WAKE_KEY) === 'on'
+    return localStorage.getItem(key) === 'on'
   } catch {
     return false
+  }
+}
+
+function saveFlag(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? 'on' : 'off')
+  } catch {
+    // kept for this page only
   }
 }

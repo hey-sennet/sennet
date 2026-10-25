@@ -15,6 +15,8 @@ The dock along the bottom has, from left to right:
 
 - **New task** (`N`): the next request starts a new task instead of following up.
 - **Conversation**: open the mic, so you can just talk.
+- **Mute replies**: silence the agent on this device. Replies still come, with their
+  captions, and play on unheard; unmuting picks up where they've got to.
 - **Type instead** (`/`): a keyboard, for when you can't talk.
 - **Tasks**: your tasks, with their status, timeline, commands and file changes, and a
   search box.

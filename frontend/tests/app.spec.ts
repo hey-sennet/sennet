@@ -448,3 +448,13 @@ async function openTask(page: Page, title: string) {
     .getByRole('button').first().click()
   return page.getByRole('complementary', { name: 'Task', exact: true })
 }
+
+test('replies are muted on this device until unmuted, across a reload', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Mute replies' }).click()
+  await expect(page.getByRole('button', { name: 'Unmute replies' })).toHaveAttribute('aria-pressed', 'true')
+  await page.reload()
+  await page.getByRole('button', { name: 'Unmute replies' }).click()
+  await expect(page.getByRole('button', { name: 'Mute replies' })).toHaveAttribute('aria-pressed', 'false')
+})

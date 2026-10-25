@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, AudioLines, Keyboard, ListTodo, Plus } from 'lucide-react'
+import { ArrowUp, AudioLines, Keyboard, ListTodo, Plus, Volume2, VolumeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -9,9 +9,9 @@ import { voice, type Target } from '@/voice/voice'
 const glyph = 'grid size-11 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-[color,border-color,transform] duration-300 ease-strata hover:text-foreground active:scale-94 [&_svg]:size-5'
 
 /**
- * Under the stage: on the left the new-task glyph; in the middle the conversation glyph and a
- * keyboard glyph that grows into a type bar; on the right, on phones, the tasks glyph that
- * opens the sheet. A reply is stopped from the disc, and the wake word is a setting.
+ * Under the stage: on the left the new-task glyph; in the middle the conversation glyph, the mute
+ * glyph and a keyboard glyph that grows into a type bar; on the right, on phones, the tasks glyph
+ * that opens the sheet. A reply is stopped from the disc, and the wake word is a setting.
  */
 export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, target, onNewTask, activeTasks, needsYou, replyElsewhere, onOpenTasks, className }: {
   typing: boolean
@@ -27,7 +27,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
   onOpenTasks?: () => void
   className?: string
 }) {
-  const { conversation, stt, turnReady } = useVoice()
+  const { conversation, stt, turnReady, muted } = useVoice()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -78,6 +78,15 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, ta
             title={conversation ? 'End the conversation' : 'Start a conversation: just talk, no button'}
             onClick={() => (conversation ? voice().closeConversation() : void voice().openConversation(target))}>
             <AudioLines />
+          </button>
+        )}
+        {!typing && (
+          // Replies still come, captioned, and play on unheard: unmuting picks up where they've got to.
+          <button type="button" aria-pressed={muted}
+            className={cn(glyph, muted && 'border-foreground text-foreground')}
+            aria-label={muted ? 'Unmute replies' : 'Mute replies'} title={muted ? 'Unmute replies' : 'Mute replies'}
+            onClick={() => voice().setMuted(!muted)}>
+            {muted ? <VolumeOff /> : <Volume2 />}
           </button>
         )}
         <form

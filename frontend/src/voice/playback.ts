@@ -38,6 +38,8 @@ export class Playback {
   private context: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private duck: GainNode | null = null
+  private mute: GainNode | null = null
+  private muted = false
   private node: AudioWorkletNode | null = null
   private waiting: PlaybackMessage[] | null = null // posted before the worklet loaded
   private resampler: Resampler | null = null
@@ -81,9 +83,11 @@ export class Playback {
       this.analyser = context.createAnalyser()
       this.analyser.fftSize = FFT_SIZE
       this.analyser.smoothingTimeConstant = SMOOTHING
-      // Ducking comes after the analyser, so Strata still sees the speech at full level.
+      // Ducking and muting come after the analyser, so Strata still sees the speech at full level.
       this.duck = context.createGain()
-      this.analyser.connect(this.duck).connect(context.destination)
+      this.mute = context.createGain()
+      this.mute.gain.value = this.muted ? 0 : 1
+      this.analyser.connect(this.duck).connect(this.mute).connect(context.destination)
       this.waiting = []
       context.audioWorklet.addModule(workletUrl).then(() => {
         const node = new AudioWorkletNode(context, 'sennet-playback',
@@ -98,6 +102,15 @@ export class Playback {
       }, (error) => console.warn('Could not load the playback worklet; speech will be silent', error))
     }
     this.resume()
+  }
+
+  /** Silences speech without stopping it: it plays on, unheard, and is heard again from where it
+   *  has got to once unmuted. Cues aren't muted. */
+  setMuted(muted: boolean) {
+    this.muted = muted
+    if (!this.context || !this.mute) return
+    // A short ramp, so cutting in or out mid-word doesn't click.
+    this.mute.gain.setTargetAtTime(muted ? 0 : 1, this.context.currentTime, 0.015)
   }
 
   /** Queues `samples` straight after whatever is already queued; `onStart` runs as they begin. */
