@@ -1,4 +1,4 @@
-"""Draw the favicon and the home-screen icons from Strata's disc, into frontend/public.
+"""Draw the favicon, the home-screen icons and the notification badge from Strata's disc, into frontend/public.
 
     python3 design/icons.py     # needs Inkscape on PATH for the PNGs
 """
@@ -44,6 +44,17 @@ def main():
     for name, px in [("apple-touch-icon.png", 180), ("icon-192.png", 192), ("icon-512.png", 512)]:
         subprocess.run(["inkscape", str(source), "-w", str(px), "-h", str(px), "-o", str(PUBLIC / name)],
                        check=True, capture_output=True)
+    # Android draws a notification's badge from its alpha alone, in one colour: the disc solid,
+    # with its lines cut out of it.
+    paths = "".join(f'<path d="{ridge(y, lift)}"/>' for y, lift in LINES)
+    badge = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><mask id="lines">'
+             '<circle cx="16" cy="16" r="15" fill="#fff"/>'
+             f'<g fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round">{paths}</g></mask>'
+             '<circle cx="16" cy="16" r="15" fill="#fff" mask="url(#lines)"/></svg>\n')
+    source = Path(__file__).resolve().parent / "badge.svg"
+    source.write_text(badge)
+    subprocess.run(["inkscape", str(source), "-w", "96", "-h", "96", "-o", str(PUBLIC / "badge-96.png")],
+                   check=True, capture_output=True)
 
 
 if __name__ == "__main__":

@@ -184,6 +184,15 @@ export interface Pairing {
   local_only: boolean // the link only works on this computer: no public address is set
 }
 
+/** What notifies a device (src/sennet/push.py). */
+export type PushKind = 'approval' | 'finished' | 'failed'
+
+/** The server's key to subscribe with, and this device's subscription, if it has one. */
+export interface PushState {
+  key: string // base64url, the push subscription's applicationServerKey
+  subscription: { endpoint: string; kinds: PushKind[] } | null
+}
+
 export interface Folder {
   name: string
   path: string
@@ -273,4 +282,10 @@ export const api = {
   newPairing: () => request<Pairing>('POST', '/api/devices/pairing'),
   renameDevice: (id: number, name: string) => request<Device>('PATCH', `/api/devices/${id}`, { name }),
   revokeDevice: (id: number) => request<void>('DELETE', `/api/devices/${id}`),
+  push: () => request<PushState>('GET', '/api/push'),
+  /** A browser's PushSubscription (its toJSON), and what notifies; without kinds, the device keeps its choice. */
+  subscribePush: (subscription: PushSubscriptionJSON, kinds?: PushKind[]) =>
+    request<{ endpoint: string; kinds: PushKind[] }>('PUT', '/api/push', { ...subscription, kinds }),
+  unsubscribePush: () => request<void>('DELETE', '/api/push'),
+  testPush: () => request<void>('POST', '/api/push/test'),
 }

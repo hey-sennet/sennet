@@ -12,6 +12,7 @@ import { voice } from '@/voice/voice'
 import { Devices } from './Devices'
 import { FolderBrowser } from './FolderBrowser'
 import { Limits } from './Limits'
+import { Notifications } from './Notifications'
 import { ModelPicker } from './ModelPicker'
 
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
@@ -81,7 +82,7 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
         <div className="flex min-w-0 flex-col gap-9 overflow-y-auto overscroll-contain px-6 pt-8 pb-10 sm:px-10 sm:pt-10">
         <DialogHeader className="animate-word-in gap-1.5 pr-8 motion-reduce:animate-none">
           <DialogTitle className="font-serif text-[30px] leading-[1.1] font-normal tracking-[-0.01em]">Settings</DialogTitle>
-          <DialogDescription>Projects, approvals, agents and paired devices on this computer.</DialogDescription>
+          <DialogDescription>Projects, approvals, agents, notifications and paired devices.</DialogDescription>
         </DialogHeader>
 
         <Section title="Agents" order={1}>
@@ -142,7 +143,11 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
 
         <WakeWord />
 
-        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use." order={5}>
+        <Section title="Notifications" hint="On this device only." order={5}>
+          <Notifications />
+        </Section>
+
+        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use." order={6}>
           <Devices subscribe={subscribe} />
         </Section>
 
@@ -178,7 +183,7 @@ function WakeWord() {
 function About({ version }: { version: string | null }) {
   const link = 'underline underline-offset-2 hover:text-foreground'
   return (
-    <Section title="About" order={6}>
+    <Section title="About" order={7}>
       <p className="text-sm">
         Sennet {version ?? ''}
         <span className="text-muted-foreground"> · free and open source under the Apache License 2.0</span>

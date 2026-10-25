@@ -12,6 +12,7 @@ import { useAgents } from '@/lib/agents'
 import { api, type ModelChoice } from '@/lib/api'
 import { limitLine, pressing } from '@/lib/limits'
 import { approvalsHere, useMine } from '@/lib/mine'
+import { onNotificationOpened } from '@/lib/push'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
 import { useKeyboardUp } from '@/lib/keyboard'
 import { cn } from '@/lib/utils'
@@ -202,6 +203,15 @@ export default function App() {
   useEffect(() => {
     keys.current = { newTask, typing, panelOpen, railOpen, settingsOpen }
   })
+  // A tapped notification opens its task, which may be older than the list holds.
+  const openRef = useRef(openTask)
+  useEffect(() => {
+    openRef.current = openTask
+  })
+  useEffect(() => onNotificationOpened((id) => {
+    if (!tasksRef.current.some((t) => t.id === id)) api.task(id).then((found) => addTasks([found]), () => {})
+    openRef.current(id)
+  }), [addTasks])
 
   // The model glyph's menu: the selected task's own choice, or the next task's. The project's
   // choice is the default, while the project still uses the task's agent.

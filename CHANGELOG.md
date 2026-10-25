@@ -5,6 +5,11 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- Push notifications, per device and off by default: a task waiting for approval,
+  finishing or failing notifies a device that doesn't have Sennet showing, and tapping
+  the notification opens the task. They use the browser's own push service, encrypted
+  end to end, with a key of Sennet's own. On iPhone and iPad they need the Home Screen
+  app.
 - Tasks in one project run side by side instead of queueing behind each other. Only
   `tasks.max_concurrent` limits how many run at once, now 8 by default rather than 3
   (a config file saved earlier keeps the number in it).

@@ -17,6 +17,9 @@ interface Live {
 
 const CONNECT_TIMEOUT_MS = 5_000         // a connection not open by then is tried again
 const FRESH_AFTER_HIDDEN_MS = 10_000     // back on screen after this long hidden, connect afresh
+// While showing, the page says so this often: the server doesn't send this device push notifications
+// meanwhile, and counts a page that stops saying so as gone (src/sennet/push.py's SHOWING_S).
+const SHOWING_EVERY_MS = 30_000
 const empty: Live = { version: null, projects: [], tasks: [], approvals: [], rules: [], limits: {}, settings: null, more_tasks: false }
 
 /** Finished tasks: what the list calls Earlier, and what may be deleted. */
@@ -57,6 +60,11 @@ export function useLiveState() {
     let stopped = false
     let synced = false
 
+    const tellShowing = () => {
+      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'showing', showing: !document.hidden }))
+    }
+    const showing = setInterval(() => !document.hidden && tellShowing(), SHOWING_EVERY_MS)
+
     const connect = () => {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const opening = socket = new WebSocket(`${protocol}//${location.host}/api/events`)
@@ -65,6 +73,7 @@ export function useLiveState() {
       socket.onopen = async () => {
         clearTimeout(timeout)
         attempt = 0
+        tellShowing()
         try {
           await reload()
           setConnection('live')
@@ -102,6 +111,7 @@ export function useLiveState() {
     }
     let hiddenAt = Date.now()
     const onVisibility = () => {
+      tellShowing()
       if (document.hidden) hiddenAt = Date.now()
       else if (socket?.readyState !== WebSocket.OPEN || Date.now() - hiddenAt > FRESH_AFTER_HIDDEN_MS) fresh()
     }
@@ -112,6 +122,7 @@ export function useLiveState() {
     return () => {
       stopped = true
       clearTimeout(retry)
+      clearInterval(showing)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('online', onOnline)
       socket?.close()

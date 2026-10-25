@@ -31,6 +31,7 @@ dependencies = [
     "rich>=13",
     "questionary>=2",
     "segno>=1.6",
+    "cryptography>=42",      # Web Push: VAPID signatures and payload encryption
 ]
 
 [project.urls]

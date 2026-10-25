@@ -43,8 +43,9 @@ wake_word = ""          # hey_sennet | hey_jarvis | hey_mycroft | hey_rhasspy | 
 ## Where things are kept
 
 - **Config:** `config.toml`, above.
-- **Data:** `sennet.db` (projects, tasks, approvals, paired devices) and `models/` (speech
-  and wake word models), in `~/.local/share/sennet` on Linux and
+- **Data:** `sennet.db` (projects, tasks, approvals, paired devices), `push-key.pem` (the
+  key notifications are signed with, made when first needed) and `models/` (speech and
+  wake word models), in `~/.local/share/sennet` on Linux and
   `~/Library/Application Support/sennet` on macOS.
 - **Audio** is never stored.
 

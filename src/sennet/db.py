@@ -1,4 +1,4 @@
-"""SQLite storage for projects, tasks, messages, events, approvals and paired devices.
+"""SQLite storage for projects, tasks, messages, events, approvals, paired devices and their push subscriptions.
 
 Task titles and messages are indexed for search (FTS5 with the trigram tokenizer, so part
 of a word matches), kept in step by triggers, including when a task's rows are deleted.
@@ -111,12 +111,20 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
     created_by TEXT NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL,            -- the browser's push service URL for this device
+    p256dh TEXT NOT NULL,              -- the browser's public key and auth secret, base64url
+    auth TEXT NOT NULL,
+    kinds TEXT NOT NULL,               -- what notifies, space-separated: approval finished failed
+    created_at REAL NOT NULL
+);
 """
 
 # Bounded history: a long task should not grow the database without limit.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
 FINISHED = ("completed", "failed", "cancelled", "unknown")
@@ -168,6 +176,7 @@ class Database:
             # Version 8 adds the search index (SCHEMA), filled once it exists.
             if version < 9:
                 self._to_v9()
+            # Version 10 only adds a table (push_subscriptions), which SCHEMA creates.
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
@@ -437,6 +446,27 @@ class Database:
     def remove_device(self, device_id: int):
         self.execute("DELETE FROM devices WHERE id = ?", device_id)
 
+    # Push subscriptions (push.py), one per device
+
+    def set_push(self, device_id: int, endpoint: str, p256dh: str, auth: str, kinds: list[str]):
+        self.execute("INSERT INTO push_subscriptions (device_id, endpoint, p256dh, auth, kinds, created_at) "
+                     "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (device_id) DO UPDATE SET endpoint = excluded.endpoint, "
+                     "p256dh = excluded.p256dh, auth = excluded.auth, kinds = excluded.kinds",
+                     device_id, endpoint, p256dh, auth, " ".join(kinds), time.time())
+
+    def push(self, device_id: int) -> dict | None:
+        return _push(self.one("SELECT * FROM push_subscriptions WHERE device_id = ?", device_id))
+
+    def pushes(self) -> list[dict]:
+        return [_push(row) for row in self.query("SELECT * FROM push_subscriptions")]
+
+    def remove_push(self, device_id: int, endpoint: str | None = None):
+        """This device's subscription; only if it is still `endpoint`, when given."""
+        if endpoint is None:
+            self.execute("DELETE FROM push_subscriptions WHERE device_id = ?", device_id)
+        else:
+            self.execute("DELETE FROM push_subscriptions WHERE device_id = ? AND endpoint = ?", device_id, endpoint)
+
     def recover(self):
         """After a restart: work that was in flight has an unknown outcome."""
         now = time.time()
@@ -448,6 +478,12 @@ class Database:
 def _project(row: dict | None) -> dict | None:
     if row is not None:
         row["project_config"] = bool(row["project_config"])
+    return row
+
+
+def _push(row: dict | None) -> dict | None:
+    if row is not None:
+        row["kinds"] = row["kinds"].split()
     return row
 
 

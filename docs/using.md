@@ -142,3 +142,21 @@ on screen; otherwise the task gets its blue dot.
 Pair as many browsers as you like. A reply is spoken only on the device that asked.
 Approvals show with a chime on the device that started the task; other devices show a
 quiet "Another task needs you" line, which you can tap to answer there instead.
+
+## Notifications
+
+A phone stops listening, and stops speaking, once Sennet is in the background, so turn on
+notifications to hear about your tasks while it is: in Settings, under Notifications,
+choose **Notify this device**, allow it when the browser asks, and pick what notifies you:
+a task waiting for your approval, finishing, or failing. **Send a test** checks it works.
+Tapping a notification opens its task.
+
+They are per device, and off until you turn them on. A device with Sennet showing isn't
+notified: it hears the reply there. They need Sennet over HTTPS, as with its Tailscale
+address. On an iPhone or iPad, add Sennet to your Home Screen first (Share, then Add to
+Home Screen) and turn them on in that app; Safari itself can't receive them.
+
+Notifications go through your browser's own push service (Google's for Chrome, Mozilla's
+for Firefox, Apple's for Safari), encrypted so that only your device can read them. Sennet
+uses no other service. A notification says only what happened, such as "Approval needed",
+and the task's title.

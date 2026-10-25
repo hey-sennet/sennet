@@ -11,6 +11,9 @@ open: `POST /api/pair`, which redeems a pairing code and is throttled, and
 WebSocket from an unpaired device, or one revoked while it is open, is closed with
 code 4401. The app shell is served to anyone, so an unpaired browser can pair.
 
+A page says on its events socket while it is showing (`{"type": "showing", "showing": true}`),
+so its device isn't sent push notifications meanwhile (push.py).
+
 `/mcp/<secret>` is for agent CLIs on this machine, not browsers: it answers only
 local requests without an Origin, and only a live agent session's secret
 (agents.callbacks).
@@ -18,6 +21,7 @@ local requests without an Origin, and only a live agent session's secret
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import mimetypes
 import os
@@ -25,6 +29,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 import segno
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -33,6 +38,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from . import __version__, access, projects
+from .push import KINDS, Push, keys_valid as push_keys_valid
 from .aio import settle
 from .agents import registry
 from .agents.base import Agent
@@ -107,6 +113,18 @@ class DeviceIn(BaseModel):
     name: str
 
 
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushIn(BaseModel):
+    """A browser's PushSubscription as JSON, and what should notify; `kinds` unset keeps the device's choice."""
+    endpoint: str
+    keys: PushKeys
+    kinds: list[Literal["approval", "finished", "failed"]] | None = None
+
+
 class DecisionIn(BaseModel):
     decision: Literal["approve", "approve_always", "decline", "cancel"]
 
@@ -143,6 +161,8 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         app.state.speech, loading = _speech(settings, paths, speech)
         app.state.voice = VoiceHub(app.state.speech, manager, bus)
         app.state.voice.start()
+        app.state.push = Push(db, bus, paths.data_dir / "push-key.pem")
+        app.state.push.start()
         await manager.start()
         sweeping = asyncio.ensure_future(sweep(db))
         try:
@@ -152,6 +172,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             if loading:
                 loading.cancel()
             await app.state.voice.close()
+            await app.state.push.close()
             await manager.shutdown()
             if speech is None:  # a caller's speech is the caller's to close
                 app.state.speech.close()
@@ -257,6 +278,42 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         if device_id == request.state.device["id"]:
             response.delete_cookie(access.COOKIE, path="/")
         return response
+
+    @app.get("/api/push")
+    async def push_state(request: Request):
+        """The server's key to subscribe with, and this device's subscription: where it goes and what notifies."""
+        push: Push = request.app.state.push
+        subscription = db(request).push(request.state.device["id"])
+        return {"key": push.vapid.public_key,
+                "subscription": subscription and {"endpoint": subscription["endpoint"], "kinds": subscription["kinds"]}}
+
+    @app.put("/api/push")
+    async def subscribe_push(body: PushIn, request: Request):
+        """Notify this device at the browser's push service, for the kinds given (all, the first time)."""
+        if urlsplit(body.endpoint).scheme != "https":
+            raise HTTPException(400, "a push endpoint must be an https address")
+        if not push_keys_valid(body.keys.p256dh, body.keys.auth):
+            raise HTTPException(400, "that isn't a browser's push subscription: its keys are wrong")
+        device_id = request.state.device["id"]
+        kinds = body.kinds
+        if kinds is None:
+            kinds = (db(request).push(device_id) or {"kinds": list(KINDS)})["kinds"]
+        db(request).set_push(device_id, body.endpoint, body.keys.p256dh, body.keys.auth,
+                             [k for k in KINDS if k in kinds])
+        return {"endpoint": body.endpoint, "kinds": db(request).push(device_id)["kinds"]}
+
+    @app.delete("/api/push", status_code=204)
+    async def unsubscribe_push(request: Request):
+        db(request).remove_push(request.state.device["id"])
+        return Response(status_code=204)
+
+    @app.post("/api/push/test", status_code=204)
+    async def test_push(request: Request):
+        """A notification to this device now, even with the page showing. 204, not 202: the client
+        reads any other answer's body as JSON."""
+        if not request.app.state.push.test(request.state.device["id"]):
+            raise HTTPException(404, "notifications aren't on for this device")
+        return Response(status_code=204)
 
     @app.get("/api/state")
     async def state(request: Request):
@@ -455,6 +512,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         if (device := await admit(websocket)) is None:
             return
         bus: EventBus = websocket.app.state.bus
+        push: Push = websocket.app.state.push
         subscriber = bus.subscribe()
 
         async def pump():
@@ -464,8 +522,13 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             await websocket.close(code=1013)  # fell behind; the client reconnects and reloads
 
         async def listen():
-            while (await websocket.receive())["type"] != "websocket.disconnect":
-                pass
+            while (message := await websocket.receive())["type"] != "websocket.disconnect":
+                try:
+                    said = json.loads(message.get("text") or "")
+                except ValueError:
+                    continue
+                if isinstance(said, dict) and said.get("type") == "showing":
+                    push.seen(websocket, device["id"], bool(said.get("showing")))
 
         jobs = {asyncio.ensure_future(pump()), asyncio.ensure_future(listen())}
         try:
@@ -477,6 +540,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
                 job.cancel()
             await settle(jobs)
             bus.unsubscribe(subscriber)
+            push.gone(websocket)
             release(websocket, device)
 
     @app.websocket("/api/voice")

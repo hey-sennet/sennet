@@ -58,6 +58,16 @@ It checks each part and prints a fix beside anything in red. The log has more:
 
 See [When the phone can't reach Sennet](hosting.md#when-the-phone-cant-reach-sennet).
 
+## Notifications
+
+- **No Notifications switch, only a note:** the page isn't on HTTPS, or on an iPhone or
+  iPad it isn't the Home Screen app. See [Notifications](using.md#notifications).
+- **Turning them on fails, or nothing arrives:** check that notifications are allowed for
+  the site in the browser's settings and the phone's, and press **Send a test**. If the
+  test doesn't arrive, `sennet service logs` says what the push service answered.
+- **Nothing while Sennet is open:** that's on purpose; a device with Sennet showing
+  hears replies there instead.
+
 ## Service
 
 - **"running, but nothing answers on port 7710".** Another program may hold the port, or
