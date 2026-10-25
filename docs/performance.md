@@ -1,6 +1,6 @@
 # Performance: network data
 
-Status: steps 0, 1 and 3 to 8 done; step 2 proposed. Date: 2026-10-25.
+Status: steps 0, 1 and 3 to 9 done; step 2 proposed. Date: 2026-10-25.
 
 Sennet is used from a phone, often over Tailscale and mobile data. A first test on
 rural mobile data felt fast, so nothing here is urgent. This document lists where bytes
@@ -330,8 +330,8 @@ encoder gathers them into packets.
 
 ## Main-thread work
 
-Steps 7 and 8 are about time rather than bytes: the phone's main thread while a reply streams,
-and the daemon's event loop while an agent works. Both were measured on copies of the real
+Steps 7 to 9 are about time rather than bytes: the phone's main thread while a reply streams
+or the disc moves, and the daemon's event loop while an agent works. Both were measured on copies of the real
 database (9 tasks; the largest has 116 messages and 329 events), before and after, with
 throwaway scripts that weren't kept.
 
@@ -391,6 +391,31 @@ today's size it makes no difference; on a copy grown 20 times (180 tasks, 6,620 
 | A task's messages and events | 1.9 ms | 1.37 ms |
 | Pending approvals | 0.004 ms | 0.002 ms |
 
+### 9. The disc at 30 frames a second when no voice drives it (done)
+
+With the disc taken off the page, the client's main thread is all but idle (5 ms a second on
+the phone profile below). The disc drew every frame in every state, though without a voice in
+it (idle, thinking, approval) it only breathes, drifts and ripples slowly. It now draws every
+other frame then (`REST_FPS` in `frontend/src/strata/engine.ts`); listening and speaking still
+get every frame, from the moment the state changes.
+
+Main-thread time per second on a Pixel 7 profile with the CPU slowed 4x, medians of 3 runs, in
+two alternating passes that agreed within a few ms:
+
+| | Before | After |
+| --- | --- | --- |
+| Idle (the app at rest) | 573 to 583 ms (script 166) | 292 to 295 ms (script 82) |
+| Thinking | 815 to 821 ms (script 233) | 415 to 421 ms (script 115) |
+| Listening, speaking | 870 to 975 ms | unchanged |
+
+Headless Chromium paints the canvas in software, so the totals overstate what a phone's GPU
+spends; the script halves the same way on a phone. Two more were tried and left out:
+
+- Pausing the disc while the phone's tasks sheet is open took that case from about 650 ms a
+  second to 5, but a disc standing still behind the sheet looked wrong, so it keeps moving.
+- Not tried: a screen at 90 or 120 Hz gets that many frames while listening and speaking;
+  capping those at 60 would save a third to a half there.
+
 ## Suggested order
 
 | Step | Size | Do when |
@@ -403,6 +428,7 @@ today's size it makes no difference; on a copy grown 20 times (180 tasks, 6,620 
 | 5. Opus, 6. Larger uplink frames | large | done |
 | 7. Re-render only the streaming reply | small | done |
 | 8. Cheaper database writes, two indexes | small | done |
+| 9. The disc at 30 fps at rest | small | done |
 
 Steps 1, 3 and 4 are independent of M6 and M7. Steps 5 and 6 still need a real phone.
 

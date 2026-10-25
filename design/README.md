@@ -85,3 +85,6 @@ Listening state. Headless runs use a 390×844 viewport at 2×; the canvas is cap
   the script about 6× slower than the i7, so a phone two or three times slower than a Pixel 8
   would spend 10–15 ms per frame on script alone and has not been tested. If one drops frames,
   draw all lines in one colour and apply the fade and light field as a single mask pass.
+- The web client draws at 30 fps when no voice drives the disc (idle, thinking, approval),
+  which halves its cost at rest and looks the same; listening and speaking get every frame
+  (docs/performance.md, step 9).

@@ -21,6 +21,11 @@ export interface StrataController {
 }
 
 const SILENCE: Signal = { level: 0, bands: new Float32Array(BANDS) }
+// With no voice in it (idle, thinking, approval) the disc moves slowly: half the frames look the
+// same and cost half as much. A voice gets every frame. The slack keeps a 60 Hz screen at every
+// other frame despite jitter.
+const REST_FPS = 30
+const SLACK_MS = 4
 
 function readPalette(canvas: HTMLCanvasElement): Palette {
   const styles = getComputedStyle(canvas)
@@ -94,12 +99,14 @@ export function createStrata(canvas: HTMLCanvasElement, options: { state: Strata
   let clock = 0
   let last = 0
   const frame = (now: number) => {
+    handle = requestAnimationFrame(frame)
+    const voiced = state === 'listening' || state === 'speaking' || mix.listening + mix.speaking > 0.01
+    if (!voiced && now - last < 1000 / REST_FPS - SLACK_MS) return
     const dt = Math.min(0.05, (now - last) / 1000)
     last = now
     clock += dt
     update(clock, dt)
     render(clock, dt)
-    handle = requestAnimationFrame(frame)
   }
   const run = (on: boolean) => {
     cancelAnimationFrame(handle)
