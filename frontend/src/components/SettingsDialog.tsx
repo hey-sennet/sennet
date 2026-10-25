@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { refreshAgents, useAgents } from '@/lib/agents'
 import { api, type Access, type AgentLimits, type AgentStatus, type ApprovalMode, type Project, type Rule, type ServerEvent, type State } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useVoice } from '@/voice/usePushToTalk'
+import { voice } from '@/voice/voice'
 import { Devices } from './Devices'
 import { FolderBrowser } from './FolderBrowser'
 import { Limits } from './Limits'
@@ -138,7 +140,9 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
           )}
         </Section>
 
-        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use." order={4}>
+        <WakeWord />
+
+        <Section title="Devices" hint="Browsers paired with Sennet. Unpair any you no longer use." order={5}>
           <Devices subscribe={subscribe} />
         </Section>
 
@@ -149,10 +153,32 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
   )
 }
 
+/** The wake word on this device, when the server has a model for one. */
+function WakeWord() {
+  const { wakePhrase, wakeEnabled } = useVoice()
+  if (!wakePhrase) return null
+  return (
+    <Section title="Wake word" hint="On this device only. It starts listening at your first tap on the page." order={4}>
+      <label className="flex items-start gap-2 text-sm">
+        {/* Turning it on is a tap, so it can start listening at once (voice.ts). */}
+        <input type="checkbox" className="mt-1" data-wake-control checked={wakeEnabled}
+          onChange={(event) => voice().setWakeEnabled(event.target.checked)} />
+        <span>
+          Listen for “{wakePhrase}”
+          <span className="block text-xs text-muted-foreground">
+            The microphone stays open and the screen stays on while the page is showing; only this
+            browser hears it until you say the phrase. Tap the phrase under the disc to pause it.
+          </span>
+        </span>
+      </label>
+    </Section>
+  )
+}
+
 function About({ version }: { version: string | null }) {
   const link = 'underline underline-offset-2 hover:text-foreground'
   return (
-    <Section title="About" order={5}>
+    <Section title="About" order={6}>
       <p className="text-sm">
         Sennet {version ?? ''}
         <span className="text-muted-foreground"> · free and open source under the Apache License 2.0</span>

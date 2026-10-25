@@ -51,7 +51,7 @@ It checks each part and prints a fix beside anything in red. The log has more:
 - **"audio: PCM"** in doctor. libopus isn't installed, so voice uses about ten times the
   data. `sudo apt install libopus0`, or `brew install opus` on macOS, then restart the
   service.
-- **The wake word button isn't there.** No phrase is set up, or its models aren't
+- **There's no wake word in Settings.** No phrase is set up, or its models aren't
   downloaded. Run `sennet setup` and choose one.
 
 ## Phone access

@@ -22,6 +22,7 @@ const RELEASE_MIC_AFTER_MS = 1_000
 const WORDS_LINGER_MS = 8_000 // the last words stay this long once the session is quiet
 const SILENCE = { level: 0, bands: new Float32Array(BANDS) }
 const CHIME_S = 1.4 // approval-chime.mp3
+const WAKE_KEY = 'sennet.wake' // the wake word setting, per device
 const WAKE_QUIET_MS = 10_000 // a conversation the wake word opened closes after this long with nobody talking
 
 /** The selected task, or the project a new task starts in, on its own model if chosen. */
@@ -46,6 +47,8 @@ export interface VoiceSnapshot {
   words: Words | null
   wakePhrase: string | null      // what the server's wake word model listens for; null without one
   wake: 'off' | 'loading' | 'on' // listening for the wake word on this device
+  wakeEnabled: boolean           // Settings: listen for it on this device, from the first tap on the page
+  wakePaused: boolean            // paused from the stage until tapped again, or the page reloads
 }
 
 interface Played {
@@ -81,6 +84,7 @@ export class Voice {
   private snapshot: VoiceSnapshot = {
     connected: false, stt: null, turnReady: false, conversation: false, listening: false, opening: false,
     speaking: false, state: 'idle', words: null, wakePhrase: null, wake: 'off',
+    wakeEnabled: loadWakeEnabled(), wakePaused: false,
   }
   private detector: WakeDetector | null = null
   private selection: Target = {} // what is on screen: the wake word opens a conversation with it
@@ -116,9 +120,13 @@ export class Voice {
       this.socket.send({ type: 'audio', state, hidden: document.hidden })
     }
     // Any gesture unlocks audio, so the approval chime plays before the first push-to-talk, and
-    // resumes it if the phone suspended it since.
+    // resumes it if the phone suspended it since. With the wake word on, it starts listening too:
+    // the microphone and audio need a gesture first, after a reload or the page coming back.
     for (const type of ['pointerdown', 'keydown']) {
-      document.addEventListener(type, () => this.playback.unlock(), { capture: true })
+      document.addEventListener(type, (event) => {
+        this.playback.unlock()
+        if (!(event.target instanceof Element && event.target.closest('[data-wake-control]'))) this.armWake()
+      }, { capture: true })
     }
     // Phones suspend a hidden page's microphone anyway: end the conversation cleanly instead.
     document.addEventListener('visibilitychange', () => {
@@ -196,6 +204,7 @@ export class Voice {
     const detector = new WakeDetector(() => this.woke(), (message) => {
       if (this.detector === detector && this.snapshot.wake === 'on') {
         this.stopWake()
+        this.update({ wakePaused: true }) // not tried again at every tap; tapping the phrase does
         this.fail(`The wake word stopped: ${message}`)
       }
     })
@@ -205,12 +214,40 @@ export class Voice {
     } catch (error) {
       if (this.detector !== detector) return // turned off while loading
       this.stopWake()
+      this.update({ wakePaused: true })
       this.fail(error instanceof MicError ? error.message : `The wake word could not start: ${String(error)}`)
       return
     }
     if (this.detector !== detector) return
     this.update({ wake: 'on' })
     void this.keepAwake()
+  }
+
+  /** The Settings choice: listen for the wake word on this device. Called inside a gesture. */
+  setWakeEnabled(on: boolean) {
+    try {
+      localStorage.setItem(WAKE_KEY, on ? 'on' : 'off')
+    } catch {
+      // kept for this page only
+    }
+    this.update({ wakeEnabled: on, wakePaused: false })
+    if (on) void this.listenForWake(this.selection)
+    else this.stopWake()
+  }
+
+  /** Pause it from the stage, until it is tapped again. Called inside a gesture to resume. */
+  pauseWake(paused: boolean) {
+    this.update({ wakePaused: paused })
+    if (paused) this.stopWake()
+    else void this.listenForWake(this.selection)
+  }
+
+  /** On a gesture: start listening if it is on and not running, once speech is ready for it. */
+  private armWake() {
+    const { wakeEnabled, wakePaused, wake, wakePhrase, stt, turnReady } = this.snapshot
+    if (wakeEnabled && !wakePaused && wake === 'off' && wakePhrase && stt === 'ready' && turnReady) {
+      void this.listenForWake(this.selection)
+    }
   }
 
   stopWake() {
@@ -586,3 +623,11 @@ export function voice(): Voice {
 }
 
 export type { VoiceMessage }
+
+function loadWakeEnabled(): boolean {
+  try {
+    return localStorage.getItem(WAKE_KEY) === 'on'
+  } catch {
+    return false
+  }
+}

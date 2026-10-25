@@ -1,5 +1,5 @@
 import { useEffect, type ComponentProps, type ReactNode } from 'react'
-import { Square } from 'lucide-react'
+import { Ear, EarOff, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Project, type Task, type TaskDetail } from '@/lib/api'
@@ -138,6 +138,9 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
               <ModelMenu {...model} />
             </>
           )}
+          {snapshot.wakeEnabled && snapshot.wakePhrase && snapshot.stt === 'ready' && snapshot.turnReady && (
+            <Wake wake={snapshot.wake} paused={snapshot.wakePaused} phrase={snapshot.wakePhrase} />
+          )}
         </p>
         {/* A fixed height, so words filling it don't move the disc; only an approval's card, taller,
             changes it, and the height glides there and back. */}
@@ -154,6 +157,23 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
 
       </div>
     </main>
+  )
+}
+
+/** The wake word, when it is on in Settings: whether it is listening, and a tap to pause or resume it. */
+function Wake({ wake, paused, phrase }: { wake: 'off' | 'loading' | 'on'; paused: boolean; phrase: string }) {
+  const label = wake === 'on' ? `Listening for “${phrase}”: tap to pause`
+    : wake === 'loading' ? `Starting to listen for “${phrase}”`
+    : paused ? `Paused: tap to listen for “${phrase}”` : `Tap to listen for “${phrase}”`
+  return (
+    // Its own tap is its own: the page's taps start the wake word (voice.ts), and this one may pause it.
+    <button type="button" data-wake-control aria-pressed={wake !== 'off'} aria-label={label} title={label}
+      className={cn('-my-1 ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full py-1 uppercase transition-colors hover:text-foreground',
+        wake === 'off' ? 'text-muted-foreground' : 'text-foreground', wake === 'loading' && 'animate-pulse')}
+      onClick={() => voice().pauseWake(wake !== 'off')}>
+      {wake === 'off' ? <EarOff className="size-3" /> : <Ear className="size-3" />}
+      <span className="max-sm:sr-only">{phrase}</span>
+    </button>
   )
 }
 

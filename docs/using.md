@@ -14,7 +14,6 @@ message.
 The dock along the bottom has, from left to right:
 
 - **New task** (`N`): the next request starts a new task instead of following up.
-- **Wake word**, when one is set up: listen for it.
 - **Conversation**: open the mic, so you can just talk.
 - **Type instead** (`/`): a keyboard, for when you can't talk.
 - **Tasks**: your tasks, with their status, timeline, commands and file changes, and a
@@ -57,9 +56,12 @@ it, and what you said is sent. A lone word, or "wait" or "hang on", only stops t
 A conversation closes after five minutes with nobody talking. Holding the disc during a
 conversation keeps the turn open, through pauses, until you let go.
 
-**The wake word.** If you chose one in setup, tap the wake word button and Sennet
-listens for the phrase in the browser. Saying it opens a conversation, which closes
-again after 10 seconds of quiet. Nothing leaves the browser until the phrase is heard.
+**The wake word.** If you chose one in setup, turn it on for each device under **Wake
+word** in Settings. Sennet then listens for the phrase in the browser from your first tap
+on the page, with the screen kept on; the phrase shows at the end of the label while it
+listens, and tapping it pauses or resumes. Saying the phrase opens a conversation, which
+closes again after 10 seconds of quiet. Nothing leaves the browser until the phrase is
+heard.
 
 Only the task on screen is spoken. A reply on any other task is kept quiet, and a blue
 dot on the task, and on the tasks button, shows there's something to read; it clears when
