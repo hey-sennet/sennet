@@ -9,6 +9,7 @@ import { api, type Access, type AgentLimits, type AgentStatus, type ApprovalMode
 import { cn } from '@/lib/utils'
 import { useVoice } from '@/voice/usePushToTalk'
 import { voice } from '@/voice/voice'
+import { ConfirmDialog } from './ConfirmDialog'
 import { Devices } from './Devices'
 import { FolderBrowser } from './FolderBrowser'
 import { Limits } from './Limits'
@@ -217,6 +218,7 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
   defaultAccess: Access
   agents: Record<string, AgentStatus> | null  // unknown until they load
 }) {
+  const [removing, setRemoving] = useState(false)
   const capabilities = agents?.[project.agent]?.capabilities
   const supported = capabilities?.approval_modes
   const mode = project.approval_mode ?? defaultMode
@@ -231,10 +233,16 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
           <p className="truncate font-mono text-xs text-muted-foreground">{project.path}</p>
         </div>
         <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label={`Remove ${project.name}`}
-          onClick={() => confirm(`Remove ${project.name}? Its files are not touched.`)
-            && attempt(() => api.removeProject(project.id), 'Could not remove the project')}>
+          onClick={() => setRemoving(true)}>
           <Trash2 />
         </Button>
+        <ConfirmDialog open={removing} title={`Remove ${project.name}?`} action="Remove" onCancel={() => setRemoving(false)}
+          onConfirm={() => {
+            setRemoving(false)
+            void attempt(() => api.removeProject(project.id), 'Could not remove the project')
+          }}>
+          Its files are not touched.
+        </ConfirmDialog>
       </div>
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         Agent

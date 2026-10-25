@@ -33,8 +33,8 @@ test('pair a browser with the code a paired one shows, then unpair it', async ({
   await expect(page.getByText(`Paired ${name}`, { exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Pair a device' })).toBeVisible()
   const unpair = dialog.getByRole('button', { name: `Unpair ${name}` }).last()
-  page.once('dialog', (question) => question.accept())
   await unpair.click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Unpair' }).click()
   await expect(stranger.getByRole('heading', { name: 'Pair this device' })).toBeVisible()
 })
 

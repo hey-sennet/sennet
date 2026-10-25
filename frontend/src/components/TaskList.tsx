@@ -5,10 +5,12 @@ import { api, type AgentStatus, type Approval, type Project, type SearchHit, typ
 import { STATUS_LABELS } from '@/lib/status'
 import { FINISHED } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { ConfirmDialog, useConfirm } from './ConfirmDialog'
 import { StatusDot } from './StatusBadge'
 
 const SWIPE_OPEN = 88 // px a row slides left to show its delete button
 const SEARCH_DELAY_MS = 200
+const LEAVE_MS = 300 // a deleted row folds away before it goes, so the rows below slide up
 
 export function relativeTime(seconds: number): string {
   const delta = Date.now() / 1000 - seconds
@@ -43,6 +45,8 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
   const [hits, setHits] = useState<(SearchHit[] & { query?: string }) | null>(null)
   const [swiped, setSwiped] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
+  const deleting = useConfirm<Task>()
+  const [leaving, setLeaving] = useState<number | null>(null)
   const searching = query.trim().length >= 3
 
   useEffect(() => {
@@ -60,13 +64,14 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
   }, [query, searching])
 
   const remove = async (task: Task) => {
-    setSwiped(null)
-    const agent = agents?.[task.agent]?.title ?? task.agent
-    if (!confirm(`Delete “${task.title}”? This removes it from Sennet. ${agent} keeps its own copy of the conversation.`)) return
+    deleting.close()
+    setLeaving(task.id)
+    await new Promise((resolve) => setTimeout(resolve, LEAVE_MS))
     try {
       await api.deleteTask(task.id)
       setHits((found) => found && Object.assign(found.filter((hit) => hit.task.id !== task.id), { query: found.query }))
     } catch (error) {
+      setLeaving(null)
       toast.error(error instanceof Error ? error.message : 'Could not delete the task')
     }
   }
@@ -75,7 +80,11 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
     const status = waiting.has(task.id) ? 'awaiting_approval' : task.status
     return (
       <TaskRow key={task.id} task={task} selected={selected === task.id} swiped={swiped === task.id}
-        onSwipe={(open) => setSwiped(open ? task.id : null)} onDelete={() => remove(task)}
+        leaving={leaving === task.id}
+        onSwipe={(open) => setSwiped(open ? task.id : null)} onDelete={() => {
+          setSwiped(null)
+          deleting.ask(task)
+        }}
         onSelect={() => {
           if (snippet) onFound([task])
           onSelect(task.id)
@@ -110,10 +119,19 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
     </label>
   )
 
+  const task = deleting.subject
+  const confirmDelete = (
+    <ConfirmDialog open={deleting.open} title={`Delete “${task?.title}”?`} action="Delete"
+      onConfirm={() => task && remove(task)} onCancel={deleting.close}>
+      This removes it from Sennet. {task && (agents?.[task.agent]?.title ?? task.agent)} keeps its own copy of the conversation.
+    </ConfirmDialog>
+  )
+
   if (searching) {
     return (
       <div>
         {searchBox}
+        {confirmDelete}
         {hits === null || hits.query !== query.trim() ? <p className="px-3 py-2 text-sm text-muted-foreground">Searching…</p>
           : !hits.length ? <p className="px-3 py-2 text-sm text-muted-foreground">No task mentions that.</p>
           : <ul aria-label="Search results" className="flex flex-col gap-0.5">{hits.map((hit) => row(hit.task, hit))}</ul>}
@@ -124,6 +142,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
     return (
       <div>
         {searchBox}
+        {confirmDelete}
         <p className="px-3 py-6 text-sm text-muted-foreground">No tasks yet. Start one and it will appear here.</p>
       </div>
     )
@@ -132,6 +151,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
   return (
     <div>
       {searchBox}
+      {confirmDelete}
       <div className="flex flex-col gap-4">
         {groups.map((group) => (
           <section key={group.title} aria-label={group.title}>
@@ -164,10 +184,11 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
 
 /** A row that opens its task. A finished one can be deleted: a trash button on hover where there
  * is a pointer to hover with, or a swipe left on a touch screen. */
-function TaskRow({ task, selected, swiped, onSwipe, onSelect, onDelete, children }: {
+function TaskRow({ task, selected, swiped, leaving, onSwipe, onSelect, onDelete, children }: {
   task: Task
   selected: boolean
   swiped: boolean
+  leaving: boolean // deleted, and folding away
   onSwipe: (open: boolean) => void
   onSelect: () => void
   onDelete: () => void
@@ -200,41 +221,44 @@ function TaskRow({ task, selected, swiped, onSwipe, onSelect, onDelete, children
   }
 
   return (
-    <li className="group relative overflow-hidden rounded-2xl">
-      {offset < 0 && (
-        <button type="button" disabled={!finished} onClick={onDelete} style={{ width: SWIPE_OPEN }}
-          className="absolute inset-y-0 right-0 rounded-2xl bg-destructive/90 text-xs font-medium text-white disabled:bg-muted disabled:text-muted-foreground">
-          {finished ? 'Delete' : 'Stop it first'}
-        </button>
-      )}
-      <div style={{ transform: offset ? `translateX(${offset}px)` : undefined }}
-        className={cn('relative flex touch-pan-y items-start rounded-2xl', drag === null && 'transition-transform duration-300 ease-strata',
-          offset < 0 && 'bg-card')}
-        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-        <button
-          onClick={(event) => {
-            if (start.current?.moved) {
-              event.preventDefault()
-              start.current = null
-              return
-            }
-            if (swiped) return onSwipe(false)
-            onSelect()
-          }}
-          className={cn('flex min-w-0 flex-1 gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-muted/60',
-            selected && 'bg-muted')}
-        >
-          {children}
-        </button>
-        {/* Only where something can hover; touch screens swipe instead. */}
-        <button type="button" disabled={!finished} onClick={onDelete}
-          aria-label={finished ? `Delete ${task.title}` : `${task.title} is still working; stop it before deleting`}
-          title={finished ? 'Delete task' : 'Stop it first'}
-          className="absolute top-2 right-2 hidden size-7 place-items-center rounded-full text-muted-foreground opacity-0 transition-opacity
-            hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:hover:bg-transparent disabled:hover:text-muted-foreground
-            [@media(hover:hover)]:grid [@media(hover:hover)]:group-hover:opacity-100 disabled:[@media(hover:hover)]:group-hover:opacity-40">
-          <Trash2 className="size-3.5" />
-        </button>
+    <li className={cn('group grid overflow-hidden rounded-2xl transition-[grid-template-rows,opacity] ease-strata',
+      leaving ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr]')} style={{ transitionDuration: `${LEAVE_MS}ms` }} inert={leaving}>
+      <div className="relative min-h-0">
+        {offset < 0 && (
+          <button type="button" disabled={!finished} onClick={onDelete} style={{ width: SWIPE_OPEN }}
+            className="absolute inset-y-0 right-0 rounded-2xl bg-destructive/90 text-xs font-medium text-white disabled:bg-muted disabled:text-muted-foreground">
+            {finished ? 'Delete' : 'Stop it first'}
+          </button>
+        )}
+        <div style={{ transform: offset ? `translateX(${offset}px)` : undefined }}
+          className={cn('relative flex touch-pan-y items-start rounded-2xl', drag === null && 'transition-transform duration-300 ease-strata',
+            offset < 0 && 'bg-card')}
+          onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+          <button
+            onClick={(event) => {
+              if (start.current?.moved) {
+                event.preventDefault()
+                start.current = null
+                return
+              }
+              if (swiped) return onSwipe(false)
+              onSelect()
+            }}
+            className={cn('flex min-w-0 flex-1 gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-muted/60',
+              selected && 'bg-muted')}
+          >
+            {children}
+          </button>
+          {/* Only where something can hover; touch screens swipe instead. */}
+          <button type="button" disabled={!finished} onClick={onDelete}
+            aria-label={finished ? `Delete ${task.title}` : `${task.title} is still working; stop it before deleting`}
+            title={finished ? 'Delete task' : 'Stop it first'}
+            className="absolute top-2 right-2 hidden size-7 place-items-center rounded-full text-muted-foreground opacity-0 transition-opacity
+              hover:bg-muted hover:text-foreground focus-visible:opacity-100 disabled:hover:bg-transparent disabled:hover:text-muted-foreground
+              [@media(hover:hover)]:grid [@media(hover:hover)]:group-hover:opacity-100 disabled:[@media(hover:hover)]:group-hover:opacity-40">
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
       </div>
     </li>
   )

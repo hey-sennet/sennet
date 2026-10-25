@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api, type Device, type Pairing, type ServerEvent } from '@/lib/api'
+import { ConfirmDialog, useConfirm } from './ConfirmDialog'
 import { relativeTime } from './TaskList'
 
 /** Settings' paired devices: rename or unpair them, and show a code to pair another. Mounted while
@@ -27,11 +28,10 @@ export function Devices({ subscribe }: {
     })
   }, [subscribe, load])
 
+  const unpairing = useConfirm<Device>()
+
   const revoke = async (device: Device) => {
-    const question = device.current
-      ? 'Unpair this device? You will need a new code to use Sennet here again.'
-      : `Unpair ${device.name}? It will need a new code to get back in.`
-    if (!confirm(question)) return
+    unpairing.close()
     try {
       await api.revokeDevice(device.id)
     } catch (error) {
@@ -41,10 +41,14 @@ export function Devices({ subscribe }: {
 
   return (
     <div className="flex flex-col gap-2">
+      <ConfirmDialog open={unpairing.open} title={unpairing.subject?.current ? 'Unpair this device?' : `Unpair ${unpairing.subject?.name}?`}
+        action="Unpair" onConfirm={() => unpairing.subject && revoke(unpairing.subject)} onCancel={unpairing.close}>
+        {unpairing.subject?.current ? 'You will need a new code to use Sennet here again.' : 'It will need a new code to get back in.'}
+      </ConfirmDialog>
       {!devices && <p className="text-sm text-muted-foreground">Loading…</p>}
       {devices?.map((device) => (
         // Keyed by name too, so a rename made elsewhere replaces what is typed here.
-        <DeviceRow key={`${device.id}:${device.name}`} device={device} onRevoke={() => revoke(device)} />
+        <DeviceRow key={`${device.id}:${device.name}`} device={device} onRevoke={() => unpairing.ask(device)} />
       ))}
       {pairing ? <ShowPairing pairing={pairing} onDone={() => setPairing(null)} /> : (
         <Button variant="outline" className="self-start rounded-full px-4" onClick={() => api.newPairing().then(setPairing, (error) =>

@@ -287,27 +287,59 @@ test('a finished task is deleted from the list, after asking', async ({ page }, 
   await page.goto('/')
   const list = await openList(page)
   const row = list.getByRole('listitem').filter({ hasText: title })
+  const confirm = page.getByRole('alertdialog')
   if (info.project.name === 'desktop') {
     await row.hover()
     await page.screenshot({ path: `test-results/${info.project.name}-delete.png` })
-    await page.once('dialog', (dialog) => dialog.dismiss()) // changed their mind
     await row.getByRole('button', { name: `Delete ${title}` }).click()
+    await confirm.getByRole('button', { name: 'Cancel' }).click() // changed their mind
+    await expect(confirm).toBeHidden()
     await expect(row).toBeVisible()
-    page.once('dialog', (dialog) => dialog.accept())
     await row.getByRole('button', { name: `Delete ${title}` }).click()
   } else {
     // Swipe the row left to show its Delete.
     const box = (await row.boundingBox())!
     const at = (x: number) => ({ pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: x, clientY: box.y + box.height / 2 })
-    const surface = row.locator('> div')
+    const surface = row.locator('> div > div')
     await surface.dispatchEvent('pointerdown', at(box.x + box.width - 20))
     for (const dx of [10, 40, 80, 110]) await surface.dispatchEvent('pointermove', at(box.x + box.width - 20 - dx))
     await surface.dispatchEvent('pointerup', at(box.x + box.width - 130))
     await page.screenshot({ path: `test-results/${info.project.name}-delete.png` })
-    page.once('dialog', (dialog) => dialog.accept())
     await row.getByRole('button', { name: 'Delete', exact: true }).click()
   }
+  await expect(confirm).toHaveAccessibleName(`Delete “${title}”?`)
+  await confirm.evaluate((sheet) => Promise.all(sheet.getAnimations().map((a) => a.finished))) // risen into place
+  await page.screenshot({ path: `test-results/${info.project.name}-delete-confirm.png` })
+  await confirm.getByRole('button', { name: 'Delete' }).click()
   await expect(row).toHaveCount(0)
+})
+
+test('removing a project asks first, over Settings, and a tap beside the question dismisses it', async ({ page }, info) => {
+  const name = `remove-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Project directory').fill(directory)
+  await dialog.getByLabel('Project name').fill(name)
+  await dialog.getByRole('button', { name: 'Add' }).click()
+  await expect(dialog.getByText(directory)).toBeVisible()
+
+  const confirm = page.getByRole('alertdialog')
+  await dialog.getByRole('button', { name: `Remove ${name}` }).click()
+  await expect(confirm).toHaveAccessibleName(`Remove ${name}?`)
+  await expect(page.locator('[data-slot=dialog-overlay]').last()).toBeVisible() // dims Settings, and takes the tap below
+  const box = (await page.locator('[data-slot=dialog-content]').boundingBox())! // Settings, hidden from roles under the question
+  await page.mouse.click(box.x + 24, box.y + 24) // over Settings, beside the question
+  await expect(confirm).toBeHidden()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText(directory)).toBeVisible()
+
+  await dialog.getByRole('button', { name: `Remove ${name}` }).click()
+  await confirm.getByRole('button', { name: 'Remove' }).click()
+  await expect(dialog.getByText(directory)).toBeHidden()
+  await expect(dialog).toBeVisible()
 })
 
 test('a project is picked by browsing the folders on the computer', async ({ page }, info) => {
