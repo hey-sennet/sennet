@@ -11,6 +11,10 @@ change. To help with one, or to suggest something, open an issue.
   pre-trained phrases, which are for non-commercial use only (`training/wakeword`).
 - **macOS speech numbers** on Apple Silicon, and GPU speech there if it helps.
 - **Safari**, on iOS and macOS: conversations and echo cancellation haven't been tested.
+- **Images in a message.** Attach a photo or screenshot from any paired device, shrunk on
+  the device before it's sent, and shown in the task's timeline. Codex and Claude Code
+  both take images in the protocols Sennet already speaks; an agent that can't is shown
+  as such.
 
 ## Ideas
 
