@@ -59,9 +59,9 @@ conversation keeps the turn open, through pauses, until you let go.
 **The wake word.** If you chose one in setup, turn it on for each device under **Wake
 word** in Settings. Sennet then listens for the phrase in the browser from your first tap
 on the page, with the screen kept on; the phrase shows at the end of the label while it
-listens, and tapping it pauses or resumes. Saying the phrase opens a conversation, which
-closes again after 10 seconds of quiet. Nothing leaves the browser until the phrase is
-heard.
+listens, and tapping it pauses or resumes. Saying the phrase plays a soft chime, so you know
+it's listening, and opens a conversation, which closes again after 10 seconds of quiet.
+Nothing leaves the browser until the phrase is heard.
 
 Only the task on screen is spoken. A reply on any other task is kept quiet, and a blue
 dot on the task, and on the tasks button, shows there's something to read; it clears when

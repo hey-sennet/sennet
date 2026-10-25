@@ -11,6 +11,7 @@ import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
 import chime from './approval-chime.mp3'
+import wakeChime from './wake-chime.mp3'
 import { OpusDownlink, OpusUplink, opusSupport, parseOpusFrame } from './opus'
 import { Playback, parseFrame } from './playback'
 import { WakeDetector, wakePhrase } from './wake'
@@ -266,7 +267,9 @@ export class Voice {
   private woke() {
     if (this.snapshot.wake !== 'on' || this.snapshot.conversation || this.turn || this.ending) return
     if (this.snapshot.speaking) this.stop() // as talking over a reply would
-    if (this.beginConversation(this.selection)) this.woken = true
+    if (!this.beginConversation(this.selection)) return
+    this.woken = true
+    this.playback.cue(wakeChime) // so you know it's listening
   }
 
   closeConversation() {

@@ -47,9 +47,11 @@ def room(sound, mix=0.1, seconds=0.45):
     return (1 - mix) * dry / np.max(np.abs(dry)) + mix * wet / np.max(np.abs(wet))
 
 
-def finish(sound, peak_db=-9.0):
+# Loud, since phone and laptop speakers barely play the bowl's low notes, but not full scale:
+# at -0.6 dB phones sounded rough.
+def finish(sound, peak_db=-3.0):
     sound = sound / np.max(np.abs(sound)) * 10 ** (peak_db / 20)
-    end = np.max(np.nonzero(np.abs(sound) > 10 ** (-50 / 20))) + 1  # trim the quiet tail
+    end = np.max(np.nonzero(np.abs(sound) > 10 ** ((peak_db - 41) / 20))) + 1  # trim the quiet tail
     sound = sound[:end]
     fade = int(0.3 * RATE)
     sound[-fade:] *= np.linspace(1, 0, fade) ** 2
