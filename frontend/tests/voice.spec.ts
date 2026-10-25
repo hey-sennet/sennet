@@ -15,6 +15,14 @@ async function addProject(page: Page, name: string) {
   expect(response.ok()).toBe(true)
 }
 
+/** The tasks in project `name`, in full, as the server has them. */
+async function projectTasks(page: Page, name: string) {
+  const state = await (await page.request.get('/api/state')).json()
+  const project = state.projects.find((p: { name: string }) => p.name === name)
+  const tasks = state.tasks.filter((t: { project_id: number }) => t.project_id === project.id)
+  return Promise.all(tasks.map(async (t: { id: number }) => (await page.request.get(`/api/tasks/${t.id}`)).json()))
+}
+
 async function taskCount(page: Page) {
   return (await (await page.request.get('/api/state')).json()).tasks.length
 }
@@ -107,7 +115,9 @@ test('a conversation hears you without the button, and pressing sends it', async
   await page.mouse.down()
   await page.waitForTimeout(400)
   await page.mouse.up()
-  await expect(page.getByRole('main').getByText(`You said: ${HEARD}`)).toBeVisible()
+  // Letting go sent the held turn, and the agent answered it. The fake microphone never falls quiet,
+  // so the conversation's next turn opens at once, and its words can take the stage before the reply.
+  await expect.poll(async () => JSON.stringify(await projectTasks(page, name))).toContain(`You said: ${HEARD}`)
 
   await page.getByRole('button', { name: 'End the conversation' }).click()
   await expect(page.getByRole('button', { name: /Start a conversation/ })).toHaveAttribute('aria-pressed', 'false')
