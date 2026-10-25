@@ -219,11 +219,47 @@ test('a command shows while it runs, shimmering, and its result takes its place'
   await expect(row).toHaveCount(1)
   await expect(row).toContainText('running')
   await expect(row.locator('code')).toHaveClass(/animate-shimmer/)
+  // Pinned to the foot of the timeline while it runs, as well as where it started.
+  const pinned = timeline.getByRole('region', { name: 'Running in the background' })
+  await expect(pinned).toContainText('sleep 25')
   await page.waitForTimeout(1000) // past the row's fade in
   await page.screenshot({ path: `test-results/${info.project.name}-command-running.png` })
   await expect(row).toContainText('done', { timeout: 15_000 })
   await expect(row).toHaveCount(1)
   await expect(row.locator('code')).not.toHaveClass(/animate-shimmer/)
+  await expect(pinned).toBeHidden()
+})
+
+test('a lot of work in the background folds to its first, and opens to show it all', async ({ page }, info) => {
+  const name = `folded-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  const task = await (await page.request.post('/api/tasks', { data: { project_id: project.id, text: 'bg:20' }, headers })).json()
+  // Each turn leaves one more command running, the fake agent's `sleep 25`.
+  const running = async () => {
+    const detail = await (await page.request.get(`/api/tasks/${task.id}`)).json()
+    return detail.events.findLast((e: { kind: string }) => e.kind === 'background')?.data.tasks.length ?? 0
+  }
+  for (let count = 1; count <= 4; count++) {
+    await expect.poll(running).toBe(count)
+    if (count < 4) await page.request.post(`/api/tasks/${task.id}/messages`, { data: { text: 'bg:20' }, headers })
+  }
+
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByText('bg:20').first().click()
+  const panel = info.project.name === 'phone' ? page.getByRole('region', { name: 'Tasks' }) : page.getByRole('complementary', { name: 'Task' })
+  const pinned = panel.getByRole('region', { name: 'Running in the background' })
+  await expect(pinned.locator('code')).toHaveCount(1)
+  await expect(pinned.getByRole('button', { name: 'and 3 more' })).toBeVisible()
+  await page.waitForTimeout(1000) // past the rows' fade in
+  await page.screenshot({ path: `test-results/${info.project.name}-background-folded.png` })
+  await pinned.getByRole('button', { name: /Running in the background/ }).click()
+  await expect(pinned.locator('code')).toHaveCount(4)
+  await page.waitForTimeout(1000)
+  await page.screenshot({ path: `test-results/${info.project.name}-background-open.png` })
 })
 
 test('search finds a task by what was said in it, typos and all', async ({ page }, info) => {

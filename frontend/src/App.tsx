@@ -6,7 +6,7 @@ import { Dock } from '@/components/Dock'
 import { ProjectMenu } from '@/components/ProjectMenu'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Stage } from '@/components/Stage'
-import { StopTask, TaskDetail } from '@/components/TaskDetail'
+import { BackgroundWork, StopTask, TaskDetail } from '@/components/TaskDetail'
 import { TaskList } from '@/components/TaskList'
 import { useAgents } from '@/lib/agents'
 import { api, type ModelChoice } from '@/lib/api'
@@ -358,13 +358,15 @@ export default function App() {
             <ChevronLeft className={cn('size-3.5 transition-transform duration-600 ease-strata', panelOpen && 'rotate-180')} />
           </button>
           {/* The padding keeps the scrollbar clear of the rounded corners. */}
-          <div className={cn('h-full w-[min(400px,34vw)] overflow-hidden rounded-[26px] border bg-card py-5 transition-opacity duration-400 ease-strata',
+          <div className={cn('flex h-full w-[min(400px,34vw)] flex-col overflow-hidden rounded-[26px] border bg-card py-5 transition-opacity duration-400 ease-strata',
             panelOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} inert={!panelOpen}>
-            <div ref={panelRef} className="h-full overflow-y-auto overscroll-contain px-6 py-1" onScroll={trackPanel}>
+            <div ref={panelRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-1" onScroll={trackPanel}>
               <div ref={panelContentRef}>
                 {timeline ?? <p className="text-sm text-muted-foreground">Pick a task from the list to see what it did.</p>}
               </div>
             </div>
+            {/* Out of the scroll, so nothing passes under it. */}
+            {detail && <BackgroundWork key={detail.id} detail={detail} className="mx-6 mt-3 shrink-0" />}
           </div>
         </aside>
       )}
@@ -409,6 +411,7 @@ export default function App() {
                 more={live.more_tasks} unheard={unheard} onSelect={openTask} onShowMore={live.showMore} onFound={live.addTasks} />
               </div>
             )}
+            {sheet === 'task' && detail && <BackgroundWork key={detail.id} detail={detail} className="mx-[18px] mb-[18px] shrink-0" />}
           </section>
         </>
       )}

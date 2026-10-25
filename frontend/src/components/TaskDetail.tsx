@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Square } from 'lucide-react'
+import { ChevronDown, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
 import { Diff } from './Diff'
 import { Markdown } from './Markdown'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, StatusDot } from './StatusBadge'
 
 type Entry = { at: number; message: Message } | { at: number; key: number; event: TaskEvent }
 
@@ -84,6 +84,55 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
         {detail.error && <li className="text-sm text-destructive">{detail.error}</li>}
       </ol>
     </div>
+  )
+}
+
+/** How many pieces of background work show before the list folds to its first. */
+const UNFOLDED = 2
+
+/**
+ * Work the agent left running, below the timeline rather than in it, so it stays in view
+ * however far the timeline is scrolled; a long list folds to its first, and opens to scroll.
+ */
+export function BackgroundWork({ detail, className }: { detail: Detail; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const work: { id: string; description: string }[] = useMemo(() =>
+    ['running', 'awaiting_approval', 'background', 'queued'].includes(detail.status)
+      ? detail.events.findLast((e) => e.kind === 'background')?.data.tasks ?? [] : [],
+  [detail.events, detail.status])
+  if (!work.length) return null
+  const folds = work.length > UNFOLDED
+  const shown = folds && !open ? work.slice(0, 1) : work
+  const label = (
+    <>
+      <StatusDot status="background" />
+      Running in the background
+      {folds && <span className="ml-auto flex items-center gap-1 font-normal text-muted-foreground">
+        {work.length}<ChevronDown className={cn('size-3.5 transition-transform duration-300 ease-strata', open && 'rotate-180')} />
+      </span>}
+    </>
+  )
+  return (
+    <section aria-label="Running in the background" className={cn('rounded-2xl border px-3.5 py-2.5', className)}>
+      {folds ? (
+        <button type="button" aria-expanded={open} className="flex w-full items-center gap-1.5 text-xs font-medium text-agent" onClick={() => setOpen(!open)}>
+          {label}
+        </button>
+      ) : <p className="flex items-center gap-1.5 text-xs font-medium text-agent">{label}</p>}
+      <ul className={cn('mt-1.5 flex flex-col gap-1', open && 'max-h-[min(30dvh,180px)] overflow-y-auto overscroll-contain')}>
+        {shown.map((task) => (
+          <li key={task.id} className="flex min-w-0 items-baseline gap-2.5 font-mono text-[12.5px]">
+            <span className="text-muted-foreground/60">›</span>
+            <code className="min-w-0 flex-1 truncate animate-shimmer" title={task.description}>{task.description}</code>
+          </li>
+        ))}
+        {folds && !open && (
+          <li><button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setOpen(true)}>
+            and {work.length - 1} more
+          </button></li>
+        )}
+      </ul>
+    </section>
   )
 }
 

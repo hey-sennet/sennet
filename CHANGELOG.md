@@ -5,6 +5,9 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- Work a task left running shows below its timeline, shimmering, until it's done,
+  however far you've scrolled; a list of more than two folds to its first. It showed
+  only where it started.
 - A command shows in the task's timeline as it starts, with light passing over it while
   it runs, and its result takes its place; it showed only once it had finished.
 - Tasks get short titles written by their agent at the start of its first reply, in
