@@ -122,6 +122,7 @@ JSON text frames.
 | `{"type": "codecs", "uplink": "opus", "downlink": "opus"}` | Each `pcm_s16le` (the default) or `opus`, from those `ready` offered; for the frames after it (§3). A codec that wasn't offered gets `bad_message`. |
 | `{"type": "played", "reply": 3, "segment": 0}` | A segment's first audio began playing on this device. The server logs it, with the time since it sent the segment, so each reply can be followed from queued to heard in the service log (§13). |
 | `{"type": "drained", "reply": 3, "segment": 1}` | Playback ran out of audio, the last segment it started being this one. When that is the last segment the server sent, the reply has been heard to its end: the server's `playing`, and `voice_state` `speaking`, end here (§13). |
+| `{"type": "ping"}` | Is this socket still working? The server answers `pong`. The client asks when the page comes back after being hidden, and connects again if no answer comes within 3 s: a phone can leave a backgrounded page's socket looking open with nothing getting through. |
 | `{"type": "audio", "state": "suspended", "hidden": true}` | Playback's `AudioContext` changed state (`running`, `suspended`, `interrupted`, `closed`), for the same log. A phone suspends it with the screen off or when another app takes the audio; the client resumes it when it can and, if speech arrives while it can't, asks the user to tap. |
 
 The client picks the `turn` id (any short string, unique per session), so it can tag its
@@ -138,6 +139,7 @@ ignored.
 | `{"type": "speech", "reply": 3, "generation": 4, "segment": 0, "text": "All 40 tests pass.", "task_id": 12}` | Sent just before a segment's audio, so the client can caption the agent's words. `reply` is the session's count of replies, from 1; segments count from 0 within it. `task_id` says what it is about. `cue: true` on a reply's first segment asks the client to play the approval chime first and hold the speech until it ends (§9). |
 | `{"type": "speech_end", "reply": 3, "generation": 4}` | The last segment of this reply has been sent. It may still be playing: `drained` says when it has been heard. |
 | `{"type": "stopped", "generation": 5}` | Reply to `stop` or `start`: the new generation. |
+| `{"type": "pong"}` | Reply to `ping`. |
 | `{"type": "voice_error", "turn": "t7", "code": "uplink_behind", "message": "…"}` | Codes: `busy` (this session already has a turn open), `stt_unavailable`, `tts_unavailable`, `turn_unavailable` (§12), `uplink_behind`, `too_long` (over 5 minutes), `bad_frame`, `bad_message` (unreadable control message), `no_target`, `dispatch_failed`. A turn that fails with any of these is discarded. |
 
 `final.outcome` is one of:
@@ -158,9 +160,10 @@ ignored.
   each send, so a slow link slows synthesis rather than growing a queue.
 - **Socket closed mid-turn:** the turn is discarded. **Closed mid-speech:** the rest of
   the reply isn't spoken; the text is still in the task timeline. On reconnect the
-  client gets a fresh `ready` with generation 0. The device's new session takes over
-  what its last one was waiting for: replies to its requests still running, and its
-  tasks' own reports, are spoken there from then on.
+  client gets a fresh `ready` with generation 0. The device's newest session takes over
+  what its earlier ones were waiting for, even one whose socket still looks open:
+  replies to its requests still running, and its tasks' own reports, are spoken there
+  from then on. A connection that hasn't opened after 5 s is tried again.
 
 ## 7. Playback generation
 

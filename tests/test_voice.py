@@ -355,9 +355,14 @@ def test_moving_to_another_task_stops_its_reply_at_the_next_sentence(client, voi
     assert voice.next("speech")["segment"] == 0  # the second sentence is held meanwhile
     voice.send(type="target", task_id=9)
     voice.send(type="ping")  # answered after the target is taken
-    voice.next("voice_error")
+    voice.next("pong")
     speech.tts.gate.set()
     assert voice.next("unheard") == {"type": "unheard", "task_id": 7}
+
+
+def test_a_ping_is_answered(voice):
+    voice.send(type="ping")
+    assert voice.next("pong") == {"type": "pong"}
 
 
 def voice_log(caplog, level=logging.INFO):

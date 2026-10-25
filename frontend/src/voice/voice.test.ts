@@ -26,6 +26,7 @@ beforeAll(async () => {
   vi.stubGlobal('WebSocket', FakeSocket)
   vi.stubGlobal('location', { protocol: 'http:', host: 'sennet.test' })
   vi.stubGlobal('document', { addEventListener() {}, hidden: false })
+  vi.stubGlobal('window', { addEventListener() {} })
   ;({ Voice } = await import('./voice'))
 })
 

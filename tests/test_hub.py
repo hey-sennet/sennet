@@ -1,5 +1,6 @@
 """Which reply the hub speaks, fed bus events directly."""
 import asyncio
+import itertools
 from types import SimpleNamespace
 
 from sennet.events import EventBus
@@ -36,7 +37,10 @@ class Reply:
 
 
 class Session:
+    ids = itertools.count()
+
     def __init__(self, device=None):
+        self.id = f"s{next(self.ids):07d}"
         self.device = device
         self.replies = []
         self.cues = []
@@ -262,10 +266,12 @@ def test_a_device_back_before_its_old_socket_closes_still_takes_over():
     hub.add(old)
     hub.requests[2] = old
     hub._observe(user(7, 2, "sent"))
-    hub.add(new)
+    hub.add(new)  # the old socket still looks open: a phone keeps a backgrounded page's up
+    hub._observe(agent(7, "Back."))
     hub.remove(old)
     hub._observe(agent(7, "Done."))
-    assert new.spoken == [("Done.", 7)]
+    assert old.spoken == []
+    assert new.spoken == [("Back.", 7), ("Done.", 7)]
     speech.close()
 
 

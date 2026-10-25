@@ -15,6 +15,8 @@ interface Live {
   more_tasks: boolean
 }
 
+const CONNECT_TIMEOUT_MS = 5_000         // a connection not open by then is tried again
+const FRESH_AFTER_HIDDEN_MS = 10_000     // back on screen after this long hidden, connect afresh
 const empty: Live = { version: null, projects: [], tasks: [], approvals: [], rules: [], limits: {}, settings: null, more_tasks: false }
 
 /** Finished tasks: what the list calls Earlier, and what may be deleted. */
@@ -57,8 +59,11 @@ export function useLiveState() {
 
     const connect = () => {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(`${protocol}//${location.host}/api/events`)
+      const opening = socket = new WebSocket(`${protocol}//${location.host}/api/events`)
+      // A connection not open by then is dropped, and its onclose tries again.
+      const timeout = setTimeout(() => opening.readyState === WebSocket.CONNECTING && opening.close(), CONNECT_TIMEOUT_MS)
       socket.onopen = async () => {
+        clearTimeout(timeout)
         attempt = 0
         try {
           await reload()
@@ -75,16 +80,40 @@ export function useLiveState() {
         listeners.current.forEach((listener) => listener(event))
       }
       socket.onclose = ({ code }) => {
+        clearTimeout(timeout)
         if (stopped) return
         if (code === UNPAIRED) return markUnpaired()
         setConnection('reconnecting')
         retry = setTimeout(connect, Math.min(10000, 500 * 2 ** attempt++))
       }
     }
+    // Back on screen after a while, start afresh: a phone can leave a backgrounded page's socket
+    // looking open with nothing getting through, and the reload brings whatever was missed.
+    const fresh = () => {
+      if (stopped) return
+      clearTimeout(retry)
+      attempt = 0
+      if (socket) {
+        socket.onopen = socket.onmessage = socket.onclose = null
+        socket.close()
+      }
+      setConnection('reconnecting')
+      connect()
+    }
+    let hiddenAt = Date.now()
+    const onVisibility = () => {
+      if (document.hidden) hiddenAt = Date.now()
+      else if (socket?.readyState !== WebSocket.OPEN || Date.now() - hiddenAt > FRESH_AFTER_HIDDEN_MS) fresh()
+    }
+    const onOnline = () => socket?.readyState !== WebSocket.OPEN && fresh()
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('online', onOnline)
     connect()
     return () => {
       stopped = true
       clearTimeout(retry)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('online', onOnline)
       socket?.close()
     }
   }, [reload])

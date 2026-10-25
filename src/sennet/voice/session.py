@@ -200,6 +200,8 @@ class VoiceSession:
             await self.close_conversation("closed")
         elif kind == "codecs":
             await self._codecs(message)
+        elif kind == "ping":
+            await self.send(type="pong")  # the page came back and checks this socket still works
         elif kind == "played":
             self._played(message)
         elif kind == "drained":

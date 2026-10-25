@@ -133,11 +133,17 @@ export class Voice {
       }, { capture: true })
     }
     // Phones suspend a hidden page's microphone anyway: end the conversation cleanly instead.
+    // Back on screen, the socket may be dead though it looks open, or stuck connecting.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.snapshot.conversation) this.closeConversation()
       if (document.hidden) this.stopWake()
-      if (!document.hidden) this.playback.resume()
+      if (!document.hidden) {
+        this.playback.resume()
+        this.socket.check()
+      }
     })
+    window.addEventListener('pageshow', () => this.socket.check()) // back from the browser's page cache
+    window.addEventListener('online', () => this.socket.check())
   }
 
   /** Strata's user source: the microphone's loudness and bands, silent while it is closed. */

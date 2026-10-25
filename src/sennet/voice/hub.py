@@ -114,14 +114,17 @@ class VoiceHub:
 
     def add(self, session: VoiceSession):
         self.sessions.add(session)
+        log.info("voice %s: connected (device %s)", session.id[:4], session.device)
         if session.device is not None:
-            self._hand_over(lambda s: s not in self.sessions and s.device == session.device, session)
+            # The device's newest session speaks its replies. An older one is a page it has left, even
+            # if its socket still looks open: a phone keeps a backgrounded page's socket up.
+            self._hand_over(lambda s: s is not session and s.device == session.device, session)
 
     def remove(self, session: VoiceSession):
         self.sessions.discard(session)
+        log.info("voice %s: disconnected", session.id[:4])
         if session.device is not None:
-            # The device may already be back (a phone's old socket can close after its new one
-            # opens); if not, its next session takes over in `add`.
+            # Another page on the device takes over now; if none, the device's next session does in `add`.
             successors = [s for s in self.sessions if s.device == session.device]
             if successors:
                 self._hand_over(lambda s: s is session, successors[-1])
@@ -135,17 +138,23 @@ class VoiceHub:
 
     def _hand_over(self, gone, session: VoiceSession):
         """Give `session` the tasks, requests and running turns of the sessions `gone` picks."""
+        moved = set()
         for task_id, owner in self.owners.items():
             if gone(owner):
                 self.owners[task_id] = session
+                moved.add(task_id)
         for message_id, owner in self.requests.items():
             if gone(owner):
                 self.requests[message_id] = session
         for task_id, pending in self.turns.items():
             if gone(pending.session):
                 pending.session = session
+                moved.add(task_id)
                 if (live := self.live.pop(task_id, None)) is not None:
                     live.close()  # its reply was the old session's: the spoken version starts again here
+        if moved:
+            log.info("voice %s: took over task%s %s from the device's earlier session", session.id[:4],
+                     "" if len(moved) == 1 else "s", ", ".join(map(str, sorted(moved))))
 
     def status(self) -> dict:
         """What `ready` and `speech_status` report."""
