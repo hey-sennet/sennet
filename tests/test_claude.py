@@ -244,7 +244,7 @@ def test_claude_runs_with_the_session_id_as_resume_token(live, tmp_path, claude_
     assert argv[argv.index("--session-id") + 1] == done["resume_token"]
     assert argv[argv.index("--append-system-prompt") + 1] == spoken_instructions()
     assert "--bare" not in argv
-    assert argv[argv.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" in argv
+    assert argv[argv.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" not in argv
     server = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["sennet"]
     assert server["timeout"] > 60_000
     assert claude_log("cwd")[0] == project["path"]
@@ -318,7 +318,7 @@ def test_a_projects_own_configuration_loads_only_when_it_opts_in(live, tmp_path,
     assert response.json()["project_config"] is True
     wait_for(live, task(live, project, "hi again")["id"], settled())
     default, opted_in = claude_log("argv")
-    assert default[default.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" in default
+    assert default[default.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" not in default
     assert opted_in[opted_in.index("--setting-sources") + 1] == "user,project,local"
     assert "--strict-mcp-config" not in opted_in
 

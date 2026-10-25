@@ -45,7 +45,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose
        --session-id <uuid> | --resume <uuid>
        --permission-mode <mode> --mcp-config <json>
        --permission-prompt-tool mcp__sennet__approve
-       --setting-sources user --strict-mcp-config
+       --setting-sources user
        --disallowedTools AskUserQuestion
 ```
 
@@ -98,8 +98,9 @@ Simpler, but undocumented for direct use, and it would mean impersonating the SD
 
 Without `--bare`, `claude -p` runs a project's `.claude/settings.json` hooks and connects
 its `.mcp.json` servers with no trust prompt. By default the adapter loads the user's
-own configuration only (`--setting-sources user`, `--strict-mcp-config`); a per-project
-opt-in loads the project's too. CLAUDE.md is instructions, not code, and still loads.
+own configuration only (`--setting-sources user`, which leaves out `.mcp.json` as well); a
+per-project opt-in loads the project's too. Not `--strict-mcp-config`: that would also drop the
+user's own MCP servers and their claude.ai connectors (Gmail, Calendar, Drive). CLAUDE.md is instructions, not code, and still loads.
 
 ### Mapping
 
@@ -185,8 +186,7 @@ opening the next.
 Done (42a4aca). Settings lists the agents by title, picks one for a new project (the
 first that is set up) and changes it per project; new tasks use it. The project-config
 opt-in is a checkbox, shown when the agent declares the `project_config` capability
-(Codex doesn't); turned on, `claude` gets `--setting-sources user,project,local` and
-no `--strict-mcp-config`. Schema version 4 stores it. A browser test adds a Claude Code
+(Codex doesn't); turned on, `claude` gets `--setting-sources user,project,local`. Schema version 4 stores it. A browser test adds a Claude Code
 project and follows a background report.
 
 ### 7. Docs

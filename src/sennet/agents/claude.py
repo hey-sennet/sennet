@@ -107,10 +107,10 @@ def model_args(policy: TurnPolicy, resuming: bool) -> list[str]:
 
 def config_args(policy: TurnPolicy) -> list[str]:
     """Without --bare, `claude -p` runs a project's hooks and connects its MCP servers with no trust
-    prompt, so they load only when the project opts in. CLAUDE.md is instructions, and always loads."""
-    if policy.project_config:
-        return ["--setting-sources", "user,project,local"]
-    return ["--setting-sources", "user", "--strict-mcp-config"]
+    prompt, so they load only when the project opts in. Leaving out `project` keeps out its `.mcp.json`
+    too; the user's own servers and claude.ai connectors (Gmail, Calendar…) always load, so no
+    --strict-mcp-config, which would drop those as well. CLAUDE.md is instructions, and always loads."""
+    return ["--setting-sources", "user,project,local" if policy.project_config else "user"]
 
 
 def _epoch(value) -> float | None:
