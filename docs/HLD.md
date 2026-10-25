@@ -486,8 +486,7 @@ automatically.
 7. **M6 — Packaging. Done.** Breakdown in [m6-packaging.md](m6-packaging.md). The user
    service, setup's last steps (`tailscale serve`, the service, a pairing link),
    `upgrade` and `remove-data`, notices in the wheel and in Settings → About, and release
-   CI to PyPI. Tried from a clean install with a phone paired; not released yet (it
-   waits on a repository, a PyPI name, and a Mac).
+   CI to PyPI. Released as 0.1.0 on 2026-10-25, with macOS experimental.
 8. **M7 — Conversation sessions.** Breakdown in [m7-sessions.md](m7-sessions.md). Echo and
    turn-detection measurements on real recordings, smart-turn in the product, open-mic
    conversations with continuation and barge-in, and a conversation toggle in the dock.

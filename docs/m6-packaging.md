@@ -1,7 +1,7 @@
 # M6: packaging
 
-Status: done; tried from a clean install on a laptop, with a phone paired. Not released
-yet: that waits on the open questions below. Date: 2026-10-23.
+Status: done; tried from a clean install on a laptop, with a phone paired. Released as
+0.1.0 on 2026-10-25, with the open questions below settled. Date: 2026-10-23.
 
 M6 takes Sennet from a source checkout to the one-line install in HLD §1:
 `uv tool install sennet && sennet setup`. It adds the user service, upgrade
@@ -235,6 +235,10 @@ newest Python it could (3.14, against `>=3.12`), and the speech stack worked on 
 
 ## Open questions
 
+Settled for 0.1.0 (2026-10-25): the name and repository as below, with no trademark search
+(it's free software; a conflict would be dealt with if one comes up); linger stays off by
+default; macOS is released as experimental.
+
 - **The name.** `agent-talk` was taken on PyPI by an unrelated project (an "email-like
   messaging platform for AI agents"), so the project is now Sennet: `sennet` was free on
   PyPI, TestPyPI and npm when checked (2026-10-23), and nothing else in this space uses
@@ -242,8 +246,7 @@ newest Python it could (3.14, against `>=3.12`), and the speech stack worked on 
   a USPTO and UK IPO search for SENNET in classes 9 and 42, and a domain (sennet.com,
   .dev, .io and .app are taken; getsennet.com looked free).
 - **The repository.** It will be `github.com/hey-sennet/sennet`, under a GitHub
-  organization (the `sennet` user is taken). Not created yet; CI and trusted publishing
-  need it.
+  organization (the `sennet` user is taken). Created 2026-10-25.
 - **Linger by default?** Off by default is safer, but a desktop that is left logged out
   is a common case for "talk to my machine from my phone".
 - **macOS speech.** The `cpu` extra's onnxruntime includes CoreML on macOS, but no tier

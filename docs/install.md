@@ -2,8 +2,9 @@
 
 ## Requirements
 
-- **Linux or macOS.** Linux x64 is tested most. macOS is supported, but speech runs on
-  the CPU there for now. Windows isn't supported.
+- **Linux or macOS.** Linux x64 is tested most. macOS is experimental: the tests pass
+  there, but the background service and speech haven't been tried on a real Mac yet, and
+  speech runs on the CPU. Reports are welcome. Windows isn't supported.
 - **[uv](https://docs.astral.sh/uv/).** It brings its own Python, so there's no Python,
   Node, Docker or compiler to install.
 - **At least one agent, logged in:**
@@ -122,8 +123,7 @@ first if you serve anything else.
 
 ## Install from source
 
-Sennet isn't on PyPI until the first release. Until then, or to try a change, build a
-wheel from a checkout (this needs Node 22 or later, to build the web client):
+To try a change, or an unreleased version, build a wheel from a checkout (this needs Node 22 or later, to build the web client):
 
 ```sh
 git clone https://github.com/hey-sennet/sennet.git

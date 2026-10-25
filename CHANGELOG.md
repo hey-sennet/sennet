@@ -3,9 +3,9 @@
 Notable changes in each release. Versions follow [semantic versioning](https://semver.org/);
 until 1.0, a minor version may change how things work.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-10-25)
 
-The first release.
+The first release. Linux is the tested platform; macOS is experimental.
 
 - Talk to Codex and Claude Code from a browser on your phone or desktop: push-to-talk,
   open-mic conversations with barge-in, or typing.
