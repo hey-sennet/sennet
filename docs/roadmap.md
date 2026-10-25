@@ -7,6 +7,10 @@ change. To help with one, or to suggest something, open an issue.
 
 - **Gemini CLI.** An adapter over ACP, once it can be tested on a real subscription
   ([adding an agent](adding-an-agent.md)).
+- **Background work an agent leaves running.** When an agent starts a background job (a
+  build, a test run, a server) and finishes its turn, nothing shows the job is still going
+  except reading the transcript. Mark tasks that still have background work in the task list
+  and the timeline, and later, say when it finishes, so you can come back to it.
 - **macOS speech numbers** on Apple Silicon, and GPU speech there if it helps.
 - **Safari**, on iOS and macOS: conversations and echo cancellation haven't been tested.
 - **Images in a message.** Attach a photo or screenshot from any paired device, shrunk on
@@ -16,6 +20,12 @@ change. To help with one, or to suggest something, open an issue.
 
 ## Ideas
 
+- **Carry a task on in the terminal.** Pick up a conversation started by voice in the
+  agent's own CLI at your desk: `sennet continue <task>` would open `claude --resume` or
+  `codex resume` on the task's session, in its project. Sennet already keeps each task's
+  session id to resume it. It would stop its own process first, so the two never write to
+  one session, and pick up what was said in the terminal when the task comes back. From
+  another computer, it would go over SSH to the machine Sennet runs on.
 - **A local front desk.** A small local model in front of the agents that handles what
   doesn't need them: filler and false starts, "is it done yet?", "what's it doing?",
   merging a few quick barge-ins into one message. Real requests are still forwarded word
