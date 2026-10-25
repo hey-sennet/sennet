@@ -8,13 +8,13 @@ cd "$(dirname "$0")"
 
 WORKSPACE=${WORKSPACE:-/workspace}
 DATA=${DATA:-$WORKSPACE/wakeword-data}
-# Stop the pod when the run ends, done or failed, so it doesn't bill while idle. Stopping keeps
-# /workspace; start the pod again (with zero GPUs is enough) to copy the model off.
-# STOP_POD=0 keeps it running. The pod's id and API key live in /etc/rp_environment, which
-# only interactive shells source.
+# Stop the pod when the run ends, done or failed, so it doesn't bill while idle, after
+# STOP_DELAY seconds (default 15 minutes) to copy the model off: a stopped pod restarts only on
+# its own machine, often with its GPU rented out. STOP_POD=0 keeps it running. The pod's id and
+# API key live in /etc/rp_environment, which only interactive shells source.
 [[ -f /etc/rp_environment ]] && source /etc/rp_environment
 if [[ ${STOP_POD:-1} == 1 && -n ${RUNPOD_POD_ID:-} ]] && command -v runpodctl > /dev/null; then
-    trap 'echo "Stopping pod $RUNPOD_POD_ID"; runpodctl stop pod "$RUNPOD_POD_ID"' EXIT
+    trap 'echo "Stopping pod $RUNPOD_POD_ID in ${STOP_DELAY:-900}s"; sleep "${STOP_DELAY:-900}"; runpodctl stop pod "$RUNPOD_POD_ID"' EXIT
 fi
 # Caches on the volume, so a restarted pod doesn't download it all again.
 export UV_CACHE_DIR=$WORKSPACE/.cache/uv

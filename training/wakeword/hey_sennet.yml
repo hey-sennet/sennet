@@ -17,6 +17,8 @@ custom_negative_phrases:
   - "sonnet"
   - "hey senator"
   - "hey senators"
+  - "hi senator"
+  - "okay senator"
   - "senator"
   - "hey sentence"
   - "hey sending"
@@ -35,6 +37,10 @@ custom_negative_phrases:
   - "a senate"
   - "the senate"
   - "hey"
+# Our key, read by train.py: the share of the negatives spoken from the phrases above. Left to
+# openWakeWord, each got about one clip among the ~100,000 generated sound-alikes, and the first
+# model woke to "hey senator". 0.25 is ~1,000 clips a phrase.
+custom_negative_share: 0.25
 
 # Positive clips (synthetic, LibriTTS-R voices mixed) and the same number of adversarial ones.
 # openWakeWord suggests 20,000 at least and 100,000+ for the best results.
