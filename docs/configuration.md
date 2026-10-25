@@ -28,7 +28,7 @@ enabled = true          # false: typed tasks only
 device = "auto"         # auto | cpu | cuda; setup sets it
 threads = 4             # CPU threads per speech model; more is often slower on hybrid CPUs
 voice = "af_heart"      # the voice replies are read in; setup plays each one
-wake_word = ""          # hey_jarvis | hey_mycroft | hey_rhasspy | alexa, or "" for none; setup sets it
+wake_word = ""          # hey_sennet | hey_jarvis | hey_mycroft | hey_rhasspy | alexa, or "" for none; setup sets it
 
 [agents.commands]       # only to run an agent's CLI some other way than the default
 # codex = ["codex", "app-server"]

@@ -6,18 +6,25 @@ loads directly.
 
 The web client runs openWakeWord in the browser (frontend/src/voice/wakeword.ts). `sennet setup`
 downloads its models, and the phrase you choose (`speech.wake_word`), into
-`~/.local/share/sennet/models/openwakeword-v0.5.1/`, pinned and
-checksummed in src/sennet/speech/models.py, with openWakeWord's pre-trained phrases to choose from
-until a trained model ships with setup (they're CC BY-NC-SA, so they're never committed or
-packaged). To try a trained model, copy it there under a versioned name and link `wakeword.onnx` to
-it; the server prefers it, reads it on each request (no restart; reload the page), and takes the
-phrase from the name without its version (`_v2`):
+`~/.local/share/sennet/models/openwakeword-v0.5.1/`, pinned and checksummed in
+src/sennet/speech/models.py. "hey sennet" is the first phrase it offers, published on
+[Hugging Face](https://huggingface.co/hey-sennet/wakeword), beside openWakeWord's pre-trained ones.
+Like theirs, it's CC BY-NC-SA, so it's never committed or packaged.
+
+To try a newly trained model before publishing it, copy it there under a versioned name and link
+`wakeword.onnx` to it; the server prefers it over the phrase setup chose, reads it on each request
+(no restart; reload the page), and takes the phrase from the name without its version (`_v3`):
 
 ```sh
-cp hey_sennet.onnx ~/.local/share/sennet/models/openwakeword-v0.5.1/hey_sennet_v2.onnx
+cp hey_sennet.onnx ~/.local/share/sennet/models/openwakeword-v0.5.1/hey_sennet_v3.onnx
 cd ~/.local/share/sennet/models/openwakeword-v0.5.1
-ln -sfn hey_sennet_v2.onnx wakeword.onnx    # back: ln -sfn hey_sennet_v1.onnx wakeword.onnx
+ln -sfn hey_sennet_v3.onnx wakeword.onnx    # back to setup's choice: rm wakeword.onnx
 ```
+
+To publish it, upload it to the Hugging Face repo under its versioned name (keep the old ones, so
+older installs still download), then in `WAKE_WORDS` change the `hey_sennet` entry's name, sha256
+and size (`sha256sum`, `stat -c %s`) and `HEY_SENNET_REVISION` to the new commit. Re-running
+`sennet setup` downloads it.
 
 `sennet doctor` shows which model the wake word is using.
 

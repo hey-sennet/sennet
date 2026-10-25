@@ -80,6 +80,12 @@ Speech
     ("hey jarvis", "hey mycroft", "hey rhasspy", "alexa") are CC-BY-NC-SA-4.0, for
     non-commercial use only. `sennet setup` downloads the one you choose, if any; it runs in the
     browser.
+  "hey sennet" wake word model
+    Trained for Sennet with openWakeWord's training code (training/wakeword), on clips from
+    piper-sample-generator's LibriTTS-R voice and openWakeWord's ACAV100M, AudioSet and FMA
+    negatives. License: CC-BY-NC-SA-4.0, for non-commercial use only, as openWakeWord's own
+    phrases are. Model from https://huggingface.co/hey-sennet/wakeword; `sennet setup`
+    downloads it if you choose it.
     frontend/src/voice/wakeword.ts follows openWakeWord's streaming feature code (Apache-2.0).
   ONNX Runtime Web 1.30.0 WebAssembly
     Copyright Microsoft Corporation (https://github.com/microsoft/onnxruntime). License: MIT.

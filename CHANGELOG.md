@@ -11,7 +11,8 @@ The first release.
   open-mic conversations with barge-in, or typing.
 - Local speech: Parakeet speech recognition with live captions, smart-turn end-of-turn
   detection, and Kokoro voices, on CPU or an NVIDIA GPU.
-- An optional wake word, from openWakeWord's pre-trained phrases.
+- An optional wake word: "hey sennet", trained for Sennet, or one of openWakeWord's
+  pre-trained phrases.
 - Projects, tasks with follow-ups, and up to three running at once.
 - Approvals with a chime and a card: ask, auto, never or classifier modes, read-only,
   project or full access, and remembered "always" rules.

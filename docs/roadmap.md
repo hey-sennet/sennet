@@ -7,8 +7,6 @@ change. To help with one, or to suggest something, open an issue.
 
 - **Gemini CLI.** An adapter over ACP, once it can be tested on a real subscription
   ([adding an agent](adding-an-agent.md)).
-- **A "hey sennet" wake word**, trained for the project and free to ship, replacing the
-  pre-trained phrases, which are for non-commercial use only (`training/wakeword`).
 - **macOS speech numbers** on Apple Silicon, and GPU speech there if it helps.
 - **Safari**, on iOS and macOS: conversations and echo cancellation haven't been tested.
 - **Images in a message.** Attach a photo or screenshot from any paired device, shrunk on

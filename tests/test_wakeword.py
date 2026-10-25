@@ -118,6 +118,12 @@ def test_the_shared_models_are_apache_and_each_phrase_is_non_commercial():
         assert model.licence == "CC-BY-NC-SA-4.0" and model.id == models.OPENWAKEWORD.id and len(model.files) == 1
 
 
+def test_hey_sennet_is_offered_first_from_our_own_repo():
+    name, model = next(iter(models.WAKE_WORDS.items()))
+    assert name == "hey_sennet" and models.wake_phrase(Path(model.files[0].name)) == "hey sennet"
+    assert model.files[0].url.startswith(models.HEY_SENNET_URL)
+
+
 def lay_out(paths, *chosen):
     """Placeholder files at their pinned sizes, sparse, so the gigabyte models cost nothing."""
     for model in chosen:

@@ -37,8 +37,8 @@ It goes through:
    GPU. It then checks that speech recognition hears its own voice.
 2. **The voice.** It plays each voice you pick, so you can choose by ear.
 3. **A wake word** (optional). A phrase that starts a conversation without touching the
-   screen. The phrases on offer are openWakeWord's pre-trained ones, which are for
-   non-commercial use only, so setup says so and never picks one for you.
+   screen: "hey sennet", trained for Sennet, or one of openWakeWord's pre-trained phrases.
+   All of them are for non-commercial use only, so setup says so and never picks one for you.
 4. **The phone address.** If Tailscale is running, setup finds this computer's HTTPS
    address and offers to run `tailscale serve` for it. See
    [Reach Sennet from your phone](hosting.md).

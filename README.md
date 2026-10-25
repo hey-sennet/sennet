@@ -72,5 +72,5 @@ stop using. To report a vulnerability, see [SECURITY.md](https://github.com/hey-
 
 Sennet's own code is [Apache-2.0](https://github.com/hey-sennet/sennet/blob/main/LICENSE). Its speech dependencies include phonemizer and
 espeak-ng, which are GPL-3, so an install that bundles Sennet with them is GPL-3. The
-speech models carry their own licences, and the optional pre-trained wake words are for
+speech models carry their own licences, and the optional wake words are for
 non-commercial use only. All of it is listed in [NOTICES](https://github.com/hey-sennet/sennet/blob/main/NOTICES).

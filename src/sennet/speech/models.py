@@ -18,6 +18,9 @@ PARAKEET_URL = f"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/reso
 KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 SMART_TURN_REVISION = "f766f81d3cfdf7737ac64aad813d91bbfd56bf93"
 OPENWAKEWORD_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/"
+# Our own "hey sennet" (training/wakeword).
+HEY_SENNET_REVISION = "47166353ece5eff7333d3affcb7bda8293d17ed4"
+HEY_SENNET_URL = f"https://huggingface.co/hey-sennet/wakeword/resolve/{HEY_SENNET_REVISION}/"
 # The browser's ONNX runtime: must be the onnxruntime-web version the client is built with
 # (frontend/package.json pins it; tests/test_wakeword.py checks the two agree).
 ORT_WEB_VERSION = "1.30.0"
@@ -100,16 +103,17 @@ OPENWAKEWORD = Model("openwakeword-v0.5.1", "wake", "Apache-2.0", (
 ))
 
 
-def _wake_word(name: str, sha256: str, size: int) -> Model:
-    """One of openWakeWord's pre-trained phrases, beside the shared models. They're CC-BY-NC-SA-4.0
-    (trained on data with restrictive licences), so setup only fetches the one asked for."""
+def _wake_word(name: str, sha256: str, size: int, url: str = OPENWAKEWORD_URL) -> Model:
+    """A pre-trained phrase, beside the shared models. They're CC-BY-NC-SA-4.0 (trained on data
+    with restrictive licences, ours as much as openWakeWord's), so setup only fetches the one asked for."""
     return Model(OPENWAKEWORD.id, "wake_word", "CC-BY-NC-SA-4.0",
-                 (ModelFile(f"{name}.onnx", f"{OPENWAKEWORD_URL}{name}.onnx", sha256, size),))
+                 (ModelFile(f"{name}.onnx", f"{url}{name}.onnx", sha256, size),))
 
 
-# The phrases setup offers, the first preselected. "hey sennet" goes first once it's trained
-# (training/wakeword) and published.
+# The phrases setup offers, the first preselected.
 WAKE_WORDS = {
+    "hey_sennet": _wake_word("hey_sennet_v2", "192922bab5f3cef842055c40697647959504e86d9268661cd33143810058fbb8", 205430,
+                             HEY_SENNET_URL),
     "hey_jarvis": _wake_word("hey_jarvis_v0.1", "94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb", 1271370),
     "hey_mycroft": _wake_word("hey_mycroft_v0.1", "c2a311e8fa1338de89c31b3b46dc4dffd4af2f9a8d6ddead48893c2d301b1f18", 857691),
     "hey_rhasspy": _wake_word("hey_rhasspy_v0.1", "5a9b3ed3be2910e35780e097905aa9f35a9c10038df47914cf2b3ec4d670f6ea", 204081),
