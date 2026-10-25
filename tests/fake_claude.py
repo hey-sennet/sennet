@@ -60,9 +60,16 @@ if "--mcp-config" not in args:  # asked for the limits
                 "seven_day_opus": None}}}}), flush=True)
     sys.exit(0)
 
-log({"argv": args, "cwd": os.getcwd()})
 session_id = option("--session-id") or option("--resume")
-mcp_url = json.loads(option("--mcp-config"))["mcpServers"]["sennet"]["url"]
+mcp_config = option("--mcp-config")  # a JSON string, or (as Sennet passes it) a path to one
+# The real file is 0600 and gone once the session closes, so log its mode and contents now.
+mcp_mode = oct(os.stat(mcp_config).st_mode & 0o777) if os.path.isfile(mcp_config) else None
+if os.path.isfile(mcp_config):
+    with open(mcp_config) as config:
+        mcp_config = config.read()
+sennet_server = json.loads(mcp_config)["mcpServers"]["sennet"]
+log({"argv": args, "cwd": os.getcwd(), "mcp_server": sennet_server, "mcp_mode": mcp_mode})
+mcp_url = sennet_server["url"]
 rpc_ids = itertools.count(1)
 
 

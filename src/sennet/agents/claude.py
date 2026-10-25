@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import signal
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -210,6 +211,7 @@ class ClaudeSession:
         self.resume_token = ""          # the Claude Code session id
         self.process: asyncio.subprocess.Process | None = None
         self.registration: Registration | None = None
+        self.mcp_config: Path | None = None  # the callback secret lives in this 0600 file, not on argv
         self.reader: asyncio.Task | None = None
         self.stderr: asyncio.Task | None = None
         self.unstarted = 0              # messages sent whose turn hasn't opened
@@ -234,10 +236,16 @@ class ClaudeSession:
         self.resume_token = token or str(uuid.uuid4())
         self.registration = self.callbacks.register([APPROVE_TOOL], self._tool)
         server = {"type": "http", "url": self.registration.url, "timeout": APPROVAL_TIMEOUT_MS}
+        # The URL carries the session secret. On argv it would be world-readable from /proc on a
+        # shared machine; a 0600 file (mkstemp's default mode) keeps it to this user. close() removes it.
+        handle, path = tempfile.mkstemp(prefix="sennet-mcp-", suffix=".json")
+        self.mcp_config = Path(path)
+        with os.fdopen(handle, "w") as config:
+            json.dump({"mcpServers": {"sennet": server}}, config)
         args = [*command, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages", "--append-system-prompt", INSTRUCTIONS,
                 *(["--resume", token] if token else ["--session-id", self.resume_token]),
-                *model_args(policy, bool(token)), *config_args(policy), "--mcp-config", json.dumps({"mcpServers": {"sennet": server}}),
+                *model_args(policy, bool(token)), *config_args(policy), "--mcp-config", str(self.mcp_config),
                 "--permission-prompt-tool", PROMPT_TOOL, *permission_args(policy, self.cwd)]
         try:
             # Its own session: a Ctrl-C meant for the daemon doesn't reach it, and closing it can stop
@@ -247,6 +255,7 @@ class ClaudeSession:
                 stderr=asyncio.subprocess.PIPE, limit=STREAM_LIMIT, start_new_session=True)
         except BaseException:
             await self.callbacks.unregister(self.registration)
+            self._remove_mcp_config()
             raise
         self.reader = asyncio.create_task(self._read())
         self.stderr = asyncio.create_task(self._drain_stderr())
@@ -265,9 +274,15 @@ class ClaudeSession:
             self.interrupting = self.interrupted = True
             self.process.send_signal(signal.SIGINT)
 
+    def _remove_mcp_config(self):
+        if self.mcp_config:
+            self.mcp_config.unlink(missing_ok=True)
+            self.mcp_config = None
+
     async def close(self):
         if self.registration:
             await self.callbacks.unregister(self.registration)
+        self._remove_mcp_config()
         if self.process and self.process.returncode is None:
             if self.process.stdin:
                 self.process.stdin.close()

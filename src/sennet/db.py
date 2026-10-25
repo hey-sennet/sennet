@@ -6,6 +6,7 @@ of a word matches), kept in step by triggers, including when a task's rows are d
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -139,6 +140,10 @@ _V2_TURN_STATUS = {"interrupted": "cancelled"}
 class Database:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Device token hashes and every task's transcript live here: keep it to this user, like
+        # push-key.pem. chmod the file we open (new or existing); WAL's sidecars are handled below.
+        path.touch(mode=0o600, exist_ok=True)
+        os.chmod(path, 0o600)
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -150,6 +155,9 @@ class Database:
             self.conn.execute("INSERT INTO search_messages (rowid, text) SELECT id, text FROM task_messages")
             self.conn.execute("INSERT INTO search_titles (rowid, title) SELECT id, title FROM tasks")
         self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        for sidecar in (path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
+            if sidecar.exists():
+                os.chmod(sidecar, 0o600)
         self.lock = threading.Lock()
 
     def _migrate(self) -> int | None:

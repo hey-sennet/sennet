@@ -1,5 +1,6 @@
 """Paired devices: pairing codes, the device check on every request and socket, and revoking."""
 import sqlite3
+import stat
 import time
 
 import pytest
@@ -223,6 +224,21 @@ def test_a_database_from_before_pairing_gains_the_tables(paths):
     assert db.devices() == []
     assert db.conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert "aliases" not in [row[1] for row in db.conn.execute("PRAGMA table_info(projects)")]
+    db.close()
+
+
+def test_the_database_is_private_to_this_user(paths):
+    """It holds device token hashes and every task's transcript, so keep others out of it even
+    when the home directory doesn't, as push-key.pem does."""
+    paths.data_dir.mkdir(parents=True)
+    sqlite3.connect(paths.database).close()         # a world-readable file from before the fix
+    paths.database.chmod(0o644)
+    db = Database(paths.database)
+    db.conn.execute("CREATE TABLE t (x)")           # force the WAL sidecars into existence
+    for name in (paths.database.name, paths.database.name + "-wal", paths.database.name + "-shm"):
+        file = paths.database.with_name(name)
+        if file.exists():
+            assert stat.S_IMODE(file.stat().st_mode) & 0o077 == 0, name
     db.close()
 
 

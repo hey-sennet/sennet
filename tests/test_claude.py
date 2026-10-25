@@ -245,7 +245,10 @@ def test_claude_runs_with_the_session_id_as_resume_token(live, tmp_path, claude_
     assert argv[argv.index("--append-system-prompt") + 1] == spoken_instructions()
     assert "--bare" not in argv
     assert argv[argv.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" not in argv
-    server = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["sennet"]
+    # The callback secret goes in a 0600 file, not on argv where /proc would leak it.
+    assert argv[argv.index("--mcp-config") + 1].endswith(".json")
+    assert claude_log("mcp_mode")[0] == "0o600"
+    server = claude_log("mcp_server")[0]
     assert server["timeout"] > 60_000
     assert claude_log("cwd")[0] == project["path"]
 

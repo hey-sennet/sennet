@@ -15,8 +15,10 @@ A page says on its events socket while it is showing (`{"type": "showing", "show
 so its device isn't sent push notifications meanwhile (push.py).
 
 `/mcp/<secret>` is for agent CLIs on this machine, not browsers: it answers only
-local requests without an Origin, and only a live agent session's secret
-(agents.callbacks).
+a direct loopback request, without an Origin or any proxy's forwarding header, and
+only a live agent session's secret (agents.callbacks). A reverse proxy in front of
+Sennet makes every request look local, so the forwarding header, not the client
+address, is what keeps a proxied (or public) deployment from exposing the callback.
 """
 from __future__ import annotations
 
@@ -62,6 +64,9 @@ EARLIER = 10                    # finished tasks the page starts with; "Show mor
 SWEEP_S = 30                    # how often open sockets are checked for devices revoked elsewhere
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 OPEN = ("/api/pair", "/api/health")    # the API paths an unpaired device may use
+# A genuine on-machine agent calls back over loopback; a reverse proxy (tailscale serve, nginx,
+# Funnel) always stamps one of these, and behind one every request looks like it came from 127.0.0.1.
+FORWARDED = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "x-real-ip")
 IMMUTABLE = "public, max-age=31536000, immutable"  # built assets have hashed names
 mimetypes.add_type("application/octet-stream", ".onnx")  # the wake word's models (not text/plain)
 
@@ -560,8 +565,13 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     @app.post("/mcp/{secret}", include_in_schema=False)
     async def mcp(secret: str, request: Request):
+        # client.host is 127.0.0.1 for a local agent *and* for anything a proxy forwards on, so it
+        # can't tell them apart on its own: a forwarding header means a proxy relayed this, which an
+        # agent's direct loopback call never does. Without this, a proxied (even public) deployment
+        # would expose the callback to the whole network, guarded only by the per-session secret.
         local = request.client and request.client.host in ("127.0.0.1", "::1", settings.server.host)
-        if not local or request.headers.get("origin"):
+        proxied = any(header in request.headers for header in FORWARDED)
+        if not local or proxied or request.headers.get("origin"):
             raise HTTPException(403, "only agents on this machine may call back")
         try:
             message = await request.json()

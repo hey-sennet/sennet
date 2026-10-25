@@ -63,6 +63,18 @@ def test_browsers_and_other_machines_are_refused(settings, paths, local):
         assert rpc(remote, remote_url, "tools/list").status_code == 403
 
 
+def test_a_proxied_request_is_refused_even_though_it_looks_local(local):
+    """Behind a reverse proxy every request comes from 127.0.0.1; a forwarding header gives it away,
+    so the callback isn't exposed to the network just because something is proxying the web app."""
+    async def call(name, arguments):
+        return ""
+
+    url = "/mcp/" + register(local, call).secret
+    for header in ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "X-Real-IP"):
+        assert rpc(local, url, "tools/list", headers={header: "203.0.113.7"}).status_code == 403
+    assert rpc(local, url, "tools/list").status_code == 200  # a direct loopback call still works
+
+
 def test_a_call_waits_for_its_answer_and_ends_with_the_session(local):
     started = threading.Event()
 
