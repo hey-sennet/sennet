@@ -105,6 +105,7 @@
    amber for anything that needs the user. The client is always dark; html keeps the .dark
    class so the components' dark: variants apply. */
 :root {
+    color-scheme: dark; /* dark only, on purpose: design/README.md */
     --ink: #efe8da;
     --background: #100f0d;
     --foreground: var(--ink);

@@ -26,6 +26,10 @@ How it moves:
   through the surface. The voice drives the drift: patches creep at rest (`SHADE_REST`) and
   surge with loudness (`SHADE_VOICE`). The field fades out towards the rim so the disc keeps
   its clean circular edge. `SHADE` sets how dim the dimmest patches get.
+- **Dark only.** Sennet doesn't follow the device's light setting, on purpose: the disc is
+  light drawn on dark, and a light page would dim it to grey lines on white; it's often
+  glanced at in a dark room or beside a terminal. The page declares `color-scheme: dark`, so
+  the browser's own controls and scrollbars match.
 - **Colour per speaker.** Your voice is cream; the agent, thinking or speaking, is glacier blue (`--agent`);
   approvals are amber. At rest the mound breathes slowly.
 - **Thinking.** Rings spread from the centre like a drop in still water, fading as they widen.

@@ -39,6 +39,8 @@ until 1.0, a minor version may change how things work.
 - An approval under the disc names the task asking, now that two in one project can
   both be working; tapping it opens the task.
 - Screenshots in the README.
+- The page declares itself dark, so the browser's own controls and scrollbars match.
+  Dark only is a decision, not a gap: see design/README.md.
 
 ## 0.1.0 (2026-10-25)
 
