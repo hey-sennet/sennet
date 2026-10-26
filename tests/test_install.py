@@ -41,7 +41,7 @@ class Service:
 class Ran:
     """Stands in for subprocess.run in install.py: records commands, and plays the new version."""
 
-    def __init__(self, monkeypatch, new_version="0.2.0", upgrade_code=0):
+    def __init__(self, monkeypatch, new_version="99.0.0", upgrade_code=0):
         self.calls = []
         self.new_version, self.upgrade_code = new_version, upgrade_code
         monkeypatch.setattr(install.subprocess, "run", self.run)
@@ -88,7 +88,7 @@ def test_upgrade_restarts_a_running_service_with_the_new_version(uv_tool, monkey
     assert install.upgrade(paths, 7710, False) == 0
     assert ran.calls[0] == ["uv", "tool", "upgrade", "sennet"]
     assert ran.calls[-1] == ["/tools/sennet/bin/sennet", "service", "restart"]
-    assert f"from {__version__} to 0.2.0" in capsys.readouterr().out
+    assert f"from {__version__} to 99.0.0" in capsys.readouterr().out
 
 
 def test_upgrade_without_a_service_says_to_restart(uv_tool, monkeypatch, paths, capsys):

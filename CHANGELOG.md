@@ -3,7 +3,7 @@
 Notable changes in each release. Versions follow [semantic versioning](https://semver.org/);
 until 1.0, a minor version may change how things work.
 
-## Unreleased
+## 0.2.0 (2026-10-26)
 
 - Images in a message: take a photo in Sennet, choose images, or paste or drop one, and
   they go with the next thing you say or type, to Codex or Claude Code. They're shrunk on
