@@ -39,6 +39,13 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   const stage = page.getByRole('main')
   await expect(stage.getByText(`${name} wants to run a command`)).toBeVisible()
   await chimed
+  // Tasks in one project run side by side, so it says which task asks, and that opens it.
+  const asking = stage.getByRole('button', { name: 'run:npm test' })
+  await expect(asking).toBeVisible()
+  if (info.project.name === 'desktop') {
+    await asking.click()
+    await expect(page.getByRole('complementary', { name: 'Task', exact: true }).getByText('Wants to')).toBeVisible()
+  }
   await page.screenshot({ path: `test-results/${info.project.name}-approval.png` })
   await stage.getByRole('button', { name: 'Approve', exact: true }).click()
   await expect(stage.getByText('Ran it.')).toBeVisible()

@@ -36,6 +36,8 @@ until 1.0, a minor version may change how things work.
   shifted inside it.
 - With notifications blocked for Sennet, "Notify this device" can't be ticked, and the
   note says where to allow them; allowing them shows at once.
+- An approval under the disc names the task asking, now that two in one project can
+  both be working; tapping it opens the task.
 
 ## 0.1.0 (2026-10-25)
 

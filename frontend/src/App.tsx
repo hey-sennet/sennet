@@ -318,6 +318,7 @@ export default function App() {
         model={modelMenu}
         limit={limit}
         onSelectTask={select}
+        onOpenTask={openTask}
         onAddProject={() => setSettingsOpen(true)}
         className="lg:col-start-2 lg:row-start-2"
       />

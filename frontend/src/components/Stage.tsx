@@ -22,7 +22,7 @@ const voiceSources = { user: voice().source, agent: voice().playback.source }
  * goes to the selected task, or starts a new one in `project`. Beneath it, in order: what is
  * being said, an approval waiting on you, then the selected task's progress or last reply.
  */
-export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, discless, model, limit, onSelectTask, onAddProject, className }: {
+export function Stage({ target, project, task, detail, approvals, elsewhere, tasks, projects, compact, discless, model, limit, onSelectTask, onOpenTask, onAddProject, className }: {
   target: Target
   project?: Project
   task?: Task
@@ -36,6 +36,7 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
   model?: Omit<ComponentProps<typeof ModelMenu>, 'className'> // who your words go to, with where
   limit?: { line: string; reached: boolean } // the agent's usage limit, once close to it or reached
   onSelectTask: (id: number) => void // makes it the one this device asks about
+  onOpenTask: (id: number) => void // selects it and shows its timeline
   onAddProject: () => void
   className?: string
 }) {
@@ -78,7 +79,8 @@ export function Stage({ target, project, task, detail, approvals, elsewhere, tas
   if (words) {
     body = <Caption committed={words.committed} provisional={words.provisional} speaker={words.speaker} />
   } else if (approval) {
-    body = <StageApproval key={approval.id} approval={approval} project={projectOf(approval.task_id)} />
+    body = <StageApproval key={approval.id} approval={approval} project={projectOf(approval.task_id)}
+      task={tasks.find((t) => t.id === approval.task_id)} onOpenTask={() => onOpenTask(approval.task_id)} />
   } else if (!projects.length) {
     body = (
       <div>
@@ -176,12 +178,19 @@ function Lead({ children, quiet, agent, className }: { children: ReactNode; quie
 }
 
 /** The oldest approval waiting on you. */
-function StageApproval({ approval, project }: { approval: Approval; project?: Project }) {
+function StageApproval({ approval, project, task, onOpenTask }: { approval: Approval; project?: Project; task?: Task; onOpenTask: () => void }) {
   const { busy, decide } = useDecide(approval)
   const shown = approval.kind === 'command' ? approval.detail.command : approval.kind === 'tool' ? approval.detail.tool : null
   const destructive = approval.risk === 'destructive'
   return (
     <div className="animate-word-in">
+      {/* Tasks in one project run side by side, so the project alone doesn't say which one asks. */}
+      {task && (
+        <button type="button" className="mb-2 block max-w-full truncate font-sans text-[13px] text-muted-foreground hover:text-foreground"
+          onClick={onOpenTask}>
+          {task.title}
+        </button>
+      )}
       <p className="line-clamp-3 font-serif text-[clamp(26px,6vw,34px)] leading-[1.18] tracking-[-0.01em] text-balance">
         {/* The command is in the box below; repeated here, a long one pushes the buttons away. */}
         {project?.name ?? 'The agent'} wants to {approval.kind === 'command' ? 'run a command' : approval.summary}
