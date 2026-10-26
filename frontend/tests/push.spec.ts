@@ -51,6 +51,21 @@ test('turn notifications on for this device, choose what notifies, and turn them
   expect(await stored()).toBeNull()
 })
 
+test('notifications blocked for the site can\'t be turned on, and it says how to allow them', async ({ page }) => {
+  await page.request.delete('/api/push', { headers })
+  await page.addInitScript(() => {
+    const query = navigator.permissions.query.bind(navigator.permissions)
+    navigator.permissions.query = async (descriptor) =>
+      descriptor.name === 'notifications' ? ({ state: 'denied', addEventListener() {}, removeEventListener() {} } as unknown as PermissionStatus) : query(descriptor)
+  })
+  await page.goto('/')
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Notify this device')).toBeDisabled()
+  await expect(dialog.getByText(/blocked for this site\. Allow them in its site settings/)).toBeVisible()
+})
+
 test("a notification's link opens its task", async ({ page }, info) => {
   const name = `push-${info.project.name}`
   mkdirSync(path.join(home, name), { recursive: true })

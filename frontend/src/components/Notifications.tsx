@@ -12,12 +12,38 @@ const LABELS: Record<PushKind, string> = {
 
 const failed = (error: unknown, fallback: string) => toast.error(error instanceof Error ? error.message : fallback)
 
+/**
+ * Whether notifications are blocked for Sennet, kept current: allowing them in the site settings
+ * shows here without reopening Settings.
+ */
+function useBlocked() {
+  const [blocked, setBlocked] = useState(() => typeof Notification !== 'undefined' && Notification.permission === 'denied')
+  useEffect(() => {
+    let status: PermissionStatus | undefined
+    let gone = false
+    const update = () => setBlocked(status?.state === 'denied')
+    // Not Notification.permission alone: headless Chromium says denied there even when it's been granted.
+    navigator.permissions?.query({ name: 'notifications' }).then((result) => {
+      if (gone) return
+      status = result
+      update()
+      result.addEventListener('change', update)
+    }, () => {})
+    return () => {
+      gone = true
+      status?.removeEventListener('change', update)
+    }
+  }, [])
+  return blocked
+}
+
 /** Settings' push notifications for this device: on or off, and what notifies. */
 export function Notifications() {
   const [support] = useState(pushSupport)
   // undefined while checking; null when off
   const [kinds, setKinds] = useState<PushKind[] | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const blocked = useBlocked()
 
   useEffect(() => {
     if (support === 'supported') pushChoice().then(setKinds, () => setKinds(null))
@@ -54,16 +80,21 @@ export function Notifications() {
     return run(() => choosePush(next), 'Could not change what notifies')
   }
 
+  const installed = matchMedia('(display-mode: standalone)').matches
+
   return (
     <div className="flex flex-col gap-3 text-sm">
       <label className="flex items-start gap-2">
-        <input type="checkbox" className="mt-1" checked={kinds !== null} disabled={busy}
+        {/* Blocked can't be turned on from here, but a subscription made before it was blocked can still be turned off. */}
+        <input type="checkbox" className="mt-1" checked={kinds !== null} disabled={busy || (blocked && kinds === null)}
           onChange={(event) => toggle(event.target.checked)} />
         <span>
           Notify this device
           <span className="block text-xs text-muted-foreground">
             While Sennet isn't showing here. Tapping one opens its task.
-            {Notification.permission === 'denied' && ' Notifications are blocked for this site in the browser\'s settings.'}
+            {blocked && (installed
+              ? ' Notifications are blocked for Sennet. Allow them in its app info (long-press its icon), then turn them on here.'
+              : ' Notifications are blocked for this site. Allow them in its site settings (the icon left of the address), then turn them on here.')}
           </span>
         </span>
       </label>

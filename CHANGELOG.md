@@ -34,6 +34,8 @@ until 1.0, a minor version may change how things work.
 - Long task titles end in an ellipsis; they were cut mid-letter.
 - The dock's keyboard button showed only part of its circle, and after typing could sit
   shifted inside it.
+- With notifications blocked for Sennet, "Notify this device" can't be ticked, and the
+  note says where to allow them; allowing them shows at once.
 
 ## 0.1.0 (2026-10-25)
 
