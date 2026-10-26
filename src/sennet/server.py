@@ -44,7 +44,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from . import __version__, access, projects
-from .attachments import MAX_BYTES, AttachmentError, Attachments
+from .attachments import MAX_BYTES, THUMBNAIL_MAX_BYTES, AttachmentError, Attachments
 from .push import KINDS, Push, keys_valid as push_keys_valid
 from .aio import settle
 from .agents import registry
@@ -444,17 +444,36 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.post("/api/attachments", status_code=201)
     async def upload(request: Request):
         """An image for a message to come, as the request's body: its id goes in the message."""
-        data = bytearray()
-        async for chunk in request.stream():
-            data += chunk
-            if len(data) > MAX_BYTES:
-                raise HTTPException(413, f"that image is over {MAX_BYTES // (1024 * 1024)} MB")
+        data = await body(request, MAX_BYTES)
         try:
-            attachment = await asyncio.to_thread(request.app.state.attachments.add, bytes(data),
+            attachment = await asyncio.to_thread(request.app.state.attachments.add, data,
                                                  request.state.device["id"])
         except AttachmentError as error:
             raise HTTPException(400, str(error))
-        return {key: attachment[key] for key in ("id", "media_type", "width", "height")}
+        return _shown(attachment)
+
+    async def body(request: Request, limit: int) -> bytes:
+        """The request's body, refused once it passes `limit` rather than read to its end."""
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > limit:
+                raise HTTPException(413, f"that image is over {limit // 1024} KB" if limit < 1024 * 1024
+                                    else f"that image is over {limit // (1024 * 1024)} MB")
+        return bytes(data)
+
+    @app.put("/api/attachments/{attachment_id}/thumbnail")
+    async def upload_thumbnail(attachment_id: int, request: Request):
+        """A small copy of an unsent image, for the timeline to show instead of the whole image."""
+        found = db(request).attachment(attachment_id)
+        if found is None:
+            raise HTTPException(404, "no such image")
+        data = await body(request, THUMBNAIL_MAX_BYTES)
+        try:
+            updated = await asyncio.to_thread(request.app.state.attachments.add_thumbnail, found, data)
+        except AttachmentError as error:
+            raise HTTPException(409 if "already sent" in str(error) else 400, str(error))
+        return _shown(updated)
 
     @app.get("/api/attachments/{attachment_id}")
     async def attachment(attachment_id: int, request: Request):
@@ -462,9 +481,15 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         path = found and request.app.state.attachments.path(found)
         if found is None or not path.is_file():
             raise HTTPException(404, "no such image")
-        # An image never changes under its id. Private: it is only for paired devices.
-        return FileResponse(path, media_type=found["media_type"],
-                            headers={"Cache-Control": "private, max-age=31536000, immutable"})
+        return _image(path, found["media_type"])
+
+    @app.get("/api/attachments/{attachment_id}/thumbnail")
+    async def thumbnail(attachment_id: int, request: Request):
+        found = db(request).attachment(attachment_id)
+        path = found and request.app.state.attachments.thumbnail_path(found)
+        if path is None or not path.is_file():
+            raise HTTPException(404, "that image has no thumbnail")
+        return _image(path, found["thumbnail"])
 
     @app.delete("/api/attachments/{attachment_id}", status_code=204)
     async def remove_attachment(attachment_id: int, request: Request):
@@ -668,6 +693,17 @@ def _built(file: Path, request: Request, cache: str) -> Response:
     if etag in [tag.strip().removeprefix("W/") for tag in request.headers.get("if-none-match", "").split(",")]:
         return Response(status_code=304, headers={**headers, "ETag": etag})
     return response
+
+
+def _shown(attachment: dict) -> dict:
+    """An image as a client sees it: what `task_messages` lists for each of a message's images."""
+    return {key: attachment[key] for key in ("id", "media_type", "width", "height", "thumbnail")}
+
+
+def _image(path: Path, media_type: str) -> Response:
+    # An image never changes under its url (a thumbnail is set before its image is sent, and the
+    # client asks for it only after). Private: it is only for paired devices.
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 def _secured(response: Response, request: Request) -> Response:

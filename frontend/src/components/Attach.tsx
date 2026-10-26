@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Popover } from '@base-ui/react/popover'
-import { Camera as CameraIcon, ImagePlus, Images, X } from 'lucide-react'
+import { Camera as CameraIcon, ImagePlus, Images, RotateCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { addImages, tray, useTray } from '@/lib/tray'
 import { cn } from '@/lib/utils'
@@ -76,11 +76,20 @@ export function TrayStrip({ typing }: { typing: boolean }) {
           <ul className="flex max-w-full gap-2 overflow-x-auto px-1 pt-1.5 pb-1 [scrollbar-width:none]">
             {shown.map((item) => (
               <li key={item.key} className="relative shrink-0">
-                <img src={item.preview} alt="" title={item.error}
-                  className={cn('size-14 rounded-xl border object-cover transition-[opacity,box-shadow] duration-300',
-                    item.state === 'uploading' && 'animate-pulse opacity-60',
-                    item.state === 'failed' && 'border-destructive opacity-50',
-                    going && item.state === 'ready' && 'ring-2 ring-foreground ring-offset-2 ring-offset-background')} />
+                {/* Its thumbnail, once made; a placeholder for the moment before. */}
+                {item.preview
+                  ? <img src={item.preview} alt="" title={item.error}
+                      className={cn('size-14 rounded-xl border object-cover transition-[opacity,box-shadow] duration-300',
+                        item.state === 'uploading' && 'animate-pulse opacity-60',
+                        item.state === 'failed' && 'border-destructive opacity-50',
+                        going && item.state === 'ready' && 'ring-2 ring-foreground ring-offset-2 ring-offset-background')} />
+                  : <span aria-hidden className={cn('block size-14 rounded-xl border bg-secondary', item.state === 'failed' ? 'border-destructive' : 'animate-pulse')} />}
+                {item.state === 'failed' && item.retry && (
+                  <button type="button" aria-label="Try adding this image again" title={item.error} onClick={() => tray().retry(item.key)}
+                    className="absolute inset-0 grid place-items-center rounded-xl text-foreground [&_svg]:size-5">
+                    <RotateCw />
+                  </button>
+                )}
                 <button type="button" aria-label="Take this image out" onClick={() => tray().remove(item.key)}
                   className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full border border-background bg-foreground text-background [&_svg]:size-3">
                   <X />
@@ -90,7 +99,8 @@ export function TrayStrip({ typing }: { typing: boolean }) {
           </ul>
           {!typing && (
             <p className={cn('text-xs transition-colors duration-300', going ? 'text-foreground' : 'text-muted-foreground')} aria-live="polite">
-              {shown.some((item) => item.state === 'failed') ? 'An image couldn’t be added: tap × to take it out'
+              {shown.some((item) => item.state === 'failed' && item.retry) ? 'An image didn’t upload: tap it to try again'
+                : shown.some((item) => item.state === 'failed') ? 'An image couldn’t be added: tap × to take it out'
                 : going ? 'Going with what you’re saying' : 'Going with what you say or type next'}
             </p>
           )}

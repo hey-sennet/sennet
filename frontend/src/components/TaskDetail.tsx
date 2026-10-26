@@ -4,7 +4,7 @@ import { ChevronDown, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog'
-import { api, attachmentUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
+import { api, attachmentUrl, thumbnailUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
 import { useStreaming, type Streaming } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -195,10 +195,12 @@ const MessageItem = memo(function MessageItem({ message }: { message: Message })
   )
 })
 
-/** The images sent with a message, above its words; a tap opens one full size. */
+/** The images sent with a message, above its words, from their thumbnails; a tap opens one full
+ *  size, over its thumbnail (already loaded) until the image itself is in. */
 function MessageImages({ images }: { images: Attachment[] }) {
   const [open, setOpen] = useState<Attachment | null>(null)
   const [shown, setShown] = useState<Attachment | null>(null) // kept while it fades out
+  const [loaded, setLoaded] = useState<number | null>(null) // the full image that has arrived
   return (
     <>
       <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
@@ -209,7 +211,7 @@ function MessageImages({ images }: { images: Attachment[] }) {
           }}
             className="overflow-hidden rounded-xl border bg-secondary transition-opacity hover:opacity-90">
             {/* Its own size, so the timeline doesn't jump when it loads. */}
-            <img src={attachmentUrl(image.id)} alt="" width={image.width} height={image.height} loading="lazy"
+            <img src={thumbnailUrl(image)} alt="" width={image.width} height={image.height} loading="lazy" decoding="async"
               className={cn('block object-cover', images.length === 1 ? 'max-h-56 w-auto max-w-[min(100%,240px)]' : 'size-[88px]')} />
           </button>
         ))}
@@ -221,8 +223,16 @@ function MessageImages({ images }: { images: Attachment[] }) {
             className="fixed inset-0 z-50 grid cursor-zoom-out place-items-center p-4 outline-none duration-300 ease-strata
               data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
             <DialogTitle className="sr-only">Image</DialogTitle>
-            {shown && <img src={attachmentUrl(shown.id)} alt="" width={shown.width} height={shown.height}
-              className="max-h-full max-w-full rounded-lg object-contain" />}
+            {shown && (
+              <div className="relative max-h-full max-w-full" style={{ aspectRatio: `${shown.width} / ${shown.height}` }}>
+                <img src={thumbnailUrl(shown)} alt="" width={shown.width} height={shown.height}
+                  className="max-h-[calc(100dvh-2rem)] max-w-full rounded-lg object-contain" />
+                <img src={attachmentUrl(shown.id)} alt="" width={shown.width} height={shown.height} decoding="async"
+                  onLoad={() => setLoaded(shown.id)}
+                  className={cn('absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-300',
+                    loaded === shown.id ? 'opacity-100' : 'opacity-0')} />
+              </div>
+            )}
           </DialogPrimitive.Popup>
         </DialogPortal>
       </Dialog>

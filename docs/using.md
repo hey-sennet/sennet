@@ -86,8 +86,11 @@ as going with what you're saying. A message can be only images.
 Photos are taken in Sennet's own camera rather than the phone's camera app, so a
 conversation keeps listening while you take one, and you can talk about what you're
 pointing at. Images are shrunk on the device to a long side of 1600 pixels before
-they're sent, which also drops what a photo carries besides the picture, such as where
-it was taken. They're kept with the task under Sennet's data directory, shown in its
+they're sent, as WebP where the browser can write it (JPEG otherwise; a screenshot stays
+a PNG so its text stays sharp), which also drops what a photo carries besides the
+picture, such as where it was taken. A small copy goes with each for the timeline, which
+loads the whole image only when you open it. An upload that drops is tried again; one
+that still fails can be tapped to try again. They're kept with the task under Sennet's data directory, shown in its
 timeline, and deleted with it. Codex and Claude Code both take images.
 
 ## What you hear

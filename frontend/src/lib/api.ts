@@ -45,6 +45,7 @@ export interface Attachment {
   media_type: 'image/jpeg' | 'image/png' | 'image/webp'
   width: number
   height: number
+  thumbnail: 'image/jpeg' | 'image/png' | 'image/webp' | null // a small copy for the timeline, if the device sent one
 }
 
 export interface Message {
@@ -231,7 +232,13 @@ export type ServerEvent =
   | { type: 'limits'; agent: string; limits: AgentLimits | null }
   | { type: 'task_removed'; task_id: number }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 // This browser isn't paired, or was unpaired: the app shows the pairing screen (lib/pairing.ts).
 let onUnpaired: () => void = () => {}
@@ -241,6 +248,8 @@ export function whenUnpaired(handler: () => void) {
 
 /** Where a message's image is shown from; only a paired device's cookie gets it. */
 export const attachmentUrl = (id: number) => `/api/attachments/${id}`
+/** Where its thumbnail is shown from, or the image itself without one. */
+export const thumbnailUrl = (image: Attachment) => image.thumbnail ? `/api/attachments/${image.id}/thumbnail` : attachmentUrl(image.id)
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   // A Blob (an image) goes as it is; anything else as JSON.
@@ -258,7 +267,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // not JSON
     }
-    throw new ApiError(typeof detail === 'string' ? detail : 'Request failed')
+    throw new ApiError(typeof detail === 'string' ? detail : 'Request failed', response.status)
   }
   return response.status === 204 ? (undefined as T) : response.json()
 }
@@ -281,6 +290,8 @@ export const api = {
     request<Task>('POST', `/api/tasks/${id}/messages`, { text, attachments }),
   /** An image for a message to come; its id goes in the message, typed or spoken. */
   uploadImage: (image: Blob) => request<Attachment>('POST', '/api/attachments', image),
+  /** Its small copy, for the timeline; before the image is sent. */
+  uploadThumbnail: (id: number, thumbnail: Blob) => request<Attachment>('PUT', `/api/attachments/${id}/thumbnail`, thumbnail),
   /** An image taken out before its message was sent. */
   removeAttachment: (id: number) => request<void>('DELETE', `/api/attachments/${id}`),
   cancel: (id: number) => request<Task>('POST', `/api/tasks/${id}/cancel`),

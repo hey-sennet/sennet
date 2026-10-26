@@ -1,6 +1,7 @@
 """Images in a message (attachments.py): uploaded first, named by a typed or spoken message, passed
 to the agent as its CLI takes them, shown back to paired devices, and removed with their task."""
 import base64
+import sqlite3
 import struct
 import time
 import zlib
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from sennet import attachments
 from sennet.attachments import AttachmentError, sniff
+from sennet.db import SCHEMA_VERSION, Database
 from sennet.server import create_app
 from conftest import HEADERS, paired, wait_for
 from test_contract import add_project, limited_client
@@ -65,7 +67,7 @@ def test_anything_else_is_refused(data):
 
 def test_an_image_is_uploaded_and_shown_back(client):
     image = upload(client)
-    assert image == {"id": image["id"], "media_type": "image/png", "width": 3, "height": 2}
+    assert image == {"id": image["id"], "media_type": "image/png", "width": 3, "height": 2, "thumbnail": None}
     shown = client.get(f"/api/attachments/{image['id']}")
     assert shown.status_code == 200 and shown.content == png()
     assert shown.headers["content-type"] == "image/png"
@@ -100,6 +102,49 @@ def test_an_unsent_image_can_be_taken_out(client, project):
     assert client.delete(f"/api/attachments/{sent['id']}").status_code == 409
 
 
+def test_a_thumbnail_is_shown_in_the_timeline_but_never_sent_to_the_agent(client, project, codex_log, paths):
+    image = upload(client, jpeg(1600, 1200))
+    assert client.get(f"/api/attachments/{image['id']}/thumbnail").status_code == 404
+    small = webp_lossless(480, 360)
+    response = client.put(f"/api/attachments/{image['id']}/thumbnail", content=small)
+    assert response.status_code == 200 and response.json()["thumbnail"] == "image/webp"
+    shown = client.get(f"/api/attachments/{image['id']}/thumbnail")
+    assert shown.content == small and shown.headers["content-type"] == "image/webp"
+    assert "immutable" in shown.headers["cache-control"] and "private" in shown.headers["cache-control"]
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "x", "attachments": [image["id"]]}).json()
+    task = wait_for(client, task["id"], finished)
+    assert task["messages"][0]["attachments"][0]["thumbnail"] == "image/webp"
+    assert [i["path"] for i in codex_log("turn/start")[0]["params"]["input"] if i["type"] == "localImage"] == \
+        [str(paths.data_dir / "attachments" / f"{image['id']}.jpg")]
+    # Sent, it is as it was: the timeline caches it for good.
+    again = client.put(f"/api/attachments/{image['id']}/thumbnail", content=small)
+    assert again.status_code == 409
+
+
+@pytest.mark.parametrize("data, why", [(webp_lossless(2000, 100), "pixels"), (b"not an image", "isn't a JPEG")])
+def test_a_thumbnail_has_to_be_small_and_an_image(client, data, why):
+    image = upload(client)
+    response = client.put(f"/api/attachments/{image['id']}/thumbnail", content=data)
+    assert response.status_code == 400 and why in response.json()["detail"]
+
+
+def test_a_big_thumbnail_is_refused_as_it_arrives(client):
+    image = upload(client)
+    response = client.put(f"/api/attachments/{image['id']}/thumbnail", content=png() + b"\0" * 300 * 1024)
+    assert response.status_code == 413
+
+
+def test_a_thumbnail_goes_with_its_image(client, project, paths):
+    image = upload(client)
+    client.put(f"/api/attachments/{image['id']}/thumbnail", content=png(2, 1))
+    folder = paths.data_dir / "attachments"
+    assert sorted(f.name for f in folder.iterdir()) == [f"{image['id']}-thumbnail.png", f"{image['id']}.png"]
+    client.app.state.attachments.sweep()  # a thumbnail isn't a stray file
+    assert len(list(folder.iterdir())) == 2
+    client.delete(f"/api/attachments/{image['id']}")
+    assert list(folder.iterdir()) == []
+
+
 # Messages
 
 def test_a_task_starts_with_images_and_codex_gets_them_by_path(client, project, codex_log, paths):
@@ -111,7 +156,8 @@ def test_a_task_starts_with_images_and_codex_gets_them_by_path(client, project, 
     sent = task["messages"][0]
     assert sent["text"] == "what's wrong here?"
     assert [a["id"] for a in sent["attachments"]] == [i["id"] for i in images]
-    assert sent["attachments"][1] == {"id": images[1]["id"], "media_type": "image/jpeg", "width": 10, "height": 10}
+    assert sent["attachments"][1] == {"id": images[1]["id"], "media_type": "image/jpeg", "width": 10, "height": 10,
+                                      "thumbnail": None}
     inputs = codex_log("turn/start")[0]["params"]["input"]
     folder = paths.data_dir / "attachments"
     assert inputs == [{"type": "localImage", "path": str(folder / f"{images[0]['id']}.png")},
@@ -248,3 +294,15 @@ def test_attach_takes_only_ids(voice_client):
         voice = Voice(ws)
         voice.send(type="attach", attachments=["../../etc/passwd"])
         assert voice.next("voice_error")["code"] == "bad_message"
+
+
+def test_a_database_from_before_thumbnails_gets_them(tmp_path):
+    path = tmp_path / "sennet.db"
+    Database(path).close()
+    with sqlite3.connect(path) as conn:  # as 0.1.0's images left it: version 11, no thumbnail column
+        conn.execute("ALTER TABLE attachments DROP COLUMN thumbnail")
+        conn.execute("INSERT INTO attachments (media_type, width, height, size, created_at) VALUES ('image/png', 1, 1, 9, 0)")
+        conn.execute("PRAGMA user_version = 11")
+    db = Database(path)
+    assert db.attachment(1)["thumbnail"] is None
+    assert db.one("PRAGMA user_version")["user_version"] == SCHEMA_VERSION

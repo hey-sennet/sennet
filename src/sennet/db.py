@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
     size INTEGER NOT NULL,         -- bytes
+    thumbnail TEXT,                -- the thumbnail's media type, if the device sent one
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_id);
@@ -141,7 +142,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 # counted apart from the rest, each up to this many.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
 FINISHED = ("completed", "failed", "cancelled", "unknown")
@@ -205,11 +206,17 @@ class Database:
                 self._to_v9()
             # Version 10 only adds a table (push_subscriptions), which SCHEMA creates.
             # Version 11 only adds a table (attachments), which SCHEMA creates.
+            if version == 11:
+                self._to_v12()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
         return version
+
+    def _to_v12(self):
+        """Thumbnails for images. Before version 11 there is no attachments table yet: SCHEMA makes it with them."""
+        self.conn.execute("ALTER TABLE attachments ADD COLUMN thumbnail TEXT")
 
     def _to_v9(self):
         """Project aliases went with routing by a spoken project name."""
@@ -421,7 +428,7 @@ class Database:
         found: dict[int, list[dict]] = {}
         if ids:
             marks = ", ".join("?" * len(ids))
-            for row in self.query(f"SELECT id, message_id, media_type, width, height FROM attachments "
+            for row in self.query(f"SELECT id, message_id, media_type, width, height, thumbnail FROM attachments "
                                   f"WHERE message_id IN ({marks}) ORDER BY id", *ids):
                 found.setdefault(row.pop("message_id"), []).append(row)
         for message in messages:
@@ -438,6 +445,9 @@ class Database:
 
     def attachment(self, attachment_id: int) -> dict | None:
         return self.one("SELECT * FROM attachments WHERE id = ?", attachment_id)
+
+    def set_thumbnail(self, attachment_id: int, media_type: str):
+        self.execute("UPDATE attachments SET thumbnail = ? WHERE id = ?", media_type, attachment_id)
 
     def remove_attachment(self, attachment_id: int):
         self.execute("DELETE FROM attachments WHERE id = ?", attachment_id)

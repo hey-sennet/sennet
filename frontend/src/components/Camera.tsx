@@ -16,7 +16,7 @@ type Facing = 'environment' | 'user'
 export function Camera({ open, onClose, onTaken, onFallback }: {
   open: boolean
   onClose: () => void
-  onTaken: (photo: Blob) => void
+  onTaken: (photo: ImageBitmap) => void // the frame as the camera gave it, not yet encoded
   onFallback: () => void
 }) {
   const video = useRef<HTMLVideoElement>(null)
@@ -63,18 +63,16 @@ export function Camera({ open, onClose, onTaken, onFallback }: {
     }
   }, [open, facing])
 
-  const take = () => {
+  // The frame goes as it is: encoded once, at the size it is sent, rather than saved here first.
+  const take = async () => {
     const v = video.current
     if (!v || !v.videoWidth) return
-    const canvas = document.createElement('canvas')
-    canvas.width = v.videoWidth
-    canvas.height = v.videoHeight
-    canvas.getContext('2d')!.drawImage(v, 0, 0)
     setFlash(true)
-    canvas.toBlob((photo) => {
-      if (photo) onTaken(photo)
+    try {
+      onTaken(await createImageBitmap(v))
+    } finally {
       onClose()
-    }, 'image/jpeg', 0.92)
+    }
   }
 
   return (
@@ -108,7 +106,7 @@ export function Camera({ open, onClose, onTaken, onFallback }: {
               className="grid size-11 place-items-center rounded-full text-white/80 hover:text-white [&_svg]:size-6">
               <X />
             </button>
-            <button type="button" aria-label="Take the photo" disabled={!live} onClick={take}
+            <button type="button" aria-label="Take the photo" disabled={!live} onClick={() => void take()}
               className="grid size-[72px] place-items-center rounded-full border-4 border-white transition-transform active:scale-92 disabled:opacity-40">
               <span className="size-[56px] rounded-full bg-white" />
             </button>

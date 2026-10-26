@@ -69,20 +69,27 @@ test('an image chosen from the device goes with a typed message and shows in the
   const composer = page.getByPlaceholder('Start a new task')
   await composer.fill('what is wrong in this picture?')
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled() // uploaded
+  const fetched: string[] = []
+  page.on('request', (request) => fetched.push(new URL(request.url()).pathname))
   await composer.press('Enter')
   await expect(page.getByRole('main').getByText('You said: what is wrong in this picture?')).toBeVisible()
   await expect(tray.locator('img')).toHaveCount(0)
 
   // Shrunk on the device: a long side of 1600, kept a PNG.
   const [sent] = await userMessages(page, name)
-  expect(sent.attachments).toEqual([expect.objectContaining({ media_type: 'image/png', width: 1600, height: 800 })])
+  expect(sent.attachments).toEqual([expect.objectContaining({ media_type: 'image/png', width: 1600, height: 800, thumbnail: 'image/webp' })])
 
+  // The timeline loads the thumbnail, not the image: a long side of 480.
+  const fullImage = `/api/attachments/${sent.attachments[0].id}`
   const timeline = await openTimeline(page)
   const thumbnail = timeline.getByRole('button', { name: 'Open the image' })
-  await expect(thumbnail.locator('img')).toHaveJSProperty('naturalWidth', 1600)
+  await expect(thumbnail.locator('img')).toHaveJSProperty('naturalWidth', 480)
+  expect(fetched).toContain(`${fullImage}/thumbnail`)
+  expect(fetched).not.toContain(fullImage)
   await page.screenshot({ path: `test-results/${info.project.name}-image-timeline.png` })
   await thumbnail.click()
-  await expect(page.getByRole('dialog', { name: 'Image' }).locator('img')).toBeVisible()
+  // Opened, the image itself comes in over its thumbnail.
+  await expect(page.getByRole('dialog', { name: 'Image' }).locator(`img[src="${fullImage}"]`)).toHaveCSS('opacity', '1')
 })
 
 test('a photo taken in Sennet goes with what is said next', async ({ page, context }, info) => {
@@ -115,7 +122,8 @@ test('a photo taken in Sennet goes with what is said next', async ({ page, conte
   await expect(tray.locator('img')).toHaveCount(0)
   const [sent] = await userMessages(page, name)
   expect(sent.text).toBe(HEARD)
-  expect(sent.attachments).toEqual([expect.objectContaining({ media_type: 'image/jpeg' })])
+  // Chromium writes WebP: the frame is encoded once, as that, at the size it is sent.
+  expect(sent.attachments).toEqual([expect.objectContaining({ media_type: 'image/webp', thumbnail: 'image/webp' })])
 })
 
 test('an image can be taken out before it is sent', async ({ page }, info) => {
