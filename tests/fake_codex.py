@@ -216,7 +216,8 @@ async def main():
         if request_id is None:
             continue
         if method == "initialize":
-            result = {"userAgent": "fake", "codexHome": "/tmp", "platformFamily": "unix", "platformOs": "linux"}
+            version = os.environ.get("FAKE_CODEX_VERSION", "0.164.0")
+            result = {"userAgent": f"sennet/{version} (Fake 1.0.0; x86_64) unknown (sennet; 0)", "codexHome": "/tmp", "platformFamily": "unix", "platformOs": "linux"}
         elif method == "account/read":
             result = {"account": {"type": "chatgpt", "email": None, "planType": "plus"}, "requiresOpenaiAuth": True}
         elif method == "model/list":

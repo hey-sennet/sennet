@@ -23,12 +23,17 @@ An `Agent` (see the protocols in `base.py`) has:
 
 - `name` (used in config and the API, such as `codex`), `title` (as users know it, such
   as "Claude Code"), and `default_command`.
+- `tested_version`: the newest CLI release the adapter was checked against, or a release
+  series such as `"2.1"` for a CLI that releases patches daily. A newer CLI isn't refused:
+  `doctor` and Settings warn about it. Raise it when you've checked a newer release (step 5).
 - `capabilities`: what it can do. Every field must be stated, and Sennet adapts to them:
   an agent that can't `interrupt` is stopped instead, one that can't `resume` starts a
   fresh conversation after a restart, and an `approval_modes` or `access_levels` entry it
   doesn't list is refused before a task starts. Without `images`, a message with images
   is refused before it's sent, and the app hides its image button.
-- `status()`: whether the CLI is installed and logged in, for `doctor` and Settings.
+- `status()`: whether the CLI is installed and logged in, for `doctor` and Settings, and
+  its `version` when it says, with `untested()`'s warning when that's newer than
+  `tested_version`.
 - `models()`: the models and effort levels it offers, for the model picker.
 - `limits()`: the account's usage limits as `LimitWindow`s, asked for without using any,
   or None when the agent can't say (not logged in, or logged in with an API key).
@@ -67,7 +72,7 @@ for asking the user if it has one. This is what makes its replies work when hear
    contract. Add tests of your own for what's particular to the agent, as
    `tests/test_claude.py` does.
 5. **Try it for real**: by voice, through an approval, a follow-up, a cancel and a
-   restart of the service.
+   restart of the service. Set `tested_version` to the release you tried.
 6. **Document it**: the requirements in [install.md](install.md), anything particular
    about its approvals or access in [using.md](using.md#approvals), and a note of what you
    learned in the milestone doc.

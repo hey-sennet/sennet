@@ -7,6 +7,7 @@ and `check_event` holds every adapter to them.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, get_args
@@ -296,6 +297,26 @@ class AgentStatus:
     installed: bool
     logged_in: bool | None
     detail: str
+    version: str | None = None         # the installed CLI's, when it says
+    warning: str | None = None         # something to know that isn't a problem, such as an untested version
+
+
+def cli_version(text: str) -> str | None:
+    """The first version number in a CLI's own words: "2.1.310 (Claude Code)" → "2.1.310"."""
+    found = re.search(r"\d+(?:\.\d+)+", text)
+    return found.group() if found else None
+
+
+def untested(title: str, version: str | None, tested: str) -> str | None:
+    """A warning when `version` is newer than `tested`, the newest release, or release series ("2.1"),
+    an adapter was checked against; None when it isn't, or when the version is unknown."""
+    if version is None:
+        return None
+    found, through = (tuple(map(int, v.split("."))) for v in (cli_version(version) or "0", tested))
+    if found[:len(through)] <= through:
+        return None
+    series = tested if len(through) > 2 else f"{tested}.x"
+    return f"{title} {version} is newer than Sennet has been tested with ({series})"
 
 
 @dataclass(frozen=True)
@@ -338,6 +359,9 @@ class Agent(Protocol):
     title: str                         # as the user knows it, e.g. "Claude Code"
     capabilities: Capabilities
     default_command: list[str]
+    # The newest CLI release, or release series ("2.1"), the adapter was checked against; a newer
+    # one is warned about, not refused (see adding-an-agent.md).
+    tested_version: str
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None): ...
 

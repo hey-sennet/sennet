@@ -46,6 +46,10 @@ def option(name: str) -> str | None:
     return args[args.index(name) + 1] if name in args else None
 
 
+if args == ["--version"]:
+    print(f"{os.environ.get('FAKE_CLAUDE_VERSION', '2.1.310')} (Claude Code)")
+    sys.exit(0)
+
 if args[:2] == ["auth", "status"]:
     print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro"}))
     sys.exit(0)

@@ -479,6 +479,21 @@ test('an approval is asked on the device that started its task; another sees a q
   await other.close()
 })
 
+test('Settings warns when an agent is newer than Sennet was tested with', async ({ page }) => {
+  await page.route('**/api/agents', async (route) => {
+    const agents = await (await route.fetch()).json()
+    agents.claude.warning = 'Claude Code 9.0.0 is newer than Sennet has been tested with (2.1.x)'
+    await route.fulfill({ json: agents })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Claude Code 9.0.0 is newer than Sennet has been tested with (2.1.x).')).toBeVisible()
+  await expect(dialog.getByRole('link', { name: 'troubleshooting' })).toHaveAttribute('href', /troubleshooting\.md#agents$/)
+
+  await page.unrouteAll({ behavior: 'ignoreErrors' }) // Settings asks again while it's open
+})
+
 test('add a Claude Code project, and it reports work it left running', async ({ page }, info) => {
   const name = `claude-${info.project.name}`
   const directory = path.join(home, name)
@@ -489,6 +504,7 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   await page.getByRole('button', { name: 'Settings' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('logged in (pro plan)')).toBeVisible()
+  await expect(dialog.getByText('2.1.310', { exact: true })).toBeVisible()
   await dialog.getByLabel('Project directory').fill(directory)
   await dialog.getByLabel('Project name').fill(name)
   await dialog.getByLabel('Agent for the new project').selectOption({ label: 'Claude Code' })

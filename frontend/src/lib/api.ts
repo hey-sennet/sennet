@@ -172,6 +172,8 @@ export interface AgentStatus {
   installed: boolean | null
   logged_in: boolean | null
   detail: string
+  version?: string | null // the installed CLI's, when it says
+  warning?: string | null // worth knowing, not a problem: a CLI newer than Sennet was tested with
   capabilities: Capabilities
   models: ModelOption[]
 }

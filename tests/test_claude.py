@@ -11,7 +11,7 @@ import pytest
 
 from conftest import pending_approval, wait_for
 
-from sennet.agents.base import AgentEvent, TurnPolicy, check_event, spoken_instructions
+from sennet.agents.base import AgentEvent, TurnPolicy, check_event, spoken_instructions, untested
 from sennet.agents.callbacks import CallbackServer
 from sennet.agents.claude import ClaudeAgent, ClaudeSession, approval_request, permission_args, tool_title
 
@@ -262,6 +262,25 @@ async def test_status_comes_from_auth_status_and_never_shows_the_account(tmp_pat
     status = await ClaudeAgent([str(script)]).status()
     assert (status.installed, status.logged_in, status.detail) == (True, logged_in, detail)
     assert "example.com" not in status.detail
+
+
+async def test_status_reports_the_version_and_warns_when_it_is_newer_than_tested(tmp_path):
+    script = tmp_path / "claude"
+    script.write_text('#!/bin/sh\n[ "$1" = --version ] && echo "9.0.1 (Claude Code)" && exit\n'
+                      'echo \'{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max"}\'\n')
+    script.chmod(0o755)
+    status = await ClaudeAgent([str(script)]).status()
+    assert (status.logged_in, status.version) == (True, "9.0.1")
+    assert status.warning == f"Claude Code 9.0.1 is newer than Sennet has been tested with ({ClaudeAgent.tested_version}.x)"
+
+
+@pytest.mark.parametrize("version, tested, newer", [
+    ("2.1.310", "2.1", False), ("2.2.0", "2.1", True), ("2.0.9", "2.1", False), ("3.0.0", "2.1", True),
+    ("0.161.0", "0.161.0", False), ("0.161.1", "0.161.0", True), ("2.1.310-beta.1", "2.1", False),
+    ("10.0.0", "9.9", True), (None, "2.1", False),
+])
+def test_only_a_version_newer_than_the_tested_one_is_warned_about(version, tested, newer):
+    assert bool(untested("Claude Code", version, tested)) is newer
 
 
 # Whole sessions, against tests/fake_claude.py on a live server

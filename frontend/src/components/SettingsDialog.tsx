@@ -47,6 +47,7 @@ const ACCESS_HELP: Record<Access, string> = {
 // The main screen's shapes: pills for controls, rounded cards for rows.
 const field = 'h-8 rounded-full border border-border bg-background px-3 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
 const card = 'min-w-0 rounded-[22px] border bg-card'
+const AGENT_HELP = 'https://github.com/hey-sennet/sennet/blob/main/docs/troubleshooting.md#agents'
 
 async function attempt(action: () => Promise<unknown>, failure: string) {
   try {
@@ -96,12 +97,21 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
                 return (
                   <div key={name} className="flex flex-col gap-3 px-4 py-3 text-sm">
                     <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium">{status.title}</span>
+                      <span className="font-medium">
+                        {status.title}
+                        {status.version && <span className="ml-2 font-normal text-muted-foreground">{status.version}</span>}
+                      </span>
                       <span className={cn('flex min-w-0 items-center gap-2 text-right', ready ? 'text-muted-foreground' : 'text-warn')}>
                         <span className={cn('size-1.5 shrink-0 rounded-full', ready ? 'bg-agent' : 'bg-warn')} />
                         {status.detail}
                       </span>
                     </div>
+                    {status.warning && (
+                      <p className="text-warn">
+                        {status.warning}. If something misbehaves, see{' '}
+                        <a className="underline underline-offset-2" href={AGENT_HELP} target="_blank" rel="noreferrer">troubleshooting</a>.
+                      </p>
+                    )}
                     {!!limits[name]?.windows.length && <Limits limits={limits[name]} />}
                   </div>
                 )

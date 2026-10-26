@@ -31,11 +31,12 @@ import shutil
 import signal
 import tempfile
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, EventSink, FileChange, Image, LimitWindow, ModelOption, TurnPolicy, mcp_tool_title,
-                   spoken_instructions, tool_summary)
+                   Capabilities, EventSink, FileChange, Image, LimitWindow, ModelOption, TurnPolicy, cli_version,
+                   mcp_tool_title, spoken_instructions, tool_summary, untested)
 from .callbacks import CallbackServer, Registration
 
 log = logging.getLogger(__name__)
@@ -517,6 +518,7 @@ class ClaudeAgent:
     name = "claude"
     title = "Claude Code"
     default_command = ["claude"]
+    tested_version = "2.1"
     # SIGINT ends a turn and the process; the session resumes in the next. It asks mid-turn in every
     # mode, and may report work it left running in a turn of its own. Its model is set at start.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True, approval_modes=APPROVAL_MODES,
@@ -531,6 +533,10 @@ class ClaudeAgent:
         """From `claude auth status`, which reports how it is signed in; its credentials are never read."""
         if not shutil.which(self.command[0]):
             return AgentStatus(False, None, f"{self.command[0]} not found on PATH")
+        found, version = await asyncio.gather(self._auth(), self._version())
+        return replace(found, version=version, warning=untested(self.title, version, self.tested_version))
+
+    async def _auth(self) -> AgentStatus:
         try:
             process = await asyncio.create_subprocess_exec(
                 *self.command, "auth", "status", "--json", stdin=asyncio.subprocess.DEVNULL,
@@ -545,6 +551,17 @@ class ClaudeAgent:
             return AgentStatus(True, True, f"logged in with {auth.get('authMethod') or 'an API key'} "
                                            "(subscription login is recommended)")
         return AgentStatus(True, True, f"logged in ({auth.get('subscriptionType') or 'Claude'} plan)")
+
+    async def _version(self) -> str | None:
+        """From `claude --version`: "2.1.310 (Claude Code)"."""
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *self.command, "--version", stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            stdout, _ = await asyncio.wait_for(process.communicate(), STATUS_TIMEOUT_S)
+        except (OSError, asyncio.TimeoutError):
+            return None
+        return cli_version(stdout.decode(errors="replace"))
 
     async def models(self) -> list[ModelOption]:
         return MODELS

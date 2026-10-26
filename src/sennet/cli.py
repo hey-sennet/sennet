@@ -272,6 +272,9 @@ def project_command(paths: Paths, args):
         db.close()
 
 
+AGENT_HELP = "https://github.com/hey-sennet/sennet/blob/main/docs/troubleshooting.md#agents"
+
+
 def doctor(settings: Settings, paths: Paths) -> int:
     problems = 0
     from .server import WEB_DIR
@@ -288,7 +291,10 @@ def doctor(settings: Settings, paths: Paths) -> int:
         status = asyncio.run(agent.status())
         ok = status.installed and status.logged_in
         problems += not ok
-        _line(name, f"{'ok' if ok else 'problem'}: {status.detail}")
+        version = f", version {status.version}" if status.version else ""
+        _line(name, f"{'ok' if ok else 'problem'}: {status.detail}{version}")
+        if status.warning:  # worth knowing, not a problem
+            _line(name, f"warning: {status.warning}; if something misbehaves, see {AGENT_HELP}")
     problems += not speech_ok(settings, paths)
     problems += not access_ok(settings, paths)
     problems += not service_ok(settings, agents)
@@ -307,12 +313,12 @@ def _console():
 
 
 def _line(label: str, text: str):
-    """One line of doctor's report: the label, then what was found, in green when it is ok and in red
-    when it is a problem."""
+    """One line of doctor's report: the label, then what was found, in green when it is ok, yellow for a
+    warning, and red when it is a problem."""
     from rich.markup import escape
 
     status, colon, rest = text.partition(": ")
-    style = {"ok": "green", "problem": "bold red"}.get(status) if colon else None
+    style = {"ok": "green", "warning": "yellow", "problem": "bold red"}.get(status) if colon else None
     found = f"[{style}]{status}:[/] {escape(rest)}" if style else escape(text)
     _console().print(f"{label + ':':<10} {found}")
 

@@ -29,7 +29,7 @@ from pathlib import Path
 from .. import __version__
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
                    Capabilities, Decision, EventSink, FileChange, Image, LimitWindow, ModelOption, TurnPolicy,
-                   mcp_tool_title, spoken_instructions, tool_summary)
+                   cli_version, mcp_tool_title, spoken_instructions, tool_summary, untested)
 from .callbacks import CallbackServer
 
 log = logging.getLogger(__name__)
@@ -161,11 +161,14 @@ async def list_models(connection: Connection) -> list[ModelOption]:
             for m in result.get("data") or [] if not m.get("hidden")]
 
 
-async def _initialize(connection: Connection):
-    await connection.request("initialize", {
+async def _initialize(connection: Connection) -> str | None:
+    """Starts the conversation; returns Codex's version, from the user agent it answers with
+    ("sennet/0.161.0 (Ubuntu 26.4.0; x86_64) …"), when it gives one."""
+    result = await connection.request("initialize", {
         "clientInfo": {"name": "sennet", "title": "Sennet", "version": __version__},
         "capabilities": {"experimentalApi": False, "requestAttestation": False}})
     await connection.notify("initialized")
+    return cli_version(str(result.get("userAgent") or "").partition("/")[2])
 
 
 class Connection:
@@ -491,6 +494,7 @@ class CodexAgent:
     name = "codex"
     title = "Codex"
     default_command = ["codex", "app-server"]
+    tested_version = "0.164"
     # Interrupts, resumes threads, and asks mid-turn in every mode. A command can outlast its turn,
     # but Codex doesn't start a turn to report it. It has no classifier to hand approvals to.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
@@ -510,18 +514,22 @@ class CodexAgent:
             *self.command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=STREAM_LIMIT)
         connection = Connection(process, session._notification, session._request)
+        version = None
         try:
-            await _initialize(connection)
+            version = await _initialize(connection)
             account = (await connection.request("account/read", {})).get("account")
         except (CodexError, asyncio.TimeoutError) as error:
-            return AgentStatus(True, None, f"could not query codex: {error}")
+            return self._status(None, f"could not query codex: {error}", version)
         finally:
             await connection.close()
         if account is None:
-            return AgentStatus(True, False, "not logged in; run `codex login`")
+            return self._status(False, "not logged in; run `codex login`", version)
         if account.get("type") == "apiKey":
-            return AgentStatus(True, True, "logged in with an API key (subscription login is recommended)")
-        return AgentStatus(True, True, f"logged in ({account.get('planType') or 'ChatGPT'} plan)")
+            return self._status(True, "logged in with an API key (subscription login is recommended)", version)
+        return self._status(True, f"logged in ({account.get('planType') or 'ChatGPT'} plan)", version)
+
+    def _status(self, logged_in: bool | None, detail: str, version: str | None) -> AgentStatus:
+        return AgentStatus(True, logged_in, detail, version, untested(self.title, version, self.tested_version))
 
     async def limits(self) -> list[LimitWindow] | None:
         if not shutil.which(self.command[0]):

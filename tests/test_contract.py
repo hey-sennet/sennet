@@ -188,6 +188,17 @@ def test_agents_report_their_capabilities(client):
                                      "project_config": False, "live_model_change": True, "images": True}
 
 
+@pytest.mark.parametrize("version, warning", [
+    ("0.164.0", None),
+    ("0.164.9", None),
+    ("0.165.0", "Codex 0.165.0 is newer than Sennet has been tested with (0.164.x)"),
+])
+def test_agents_report_their_version_and_warn_when_it_is_untested(client, monkeypatch, version, warning):
+    monkeypatch.setenv("FAKE_CODEX_VERSION", version)
+    codex = client.get("/api/agents").json()["codex"]
+    assert (codex["logged_in"], codex["version"], codex["warning"]) == (True, version, warning)
+
+
 def test_agents_are_asked_for_a_version_to_be_heard(client, project, codex_log):
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi"}).json()
     wait_for(client, task["id"], finished)

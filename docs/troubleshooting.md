@@ -34,6 +34,12 @@ It checks each part and prints a fix beside anything in red. The log has more:
   classifier mode is Claude Code only. Pick another mode for that project.
 - **Settings shows no usage for an agent.** It's only shown for a subscription login. An agent
   logged in with an API key has no plan limits to show.
+- **"Claude Code (or Codex) is newer than Sennet has been tested with".** The agent CLI
+  updated itself past the versions Sennet was last checked against. Usually nothing
+  changes. If something does (a task that never finishes, an approval that never shows, a
+  timeline that goes quiet), check for a newer Sennet with `sennet upgrade`, else open an
+  [issue](https://github.com/hey-sennet/sennet/issues) with the output of `sennet doctor`.
+  Until it's fixed, you can go back to the version before, the way you installed it.
 - **The agent can't run commands.** With Claude Code, `never` and `workspace` together
   can't run commands that aren't read-only. Use `ask` or `auto`, or see
   [Approvals](using.md#approvals).

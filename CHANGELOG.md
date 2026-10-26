@@ -3,6 +3,14 @@
 Notable changes in each release. Versions follow [semantic versioning](https://semver.org/);
 until 1.0, a minor version may change how things work.
 
+## Unreleased
+
+- `sennet doctor` and Settings show which version of Claude Code and Codex is installed,
+  and warn, in yellow, when it's newer than Sennet has been tested with (Claude Code 2.1.x,
+  Codex 0.164.x). Both CLIs update themselves, and a change in how they talk to Sennet
+  could stop a task without saying why. It's a warning, not a problem: Sennet still runs
+  them.
+
 ## 0.2.0 (2026-10-26)
 
 - Images in a message: take a photo in Sennet, choose images, or paste or drop one, and
