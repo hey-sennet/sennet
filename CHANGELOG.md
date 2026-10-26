@@ -10,6 +10,11 @@ until 1.0, a minor version may change how things work.
   Codex 0.164.x). Both CLIs update themselves, and a change in how they talk to Sennet
   could stop a task without saying why. It's a warning, not a problem: Sennet still runs
   them.
+- `sennet doctor --report` writes one file for a bug report: doctor's checks, versions,
+  hardware, settings and the end of the service log. Project paths and names, the
+  machine's name and addresses, links and keys are taken out, and settings are kept only
+  when they're known to be safe, so a new one isn't shared by default. Tasks, messages
+  and paired devices are never read. The bug report form asks for it.
 
 ## 0.2.0 (2026-10-26)
 

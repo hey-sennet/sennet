@@ -158,8 +158,8 @@ class Systemd:
     def restart(self):
         _run(["systemctl", "--user", "restart", NAME])
 
-    def logs_command(self, follow: bool) -> list[str]:
-        return ["journalctl", "--user", "-u", NAME, "-n", "100", "--no-pager", *(["-f"] if follow else [])]
+    def logs_command(self, follow: bool, lines: int = 100) -> list[str]:
+        return ["journalctl", "--user", "-u", NAME, "-n", str(lines), "--no-pager", *(["-f"] if follow else [])]
 
     def status(self) -> Status:
         if not self.file.exists():
@@ -248,8 +248,8 @@ class Launchd:
         self.start()
         _run(["launchctl", "kickstart", "-k", f"{self.target}/{LABEL}"])
 
-    def logs_command(self, follow: bool) -> list[str]:
-        return ["tail", "-n", "100", *(["-f"] if follow else []), str(self.log)]
+    def logs_command(self, follow: bool, lines: int = 100) -> list[str]:
+        return ["tail", "-n", str(lines), *(["-f"] if follow else []), str(self.log)]
 
     def status(self) -> Status:
         if not self.file.exists():

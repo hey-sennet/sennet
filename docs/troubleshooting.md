@@ -38,7 +38,7 @@ It checks each part and prints a fix beside anything in red. The log has more:
   updated itself past the versions Sennet was last checked against. Usually nothing
   changes. If something does (a task that never finishes, an approval that never shows, a
   timeline that goes quiet), check for a newer Sennet with `sennet upgrade`, else open an
-  [issue](https://github.com/hey-sennet/sennet/issues) with the output of `sennet doctor`.
+  [issue](https://github.com/hey-sennet/sennet/issues) with the file `sennet doctor --report` writes.
   Until it's fixed, you can go back to the version before, the way you installed it.
 - **The agent can't run commands.** With Claude Code, `never` and `workspace` together
   can't run commands that aren't read-only. Use `ask` or `auto`, or see
@@ -86,6 +86,11 @@ See [When the phone can't reach Sennet](hosting.md#when-the-phone-cant-reach-sen
 
 ## Still stuck
 
-Open an [issue](https://github.com/hey-sennet/sennet/issues) with what you did, what
-happened, and the output of `sennet doctor`. Look over the log before pasting it; it can
-contain your project paths and what you asked the agents.
+Run `sennet doctor --report`. It writes one file with doctor's checks, the versions of
+Sennet, Python, your OS, the speech runtime and the agent CLIs, your hardware, your
+settings and the end of the service log. Project paths and names, this machine's name and
+addresses, links and anything shaped like a key are taken out, and your tasks, messages
+and paired devices are never read. Read it anyway before you share it.
+
+Then open an [issue](https://github.com/hey-sennet/sennet/issues) with what you did, what
+happened, and that file.

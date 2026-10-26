@@ -21,25 +21,15 @@ body:
         1. Select the project...
         2. Say "..."
   - type: textarea
-    id: doctor
+    id: report
     attributes:
-      label: Output of `sennet doctor`
-      render: text
+      label: Report from `sennet doctor --report`
+      description: |
+        Run `sennet doctor --report` and drag the file it writes here. It has Sennet's checks, versions, hardware, settings and the end of the log, with paths, names, addresses and keys taken out. Read it first, and remove anything you'd rather not share. If Sennet won't run far enough to write it, paste the output of `sennet doctor` instead.
     validations:
       required: true
-  - type: input
-    id: agent
-    attributes:
-      label: Agent and version
-      placeholder: Claude Code 2.1.309, or codex-cli 0.161.0
   - type: input
     id: browser
     attributes:
       label: Browser and device
       placeholder: Chrome 141 on Android, Firefox on the same Linux machine
-  - type: textarea
-    id: logs
-    attributes:
-      label: Log
-      description: From `sennet service logs`, if it shows anything. Look it over first; it can contain your project paths and what you asked the agents.
-      render: text

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from . import __version__, access, projects, service
 from .agents import registry
@@ -58,7 +59,9 @@ def main(argv: list[str] | None = None):
     revoke = device_commands.add_parser("revoke", help="unpair a device; it must pair again to get back in")
     revoke.add_argument("id", type=int, help="the device's number, from `sennet devices`")
 
-    commands.add_parser("doctor", help="check agents and configuration")
+    doctor_parser = commands.add_parser("doctor", help="check agents and configuration")
+    doctor_parser.add_argument("--report", action="store_true",
+                               help="also write a file for a bug report, with private details taken out")
     upgrade = commands.add_parser("upgrade", help="upgrade Sennet and restart the service")
     upgrade.add_argument("--yes", action="store_true", help="don't ask, even with tasks still going")
     remove = commands.add_parser("remove-data", help="delete the config, tasks, paired devices and models")
@@ -85,7 +88,7 @@ def main(argv: list[str] | None = None):
     elif args.command == "project":
         project_command(paths, args)
     elif args.command == "doctor":
-        sys.exit(doctor(settings, paths))
+        sys.exit(doctor(settings, paths, args.report))
     elif args.command == "upgrade":
         from . import install
         sys.exit(install.upgrade(paths, settings.server.port, args.yes))
@@ -275,8 +278,13 @@ def project_command(paths: Paths, args):
 AGENT_HELP = "https://github.com/hey-sennet/sennet/blob/main/docs/troubleshooting.md#agents"
 
 
-def doctor(settings: Settings, paths: Paths) -> int:
+def doctor(settings: Settings, paths: Paths, report: bool = False) -> int:
+    global _recording
+    if report:  # doctor's own lines go in the report too, as printed
+        from rich.console import Console
+        _recording = Console(highlight=False, soft_wrap=True, record=True)
     problems = 0
+    statuses = {}
     from .server import WEB_DIR
 
     _line("version", f"{__version__} ({' '.join(service.program())})")
@@ -288,7 +296,7 @@ def doctor(settings: Settings, paths: Paths) -> int:
         problems += 1
     agents = registry.build(settings.agents.commands)
     for name, agent in agents.items():
-        status = asyncio.run(agent.status())
+        status = statuses[name] = asyncio.run(agent.status())
         ok = status.installed and status.logged_in
         problems += not ok
         version = f", version {status.version}" if status.version else ""
@@ -303,13 +311,24 @@ def doctor(settings: Settings, paths: Paths) -> int:
         _console().print(f"[bold red]{problems} problem{'s' if problems > 1 else ''}[/] (in red above)")
     else:
         _console().print("[green]Everything is ready.[/]")
+    if report:
+        from . import report as bundle
+
+        text = bundle.build(settings, paths, _recording.export_text(), agents, statuses)
+        _recording = None
+        written = bundle.write(text, Path.cwd())
+        _console().print(f"\nWrote {written}\nRead it before you attach it to an issue. Paths, names, addresses, links and "
+                         "keys are taken out, but you know best what's private to you.")
     return 1 if problems else 0
+
+
+_recording = None  # the console doctor prints to while it writes a report
 
 
 def _console():
     from rich.console import Console
 
-    return Console(highlight=False, soft_wrap=True)
+    return _recording or Console(highlight=False, soft_wrap=True)
 
 
 def _line(label: str, text: str):

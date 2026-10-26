@@ -6,7 +6,7 @@ now, so a little care up front makes changes quick to review and merge.
 ## Before you start
 
 - **Bugs:** open an [issue](https://github.com/hey-sennet/sennet/issues) with what you
-  did, what happened, and the output of `sennet doctor`.
+  did, what happened, and the file `sennet doctor --report` writes.
 - **Small fixes** (typos, docs, an obvious bug): send a pull request.
 - **Anything bigger** (a feature, a new agent, a change to how voice or approvals
   behave): open an issue first to talk it over, so you don't spend time on something
