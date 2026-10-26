@@ -111,13 +111,12 @@ measuring. Codex's resume and caching behavior is not looked at here.
 
 ### Claude Code
 
-Kept today: text deltas and messages, `Bash` commands and results, file edits,
-background task changes, API retries and the turn result.
+Kept today: text deltas and messages, `Bash` commands and results, file edits, other
+tool calls (as `tool_used`), background task changes, API retries and the turn result.
 
 | Signal | What it carries | Possible use |
 | --- | --- | --- |
 | `system/init` | the model in use, the tools, MCP servers and slash commands | confirm a model switch worked; show what the agent can do here |
-| Other tool calls | `Read`, `Grep`, `WebFetch`, `WebSearch`, subagent `Task` | a timeline of what the agent looked at, not only what it ran and changed |
 | `system/thinking_tokens` | a running estimate of thinking tokens | show "thinking" with a size; a clearer pause between speech and answer |
 | `system/status` | e.g. `requesting` | mark the wait before the first token |
 | `result` extras | duration, stop reason, permission denials, subagent counts | timing per turn; why a turn stopped |
@@ -138,7 +137,7 @@ deltas, command and file-change items, `turn/plan/updated`, `error` and
 | `model/rerouted` | it ran on a different model than chosen | tell the user; the model switch may not have applied |
 | `warning`, `configWarning`, `deprecationNotice` | CLI warnings | toasts |
 | `item/autoApprovalReview/*` | it auto-approved or flagged a request | show in the timeline |
-| `item/mcpToolCall/progress` | progress of an MCP call | show in the timeline |
+| `item/mcpToolCall/progress` | progress of an MCP call (the call itself is `tool_used`) | show in the timeline |
 | `item/commandExecution/outputDelta` | live command output | tail running commands; today only the end is kept |
 | `hook/started`, `hook/completed` | hooks ran | timeline, maybe |
 | `thread/name/updated` | Codex titled the thread | better task titles |
@@ -156,8 +155,9 @@ Anything new must become a neutral event, or an optional field on an existing on
 - **Usage:** one event, e.g. `usage`, with tokens by kind, an optional cost, and the
   model. Rate-limit windows are account-level, not per task, so they need their own event
   or an agent-status read.
-- **Tool use:** one `tool_used` event (name, short summary, status) rather than one event
-  per tool. Both CLIs could fill it.
+- **Tool use:** built as one `tool_used` event (name, short summary, status) rather than
+  one event per tool (#20). Tool calls have their own cap of 500, so a turn of reads
+  doesn't push commands and changes out of a task's history.
 - **Compaction and rerouting:** one `notice` event with a kind and a message.
 - **Turn diff:** the contract has `file_change` per item. A turn-level diff is Codex-only
   until Claude's edits are merged into one, so it may belong behind a capability flag,
@@ -173,7 +173,7 @@ since they explain a turn after it ends.
 1. ~~**Usage**~~ (built) **and the actual model.** The model name checks that a model
    switch applied.
 2. **Compaction and rerouting notices.** Both change cost or answers invisibly.
-3. **Tool-use timeline entries** for reads, searches and fetches, for the phone view.
+3. ~~**Tool-use timeline entries**~~ (built) for reads, searches and fetches, for the phone view.
 4. **Codex turn diff,** for a review view.
 5. **Warnings** as toasts.
 
@@ -185,5 +185,5 @@ since they explain a turn after it ends.
 - Does Codex's rate-limit snapshot match what its own app shows? Its shape is checked
   live; the numbers against its app aren't yet.
 - What do `thread/goal/*` and `thread/queue/changed` carry?
-- Should tool-use entries be spoken, or only shown?
+- ~~Should tool-use entries be spoken, or only shown?~~ Only shown: tool calls are never spoken.
 - Is the cold-cache cost of a Claude model switch worth warning about before it happens?

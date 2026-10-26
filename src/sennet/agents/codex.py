@@ -27,7 +27,7 @@ from pathlib import Path
 from .. import __version__
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
                    Capabilities, Decision, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy,
-                   spoken_instructions)
+                   mcp_tool_title, spoken_instructions, tool_summary)
 from .callbacks import CallbackServer
 
 log = logging.getLogger(__name__)
@@ -83,6 +83,31 @@ def _change_kind(kind: dict) -> str:
     if kind.get("type") == "update" and kind.get("move_path"):
         return "move"
     return kind.get("type") if kind.get("type") in ("add", "delete", "update") else "update"
+
+
+def tool_used(item: dict, started: bool) -> AgentEvent | None:
+    """A tool call that isn't a command or an edit, or None for an item that isn't one. Shapes are
+    from spikes/codex/transcripts/tools.jsonl and codex-cli 0.161.0's ThreadItem."""
+    kind = item.get("type")
+    status = "running" if started else _item_status(item)
+    if kind == "mcpToolCall":
+        tool, summary = mcp_tool_title(item.get("server") or "", item.get("tool") or ""), tool_summary(item.get("arguments"))
+    elif kind == "dynamicToolCall":
+        tool, summary = mcp_tool_title(item.get("namespace") or "", item.get("tool") or ""), tool_summary(item.get("arguments"))
+    elif kind == "webSearch":
+        # It starts with an empty query, filled in when it completes; it has no status of its own.
+        action = item.get("action") or {}
+        tool = "Web page" if action.get("type") in ("openPage", "findInPage") else "Web search"
+        summary = tool_summary({"query": item.get("query"), **action})
+        status = "running" if started else "completed"
+    elif kind == "imageView":
+        tool, summary = "View image", item.get("path") or ""
+        status = "running" if started else "completed"
+    elif kind == "collabAgentToolCall" and item.get("tool") == "spawnAgent":
+        tool, summary = "Subagent", tool_summary({"prompt": item.get("prompt")})
+    else:
+        return None
+    return AgentEvent("tool_used", {"item_id": item["id"], "tool": tool, "summary": summary, "status": status})
 
 
 class CodexError(Exception):
@@ -404,6 +429,8 @@ class CodexSession:
                 "item_id": item["id"], "status": _item_status(item),
                 "changes": [{"path": c["path"], "kind": _change_kind(c["kind"]), "diff": (c.get("diff") or "")[:DIFF_LIMIT]}
                             for c in item.get("changes") or []]})
+        if method in ("item/started", "item/completed") and (event := tool_used(item, method == "item/started")):
+            return event
         if method == "turn/plan/updated":
             return AgentEvent("plan", {"steps": [{"step": s["step"], "status": STEP_STATUS.get(s["status"], "pending")}
                                                  for s in params["plan"]]})

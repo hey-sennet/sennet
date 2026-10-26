@@ -4,6 +4,7 @@ Turn behaviour is driven by the user's text:
   run:<command>   ask to run a command, then run it if approved
   bg:<seconds>    start a command and end the turn with it running; it finishes that much later
   edit:<path>     ask to edit a file, then apply it if approved
+  look            call an MCP tool and search the web, shaped like spikes/codex/transcripts/tools.jsonl
   hang            keep working until interrupted
   crash           exit mid-turn
   limit           fail at the usage limit, which is then full
@@ -95,6 +96,22 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
         notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0,
                item={**item, "status": "completed" if accepted else "declined"})
         reply = "Edited." if accepted else "Left it alone."
+    elif text == "look":
+        call = {"type": "mcpToolCall", "id": "exec-mcp1", "server": "glossary", "tool": "look_up",
+                "status": "inProgress", "arguments": {"word": "sennet"}, "appContext": None, "mcpAppUi": None,
+                "pluginId": None, "readOnlyHint": True, "result": None, "error": None, "durationMs": None}
+        notify("item/started", threadId=thread_id, turnId=turn_id, startedAtMs=0, item=call)
+        notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0, item={
+            **call, "status": "completed", "durationMs": 3,
+            "result": {"content": [{"type": "text", "text": "sennet: a word."}], "structuredContent": None, "_meta": None}})
+        search = {"type": "webSearch", "id": "exec-web1", "query": "", "action": None, "results": None}
+        notify("item/started", threadId=thread_id, turnId=turn_id, startedAtMs=0, item=search)
+        notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0, item={
+            **search, "query": "Sennet board game",
+            "action": {"type": "search", "query": "Sennet board game", "queries": None},
+            "results": [{"type": "text_result", "domain": "example.com", "ref_id": "turn0search0", "title": "Senet",
+                         "url": "https://example.com/senet"}]})
+        reply = "Looked."
     elif text.startswith("two:"):
         # Two messages in one turn, a second apart, as an agent says what it's about to do and then does it.
         first, reply = text[4:].split("|")

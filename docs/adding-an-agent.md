@@ -36,7 +36,8 @@ An `Agent` (see the protocols in `base.py`) has:
   `set_model`, `close`, `alive` and a `resume_token` to store.
 
 During a turn the session calls `on_event` with `AgentEvent`s (`message_delta`,
-`message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`,
+`message`, `command_started`, `command_finished`, `file_change`, `tool_used` for any other
+tool call (the tool's readable name and a short summary of its input), `plan`, `error`,
 `turn_completed`, `usage` with the tokens the turn used, `limits` whenever the agent
 reports its usage limits, `background` for work left running after a turn, and for
 agents with `background_turns`, `turn_started`), and awaits `on_approval` with an `ApprovalRequest` when the agent asks

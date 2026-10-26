@@ -124,7 +124,8 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 """
 
-# Bounded history: a long task should not grow the database without limit.
+# Bounded history: a long task should not grow the database without limit. Tool calls are
+# counted apart from the rest, each up to this many.
 MAX_EVENTS_PER_TASK = 500
 
 SCHEMA_VERSION = 10
@@ -379,8 +380,13 @@ class Database:
             try:
                 event_id = self.conn.execute("INSERT INTO task_events (task_id, kind, data, created_at) VALUES (?, ?, ?, ?)",
                                              (task_id, kind, json.dumps(data), time.time())).lastrowid
-                self.conn.execute("DELETE FROM task_events WHERE task_id = ? AND id <= ?",
-                                  (task_id, event_id - MAX_EVENTS_PER_TASK))
+                # Tool calls have a cap of their own: a turn that reads 200 files mustn't push the
+                # task's commands and changes out of its history.
+                tools = kind == "tool_used"
+                self.conn.execute(
+                    "DELETE FROM task_events WHERE task_id = ? AND (kind = 'tool_used') = ? AND id <= "
+                    "(SELECT id FROM task_events WHERE task_id = ? AND (kind = 'tool_used') = ? "
+                    "ORDER BY id DESC LIMIT 1 OFFSET ?)", (task_id, tools, task_id, tools, MAX_EVENTS_PER_TASK))
                 self.conn.execute("COMMIT")
             except BaseException:
                 self.conn.execute("ROLLBACK")

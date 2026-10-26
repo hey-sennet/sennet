@@ -20,8 +20,8 @@ HERE = Path(__file__).parent
 
 
 class Probe:
-    def __init__(self, cwd: Path, experimental: bool, transcript: Path):
-        self.process = subprocess.Popen(["codex", "app-server"], cwd=cwd, stdin=subprocess.PIPE,
+    def __init__(self, cwd: Path, experimental: bool, transcript: Path, command: list[str] = ["codex", "app-server"]):
+        self.process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, text=True, bufsize=1)
         self.file = transcript.open("w")
         self.start = time.monotonic()

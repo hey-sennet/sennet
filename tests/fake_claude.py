@@ -4,6 +4,8 @@ Approvals go to the permission prompt tool in --mcp-config, over HTTP, as Claude
 Turn behaviour is driven by the user's text:
   run:<command>   ask to run a command, then run it if allowed
   edit:<path>     ask to write a file, then report it written if allowed
+  look            read a file, search the mail through a claude.ai connector (which fails), and
+                  update the to-do list, all without asking, then reply
   bg:<command>    run a command in the background, end the turn, and report it in a turn of
                   its own once $FAKE_CLAUDE_BG_S seconds (default 0.3) have passed
   hang            keep working until SIGINT, which ends the turn and the process
@@ -168,6 +170,14 @@ async def run_turn(user_text: str):
         allowed = decision["behavior"] == "allow"
         tool_result(use_id, "File created successfully" if allowed else decision["message"], is_error=not allowed)
         text("Edited." if allowed else "Left it alone.")
+    elif user_text == "look":
+        read = tool_use("Read", {"file_path": os.path.join(os.getcwd(), "README.md")})
+        tool_result(read, "1\t# App")
+        search = tool_use("mcp__claude_ai_Gmail__search_threads", {"query": "from:ci failed", "max_results": 5})
+        tool_result(search, "Gmail is not connected", is_error=True)
+        todo = tool_use("TodoWrite", {"todos": [{"content": "Read the README", "status": "completed"}]})
+        tool_result(todo, "Todos have been modified successfully.")
+        text("Looked.")
     elif user_text == "hang":
         use_id = tool_use("Bash", {"command": "sleep 600"})
         await interrupted.wait()

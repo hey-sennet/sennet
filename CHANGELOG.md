@@ -5,6 +5,10 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- The task's timeline shows the agent's other tool calls too: reading and searching
+  files, the web, subagents, and MCP servers and connectors such as Gmail, named as
+  you'd read them ("Gmail: search threads"). A run of them is one quiet line that opens
+  to list each; they're never spoken. A task looked quiet while it used them.
 - Work a task left running shows below its timeline, shimmering, until it's done,
   however far you've scrolled; a list of more than two folds to its first. It showed
   only where it started.

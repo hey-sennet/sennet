@@ -13,7 +13,7 @@ from conftest import pending_approval, wait_for
 
 from sennet.agents.base import AgentEvent, TurnPolicy, check_event, spoken_instructions
 from sennet.agents.callbacks import CallbackServer
-from sennet.agents.claude import ClaudeAgent, ClaudeSession, approval_request, permission_args
+from sennet.agents.claude import ClaudeAgent, ClaudeSession, approval_request, permission_args, tool_title
 
 CWD = Path("/home/me/repo")
 
@@ -82,6 +82,52 @@ def test_commands_report_exit_codes_from_their_failures():
     assert kinds(events) == ["command_started", "command_finished", "command_started", "command_finished"]
     assert (events[1].data["status"], events[1].data["exit_code"]) == ("completed", 0)
     assert (events[3].data["status"], events[3].data["exit_code"]) == ("failed", 1)
+
+
+def test_other_tool_calls_are_tool_used_from_start_to_end():
+    s = session()
+    events = translate(
+        s,
+        assistant("m", {"type": "tool_use", "id": "t1", "name": "Grep", "input": {"pattern": "def main", "path": str(CWD / "src")}}),
+        assistant("m", {"type": "tool_use", "id": "t2", "name": "mcp__claude_ai_Gmail__search_threads",
+                        "input": {"query": "from:ci", "max_results": 5}}),
+        tool_result("t1", "src/app.py"),
+        tool_result("t2", "not connected", is_error=True))
+    assert [(e.data["item_id"], e.data["tool"], e.data["summary"], e.data["status"]) for e in events] == [
+        ("t1", "Grep", "def main", "running"), ("t2", "Gmail: search threads", "from:ci", "running"),
+        ("t1", "Grep", "def main", "completed"), ("t2", "Gmail: search threads", "from:ci", "failed")]
+
+
+def test_the_agents_bookkeeping_and_sennets_own_tools_stay_out_of_the_timeline():
+    s = session()
+    events = translate(
+        s,
+        assistant("m", {"type": "tool_use", "id": "t1", "name": "TodoWrite", "input": {"todos": []}}),
+        assistant("m", {"type": "tool_use", "id": "t2", "name": "mcp__sennet__approve", "input": {}}),
+        assistant("m", {"type": "tool_use", "id": "t3", "name": "ToolSearch", "input": {"query": "select:WebSearch"}}),
+        tool_result("t1", "ok"), tool_result("t2", "ok"), tool_result("t3", "ok"))
+    assert events == []
+
+
+@pytest.mark.parametrize("name, title", [
+    ("Read", "Read"), ("WebFetch", "WebFetch"),
+    ("mcp__claude_ai_Google_Calendar__list_events", "Google Calendar: list events"),
+    ("mcp__plugin_runpod_runpod__list-pods", "runpod: list pods"),
+    ("mcp__plugin_tools_extra__run", "tools extra: run"),
+    ("mcp__blender__get_scene_info", "blender: get scene info"),
+])
+def test_tools_are_named_as_the_user_reads_them(name, title):
+    assert tool_title(name) == title
+
+
+def test_a_tool_summary_is_its_input_in_one_short_line():
+    s = session()
+    long = "a " * 200
+    events = translate(s, assistant("m", {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": str(CWD / "README.md")}}),
+                       assistant("m", {"type": "tool_use", "id": "t2", "name": "Agent", "input": {"description": "Find\nthe bug", "prompt": long}}),
+                       assistant("m", {"type": "tool_use", "id": "t3", "name": "mcp__x__y", "input": {"limit": 3, "body": long}}))
+    assert [e.data["summary"] for e in events[:2]] == ["README.md", "Find the bug"]
+    assert len(events[2].data["summary"]) == 120 and events[2].data["summary"].endswith("…")
 
 
 def test_a_declined_tool_call_is_declined():

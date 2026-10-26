@@ -1,5 +1,10 @@
 # Codex background work spike
 
+`tools_probe.py` records the items for MCP tool calls and web searches, for #20, into
+`transcripts/tools.jsonl`: an `mcpToolCall` carries `server`, `tool`, `arguments` and a
+status; a `webSearch` starts with an empty query and no action, filled in on
+`item/completed`, and has no status of its own (codex-cli 0.161.0, 2026-10-25).
+
 A throwaway probe for [#3](https://github.com/hey-sennet/sennet/issues/3): what `codex
 app-server` does with a command that outlasts its turn. Not product code.
 

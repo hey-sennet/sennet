@@ -55,6 +55,23 @@ def test_check_event_catches_provider_words():
         {"path": "c.py", "kind": {"type": "add"}, "diff": "+x\n"}]}},
      "file_change", {"status": "running", "changes": [{"path": "a.py", "kind": "move", "diff": ""},
                                                       {"path": "c.py", "kind": "add", "diff": "+x\n"}]}),
+    ("item/started", {"item": {"type": "mcpToolCall", "id": "m", "server": "codex_apps", "tool": "gmail_search",
+                               "status": "inProgress", "arguments": {"query": "from:ci"}}},
+     "tool_used", {"tool": "codex apps: gmail search", "summary": "from:ci", "status": "running"}),
+    ("item/completed", {"item": {"type": "mcpToolCall", "id": "m", "server": "glossary", "tool": "look_up",
+                                 "status": "failed", "arguments": {"word": "x"}, "error": {"message": "no"}}},
+     "tool_used", {"tool": "glossary: look up", "summary": "x", "status": "failed"}),
+    ("item/started", {"item": {"type": "webSearch", "id": "w", "query": "", "action": None}},
+     "tool_used", {"tool": "Web search", "summary": "", "status": "running"}),
+    ("item/completed", {"item": {"type": "webSearch", "id": "w", "query": "senet",
+                                 "action": {"type": "search", "query": "senet", "queries": None}}},
+     "tool_used", {"tool": "Web search", "summary": "senet", "status": "completed"}),
+    ("item/completed", {"item": {"type": "webSearch", "id": "w", "query": "",
+                                 "action": {"type": "openPage", "url": "https://example.com"}}},
+     "tool_used", {"tool": "Web page", "summary": "https://example.com", "status": "completed"}),
+    ("item/started", {"item": {"type": "collabAgentToolCall", "id": "c", "tool": "spawnAgent", "status": "inProgress",
+                               "prompt": "Find the flaky test"}},
+     "tool_used", {"tool": "Subagent", "summary": "Find the flaky test", "status": "running"}),
 ])
 def test_codex_translates_into_the_contract(method, params, kind, expected):
     event = CodexSession(None, None)._translate(method, params)
@@ -63,13 +80,38 @@ def test_codex_translates_into_the_contract(method, params, kind, expected):
     assert check_event(event) == []
 
 
+def test_codex_items_that_are_no_tool_call_are_left_out():
+    session = CodexSession(None, None)
+    for item in ({"type": "reasoning", "id": "r"}, {"type": "collabAgentToolCall", "id": "c", "tool": "wait"}):
+        assert session._translate("item/completed", {"item": item}) is None
+
+
+def test_tool_calls_have_a_cap_of_their_own(tmp_path, monkeypatch):
+    monkeypatch.setattr("sennet.db.MAX_EVENTS_PER_TASK", 3)
+    db = Database(tmp_path / "t.db")
+    db.execute("INSERT INTO projects (id, name, path, access, created_at) VALUES (1, 'app', '/app', 'workspace', 0)")
+    for task in (1, 2):
+        db.execute("INSERT INTO tasks (id, project_id, agent, title, status, created_at, updated_at) "
+                   "VALUES (?, 1, 'codex', 't', 'running', 0, 0)", task)
+    for n in range(3):
+        db.add_event(1, "command_started", {"n": n})
+    for n in range(10):
+        db.add_event(1, "tool_used", {"n": n})
+        db.add_event(2, "tool_used", {"n": n})  # another task's events don't count
+    db.add_event(1, "command_started", {"n": 3})
+    assert [(e["kind"], e["data"]["n"]) for e in db.events(1)] == [
+        ("command_started", 1), ("command_started", 2), ("tool_used", 7), ("tool_used", 8), ("tool_used", 9),
+        ("command_started", 3)]
+    db.close()
+
+
 @pytest.mark.parametrize("agent", registry.NAMES)
 def test_every_event_from_a_session_conforms(live, tmp_path, agent):
     """Each adapter, against its fake CLI, through the same requests."""
     client = live
     (tmp_path / agent).mkdir()
     project = client.post("/api/projects", json={"path": str(tmp_path / agent), "agent": agent}).json()
-    texts = ["hello", "run:npm test", "edit:src/app.py", "hang", "crash"]
+    texts = ["hello", "run:npm test", "edit:src/app.py", "look", "hang", "crash"]
     for text in texts:
         task = client.post("/api/tasks", json={"project_id": project["id"], "text": text}).json()
         if text.startswith(("run:", "edit:")):
@@ -80,6 +122,9 @@ def test_every_event_from_a_session_conforms(live, tmp_path, agent):
         snapshot = wait_for(client, task["id"], finished)
         assert_conforms(snapshot["events"])
         assert snapshot["events"], text
+        if text == "look":
+            assert [e["data"]["status"] for e in snapshot["events"] if e["kind"] == "tool_used"] == \
+                ["running", "completed", "running", "failed" if agent == "claude" else "completed"]
 
 
 # Capabilities

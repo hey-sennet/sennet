@@ -202,6 +202,28 @@ test('a command shows on one line, and a tap opens the whole of it and its outpu
   await page.screenshot({ path: `test-results/${info.project.name}-command-open.png` })
 })
 
+test('tool calls in a row fold into one quiet line, which opens to list each', async ({ page }, info) => {
+  const name = `tools-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  const task = await (await page.request.post('/api/tasks', { data: { project_id: project.id, text: 'look' }, headers })).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).status).toBe('completed')
+
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByText(/^look$/).first().click()
+  const timeline = info.project.name === 'phone' ? page.getByRole('region', { name: 'Tasks' }) : page.getByRole('complementary', { name: 'Task' })
+  const row = timeline.locator('summary', { hasText: 'glossary: look up · Web search' })
+  await expect(row).toBeVisible()
+  await expect(timeline.getByText('Sennet board game')).toBeHidden()
+  await row.click()
+  await expect(timeline.getByText('Sennet board game')).toBeVisible()
+  await expect(timeline.getByText('sennet', { exact: true })).toBeVisible()
+  await page.screenshot({ path: `test-results/${info.project.name}-tools-open.png` })
+})
+
 test('a command shows while it runs, shimmering, and its result takes its place', async ({ page }, info) => {
   const name = `running-${info.project.name}`
   const directory = path.join(home, name)

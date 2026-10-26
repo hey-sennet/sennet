@@ -31,7 +31,8 @@ import uuid
 from pathlib import Path
 
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy, spoken_instructions)
+                   Capabilities, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy, mcp_tool_title,
+                   spoken_instructions, tool_summary)
 from .callbacks import CallbackServer, Registration
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,10 @@ APPROVE_TOOL = {
 }
 PROMPT_TOOL = f"mcp__sennet__{APPROVE_TOOL['name']}"
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit")
+# Tool calls left out of the timeline: asking the user (disallowed anyway), and the agent's own
+# bookkeeping: its to-do list, and loading a tool's definition before its first use. Sennet's own MCP
+# tools (`mcp__sennet__…`) are left out too.
+UNSHOWN_TOOLS = ("AskUserQuestion", "TodoWrite", "ToolSearch")
 # Claude's tool for asking the user mid-turn is disallowed, so the instructions name none.
 INSTRUCTIONS = spoken_instructions()
 EXIT_CODE_RE = re.compile(r"^Exit code (\d+)")
@@ -183,6 +188,30 @@ def file_change(tool: str, data: dict, cwd: Path) -> FileChange:
         diff = "".join(difflib.unified_diff((before or "").splitlines(True), after.splitlines(True),
                                             f"a/{shown}", f"b/{shown}"))[:DIFF_LIMIT]
     return FileChange(shown, "add" if before is None and tool == "Write" else "update", diff)
+
+
+def tool_title(name: str) -> str:
+    """A tool's name as the user would read it. Built-ins keep theirs (Read, WebFetch); an MCP tool,
+    `mcp__<server>__<tool>`, names its server: mcp__claude_ai_Gmail__search_threads → "Gmail: search threads"."""
+    if not name.startswith("mcp__") or name.count("__") < 2:
+        return name
+    _, server, tool = name.split("__", 2)
+    server = server.removeprefix("claude_ai_")
+    if server.startswith("plugin_"):  # plugin_<plugin>_<server>, usually the same name twice
+        parts = server.removeprefix("plugin_").split("_")
+        half = len(parts) // 2
+        server = "_".join(parts[:half]) if len(parts) % 2 == 0 and parts[:half] == parts[half:] else "_".join(parts)
+    return mcp_tool_title(server, tool)
+
+
+def shown_tool(name: str) -> bool:
+    return name not in ("Bash", *EDIT_TOOLS, *UNSHOWN_TOOLS) and not name.startswith("mcp__sennet__")
+
+
+def tool_used(use_id: str, name: str, data: dict, cwd: Path, status: str) -> AgentEvent:
+    paths = {k: _shown_path(v, cwd) for k in ("file_path", "notebook_path", "path") if isinstance(v := data.get(k), str)}
+    return AgentEvent("tool_used", {"item_id": use_id, "tool": tool_title(name),
+                                    "summary": tool_summary({**data, **paths}), "status": status})
 
 
 def approval_request(tool: str, data: dict, cwd: Path) -> ApprovalRequest:
@@ -396,6 +425,8 @@ class ClaudeSession:
                     events.append(AgentEvent("command_started", {"item_id": block["id"],
                                                                  "command": (data.get("command") or "").strip(),
                                                                  "cwd": str(self.cwd)}))
+                elif shown_tool(name):
+                    events.append(tool_used(block["id"], name, data, self.cwd, "running"))
         return events
 
     def _tool_result(self, block: dict) -> list[AgentEvent]:
@@ -419,7 +450,7 @@ class ClaudeSession:
             return [AgentEvent("file_change", {
                 "item_id": use_id, "status": status,
                 "changes": [{"path": _shown_path(path, self.cwd), "kind": "update" if existed else "add", "diff": diff}]})]
-        return []
+        return [tool_used(use_id, name, data, self.cwd, status)] if shown_tool(name) else []
 
     def _result(self, message: dict) -> list[AgentEvent]:
         self.in_turn = False

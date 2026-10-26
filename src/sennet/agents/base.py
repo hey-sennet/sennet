@@ -18,7 +18,7 @@ Decision = Literal["approve", "approve_always", "decline", "cancel"]
 
 # How a turn ended. An adapter maps its provider's words to these.
 TurnStatus = Literal["completed", "cancelled", "failed"]
-# A command or file change: running while in progress, then one of the others.
+# A command, file change or tool call: running while in progress, then one of the others.
 ItemStatus = Literal["running", "completed", "failed", "declined"]
 ChangeKind = Literal["add", "delete", "update", "move"]
 StepStatus = Literal["pending", "active", "done"]
@@ -115,6 +115,11 @@ EVENT_FIELDS: dict[str, dict[str, tuple | None]] = {
     "command_finished": {"item_id": None, "command": None, "status": get_args(ItemStatus),
                          "exit_code": None, "output_tail": None},
     "file_change": {"item_id": None, "status": get_args(ItemStatus), "changes": None},
+    # Any other tool call: reading or searching files, the web, a subagent, an MCP server. Sent
+    # `running` as it starts and again, with the same item_id, when it ends. `tool` is the name as
+    # the user would read it ("Read", "Gmail: search threads"); `summary` a short line of its input,
+    # never its output (see `tool_summary`).
+    "tool_used": {"item_id": None, "tool": None, "summary": None, "status": get_args(ItemStatus)},
     "plan": {"steps": None},
     "error": {"message": None},
     "turn_completed": {"status": get_args(TurnStatus), "error": None},
@@ -137,6 +142,28 @@ OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
     "turn_completed": ("limit",),
 }
 LIMIT_WINDOW_FIELDS = {"id", "title", "used", "resets_at"}
+
+SUMMARY_LIMIT = 120
+# The input fields that say most about a call, in the order to look for them.
+SUMMARY_KEYS = ("query", "q", "url", "pattern", "file_path", "notebook_path", "path", "description", "prompt", "word", "name",
+                "title", "subject", "id")
+
+
+def tool_summary(data, limit: int = SUMMARY_LIMIT) -> str:
+    """One short line from a tool call's input: its most telling field, else its first text."""
+    if not isinstance(data, dict):
+        return ""
+    texts = [data.get(key) for key in SUMMARY_KEYS] + list(data.values())
+    text = next((t for t in texts if isinstance(t, str) and t.strip()), "")
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def mcp_tool_title(server: str, tool: str) -> str:
+    """An MCP server's tool as the user would read it: glossary, look_up → "glossary: look up"."""
+    def words(name: str) -> str:
+        return " ".join(name.replace("_", " ").replace("-", " ").split())
+    return f"{words(server)}: {words(tool)}" if server else words(tool)
 
 
 def check_event(event: AgentEvent) -> list[str]:

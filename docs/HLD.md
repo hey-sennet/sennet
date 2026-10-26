@@ -105,10 +105,10 @@ outside an adapter sees a provider's words:
 
 | | Values |
 | --- | --- |
-| Events | `message_delta`, `message`, `command_started`, `command_finished`, `file_change`, `plan`, `error`, `turn_started`, `turn_completed`, `background` |
+| Events | `message_delta`, `message`, `command_started`, `command_finished`, `file_change`, `tool_used`, `plan`, `error`, `turn_started`, `turn_completed`, `background` |
 | Turn status | `completed`, `cancelled`, `failed` |
 | Turn started by | `user`, `agent` |
-| Command and file change status | `running`, `completed`, `failed`, `declined` |
+| Command, file change and tool call status | `running`, `completed`, `failed`, `declined` |
 | File change kind | `add`, `delete`, `update`, `move` |
 | Plan step status | `pending`, `active`, `done` |
 | Approval mode | `ask`, `auto`, `never`, `classifier` (§4.4) |

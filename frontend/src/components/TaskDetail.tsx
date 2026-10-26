@@ -11,13 +11,13 @@ import { Diff } from './Diff'
 import { Markdown } from './Markdown'
 import { StatusBadge, StatusDot } from './StatusBadge'
 
-type Entry = { at: number; message: Message } | { at: number; key: number; event: TaskEvent }
+type Entry = { at: number; message: Message } | { at: number; key: number; event: TaskEvent } | { at: number; key: number; tools: TaskEvent[] }
 
-const VISIBLE_EVENTS = new Set(['command_started', 'command_finished', 'file_change', 'plan', 'error', 'turn_completed', 'background', 'turn_started'])
+const VISIBLE_EVENTS = new Set(['command_started', 'command_finished', 'tool_used', 'file_change', 'plan', 'error', 'turn_completed', 'background', 'turn_started'])
 
 /**
  * A task's timeline (design/README.md): your request in a bubble, then commands with their results,
- * files edited and the agent's reply set for reading. The task's own approvals sit at the end.
+ * the other tools it used, files edited and the agent's reply set for reading. The task's own approvals sit at the end.
  */
 export function TaskDetail({ detail, streaming, project, approvals, stop = true }: {
   detail: Detail
@@ -34,22 +34,32 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
     // Only the latest plan matters; earlier ones are superseded.
     const lastPlan = detail.events.findLast((e) => e.kind === 'plan')
     const events: Entry[] = []
-    const running = new Map<string, Entry & { event: TaskEvent }>() // command item → its row, until it finishes
+    const running = new Map<string, Entry & { event: TaskEvent }>() // command or tool call → its row, until it finishes
     for (const event of detail.events) {
       if (!VISIBLE_EVENTS.has(event.kind) || (event.kind === 'plan' && event !== lastPlan)) continue
       if (event.kind === 'turn_completed' && event.data.status === 'completed') continue
-      const started = event.kind === 'command_finished' ? running.get(event.data.item_id) : undefined
+      const started = event.kind === 'command_finished' || event.kind === 'tool_used' ? running.get(event.data.item_id) : undefined
       if (started) {
-        // A command's result takes the place of its running row, where it started.
+        // A result takes the place of its running row, where it started.
         started.event = event
         running.delete(event.data.item_id)
         continue
       }
       const entry = { at: event.created_at, key: event.id, event }
-      if (event.kind === 'command_started') running.set(event.data.item_id, entry)
+      if (event.kind === 'command_started' || (event.kind === 'tool_used' && event.data.status === 'running')) {
+        running.set(event.data.item_id, entry)
+      }
       events.push(entry)
     }
-    return [...messages, ...events].sort((a, b) => a.at - b.at)
+    // Tool calls in a row, with nothing said or run between them, fold into one line.
+    const folded: Entry[] = []
+    for (const entry of [...messages, ...events].sort((a, b) => a.at - b.at)) {
+      const last = folded.at(-1)
+      if (!('event' in entry) || entry.event.kind !== 'tool_used') folded.push(entry)
+      else if (last && 'tools' in last) last.tools.push(entry.event)
+      else folded.push({ at: entry.at, key: entry.key, tools: [entry.event] })
+    }
+    return folded
   }, [detail.messages, detail.events])
 
   return (
@@ -70,7 +80,9 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
         {entries.map((entry) =>
-          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} /> : <EventItem key={`e${entry.key}`} event={entry.event} working={working} />,
+          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} />
+            : 'tools' in entry ? <ToolCalls key={`t${entry.key}`} calls={entry.tools} working={working} />
+            : <EventItem key={`e${entry.key}`} event={entry.event} working={working} />,
         )}
         <StreamingReply streaming={streaming} working={active && !approvals.length} />
         {approvals.map((approval) => <li key={approval.id}><ApprovalCard approval={approval} project={project} /></li>)}
@@ -238,6 +250,49 @@ const EventItem = memo(function EventItem({ event, working }: { event: TaskEvent
   }
   return null
 })
+
+/** How a finished tool call went, when it didn't simply work; a running one says nothing. */
+function callResult(call: TaskEvent, working: boolean): string | null {
+  const status = call.data.status as string
+  return status === 'running' ? (working ? null : 'stopped') : status === 'completed' ? null : status
+}
+
+/**
+ * Tool calls other than commands and edits (reads, searches, the web, MCP servers), quieter than
+ * commands: a run of them is one line, "Read ×12 · Grep ×3", which opens to list each call.
+ */
+function ToolCalls({ calls, working }: { calls: TaskEvent[]; working: boolean }) {
+  const running = working && calls.some((call) => call.data.status === 'running')
+  const failed = calls.some((call) => call.data.status === 'failed')
+  const counts = new Map<string, number>()
+  for (const call of calls) counts.set(call.data.tool, (counts.get(call.data.tool) ?? 0) + 1)
+  const line = calls.length === 1 ? [calls[0].data.tool, calls[0].data.summary].filter(Boolean).join(' ')
+    : [...counts].map(([tool, count]) => count > 1 ? `${tool} ×${count}` : tool).join(' · ')
+  const result = calls.length === 1 ? callResult(calls[0], working) : failed ? 'failed' : null
+  return (
+    <li>
+      <details className="group text-xs">
+        <summary className="flex cursor-pointer list-none items-baseline gap-2.5 text-muted-foreground/80 transition-colors hover:text-foreground/80 group-open:text-foreground/90 [&::-webkit-details-marker]:hidden">
+          <span className={cn('min-w-0 flex-1 truncate', running && 'animate-shimmer')}>{line}</span>
+          {result && <small className={cn('shrink-0 text-xs', failed ? 'text-warn' : 'text-muted-foreground/70')}>{result}</small>}
+        </summary>
+        <ul className="mt-1.5 flex max-h-64 flex-col gap-1 overflow-auto">
+          {calls.map((call) => {
+            const said = callResult(call, working)
+            return (
+              <li key={call.id} className="flex min-w-0 items-baseline gap-2.5">
+                <span className="shrink-0 text-foreground/85">{call.data.tool}</span>
+                <span className={cn('min-w-0 flex-1 font-mono text-[11.5px] text-muted-foreground [overflow-wrap:anywhere]',
+                  working && call.data.status === 'running' && 'animate-shimmer')}>{call.data.summary}</span>
+                {said && <small className={cn('shrink-0', call.data.status === 'failed' ? 'text-warn' : 'text-muted-foreground/70')}>{said}</small>}
+              </li>
+            )
+          })}
+        </ul>
+      </details>
+    </li>
+  )
+}
 
 /** Files the agent edited; each one with a diff opens to show it. */
 function FileChangeEntry({ data }: { data: TaskEvent['data'] }) {

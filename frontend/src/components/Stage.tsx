@@ -218,14 +218,16 @@ function Ellipsis() {
 function activity(detail: TaskDetail | null): string {
   const last = detail?.events.findLast((e) => e.kind !== 'error')
   return last?.kind === 'command_started' ? 'Running a command'
+    : last?.kind === 'tool_used' && last.data.status === 'running' ? 'Looking into it'
     : last?.kind === 'file_change' ? 'Editing files'
     : last?.kind === 'message_delta' ? 'Writing'
     : 'Thinking'
 }
 
-/** The command running now, if the latest command hasn't finished. */
+/** The command or tool call running now, if the latest one hasn't finished. */
 function current(detail: TaskDetail | null): string | null {
-  const last = detail?.events.findLast((e) => e.kind === 'command_started' || e.kind === 'command_finished')
+  const last = detail?.events.findLast((e) => ['command_started', 'command_finished', 'tool_used'].includes(e.kind))
+  if (last?.kind === 'tool_used') return last.data.status === 'running' ? [last.data.tool, last.data.summary].filter(Boolean).join(' ') : null
   return last?.kind === 'command_started' ? last.data.command ?? null : null
 }
 
