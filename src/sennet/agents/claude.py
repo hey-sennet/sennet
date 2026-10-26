@@ -12,12 +12,15 @@ at a per-session URL (agents.callbacks), which waits for the user's answer.
 Usage limits arrive as `rate_limit_event`s during turns. Between turns they come from the
 `get_usage` control request, which Claude Code marks experimental: it answers from the
 plan's usage, without a turn, so it costs nothing.
+Images go in the user message's content as base64 image blocks, before its text.
+
 Sennet runs the user's own unmodified `claude` on their subscription login,
 and never reads or passes on its credentials.
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime
 import difflib
 import json
@@ -31,7 +34,7 @@ import uuid
 from pathlib import Path
 
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy, mcp_tool_title,
+                   Capabilities, EventSink, FileChange, Image, LimitWindow, ModelOption, TurnPolicy, mcp_tool_title,
                    spoken_instructions, tool_summary)
 from .callbacks import CallbackServer, Registration
 
@@ -190,6 +193,10 @@ def file_change(tool: str, data: dict, cwd: Path) -> FileChange:
     return FileChange(shown, "add" if before is None and tool == "Write" else "update", diff)
 
 
+def _base64(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode()
+
+
 def tool_title(name: str) -> str:
     """A tool's name as the user would read it. Built-ins keep theirs (Read, WebFetch); an MCP tool,
     `mcp__<server>__<tool>`, names its server: mcp__claude_ai_Gmail__search_threads → "Gmail: search threads"."""
@@ -289,11 +296,18 @@ class ClaudeSession:
         self.reader = asyncio.create_task(self._read())
         self.stderr = asyncio.create_task(self._drain_stderr())
 
-    async def send(self, text: str):
+    async def send(self, text: str, images: list[Image] = ()):
         if not self.alive:
             raise RuntimeError("agent process is not running")
+        content: str | list = text
+        if images:
+            content = [{"type": "image", "source": {"type": "base64", "media_type": image.media_type,
+                                                    "data": await asyncio.to_thread(_base64, image.path)}}
+                       for image in images]
+            if text:
+                content.append({"type": "text", "text": text})
         self.unstarted += 1
-        line = {"type": "user", "message": {"role": "user", "content": text}}
+        line = {"type": "user", "message": {"role": "user", "content": content}}
         self.process.stdin.write(json.dumps(line).encode() + b"\n")
         await self.process.stdin.drain()
 
@@ -507,7 +521,7 @@ class ClaudeAgent:
     # mode, and may report work it left running in a turn of its own. Its model is set at start.
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True, approval_modes=APPROVAL_MODES,
                                 access_levels=ACCESS_LEVELS, background_turns=True, project_config=True,
-                                live_model_change=False)
+                                live_model_change=False, images=True)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
         self.command = command

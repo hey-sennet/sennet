@@ -17,7 +17,7 @@ export type VoiceMessage =
   | { type: 'speech_status'; speech: SpeechStatuses }
   | { type: 'voice_state'; state: VoiceState; turn: string | null }
   | { type: 'caption'; turn: string; committed: string; provisional: string }
-  | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number }
+  | { type: 'final'; turn: string; text: string; outcome: string; task_id?: number; attachments?: number[] } // the images that went with it
   | { type: 'speech'; reply: number; generation: number; segment: number; text: string; task_id: number | null; cue?: boolean }
   | { type: 'unheard'; task_id: number } // a reply about a task not on screen, not spoken
   | { type: 'speech_end'; reply: number; generation: number }
@@ -36,6 +36,7 @@ export type Control =
   | { type: 'stop' }
   | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation, and the task on screen (docs/voice-protocol.md §9, §12)
   | { type: 'close_mic' }
+  | { type: 'attach'; attachments: number[] } // images uploaded for the next message said here
   | { type: 'codecs'; uplink: Codec; downlink: Codec } // §3: PCM unless the client asks for Opus
   | { type: 'played' | 'drained'; reply: number; segment: number } // §4: began playing; ran out after it
   | { type: 'audio'; state: string; hidden: boolean }       // §5: playback was suspended or resumed

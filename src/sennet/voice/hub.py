@@ -171,11 +171,13 @@ class VoiceHub:
             pending.hushed = True
 
     async def deliver(self, session: VoiceSession, turn: Turn, text: str) -> dict:
-        """Act on a final transcript. Returns the `final` message's outcome fields."""
+        """Act on a final transcript, with the images the device attached for it. Returns the `final`
+        message's outcome fields: those images, once they went with it."""
         if not text.strip():
             return {"outcome": "empty"}
+        images = session.attachments
         try:
-            task = await self._dispatch(turn, text.strip())
+            task = await self._dispatch(turn, text.strip(), images)
         except TaskError as error:
             await session.error("dispatch_failed", str(error), turn.id)
             return {"outcome": "failed"}
@@ -187,14 +189,16 @@ class VoiceHub:
         message = self.tasks.db.one("SELECT id FROM task_messages WHERE task_id = ? AND role = 'user' "
                                     "ORDER BY id DESC LIMIT 1", task["id"])
         self.requests[message["id"]] = session
-        return {"outcome": "dispatched", "task_id": task["id"]}
+        if session.attachments == images:
+            session.attachments = []  # sent; the client clears them on `final`
+        return {"outcome": "dispatched", "task_id": task["id"], **({"attachments": images} if images else {})}
 
-    async def _dispatch(self, turn: Turn, text: str) -> dict | None:
+    async def _dispatch(self, turn: Turn, text: str, images: list[int]) -> dict | None:
         """A follow-up to the selected task, or a new task in the selected project with the turn's model."""
         if turn.task_id is not None:
-            return await self.tasks.follow_up(turn.task_id, text)
+            return await self.tasks.follow_up(turn.task_id, text, images)
         if turn.project_id is not None:
-            return await self.tasks.create(turn.project_id, text, turn.model, turn.effort)
+            return await self.tasks.create(turn.project_id, text, turn.model, turn.effort, images)
         return None
 
     async def close(self):

@@ -7,6 +7,7 @@
 // detector, in the browser, until it hears the phrase and opens a conversation.
 // React subscribes to the snapshot; Strata reads `source` and `playback.source` each frame.
 import type { ModelChoice } from '@/lib/api'
+import { tray } from '@/lib/tray'
 import type { AudioSource } from '@/strata/engine'
 import { BANDS } from '@/strata/field'
 import { MicError, Microphone } from './mic'
@@ -91,6 +92,7 @@ export class Voice {
   }
   private detector: WakeDetector | null = null
   private selection: Target = {} // what is on screen: the wake word opens a conversation with it
+  private attached = '[]' // the images the session was last told go with the next thing said
   private woken = false // the open conversation is the wake word's: it closes once things go quiet
   private wakeTimer: ReturnType<typeof setTimeout> | null = null
   private wakeLock: WakeLockSentinel | null = null
@@ -112,6 +114,8 @@ export class Voice {
       this.update({ connected, ...(connected ? {} : { stt: null, state: 'idle' }) })
     }
     this.socket.on((message) => this.receive(message))
+    // Images waiting in the tray go with the next thing said, as with the next thing typed.
+    tray().subscribe(() => this.attach())
     this.socket.onAudio((data) => this.hear(data))
     this.playback.onPlayingChange = (speaking) => {
       // Everything sent has been heard (or silenced): the server's `playing` follows this (§7).
@@ -295,6 +299,14 @@ export class Voice {
   retarget(target: Target) {
     this.selection = target
     this.socket.send({ type: 'target', ...target })
+  }
+
+  /** Tell the session which images go with the next message said, when that changes. */
+  private attach(always = false) {
+    const ids = tray().ids()
+    if (!always && JSON.stringify(ids) === this.attached) return
+    this.attached = JSON.stringify(ids)
+    this.socket.send({ type: 'attach', attachments: ids })
   }
 
   /** Start a turn. Talking interrupts any speech (the server stops it on `start`). */
@@ -508,6 +520,7 @@ export class Voice {
       this.heard = this.lastStarted = null
       this.outputRate = message.output.rate
       this.socket.send({ type: 'target', ...this.selection }) // the new session's task on screen
+      this.attach(true) // and the images waiting, which a new session doesn't know
       this.useCodecs({ uplink: 'pcm_s16le', downlink: 'pcm_s16le' })
       void this.negotiate(message.codecs ?? [])
     }
@@ -540,6 +553,7 @@ export class Voice {
       this.update({ words: { speaker: 'user', committed: message.committed, provisional: message.provisional } })
     }
     if (message.type === 'final') {
+      if (message.attachments) tray().sent(message.attachments)
       this.update({ words: message.text && message.outcome !== 'interrupted' && message.outcome !== 'empty'
         ? { speaker: 'user', committed: message.text, provisional: '' } : null })
       if (message.turn === this.turn) this.endTurn() // a turn the server opened and ended

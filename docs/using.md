@@ -76,6 +76,20 @@ you open the task. The task you just spoke to is the one on screen.
 Use headphones or a quiet room for conversations. Sennet cancels its own echo, but a loud
 speaker next to the mic can still cut a reply short.
 
+## Images
+
+Tap the image button in the dock to take a photo or choose images, or, on a computer,
+paste or drop one anywhere on the page. Up to eight wait above the dock, each with an ×
+to take it out, and go with the next thing you say or type: while you talk they light up,
+as going with what you're saying. A message can be only images.
+
+Photos are taken in Sennet's own camera rather than the phone's camera app, so a
+conversation keeps listening while you take one, and you can talk about what you're
+pointing at. Images are shrunk on the device to a long side of 1600 pixels before
+they're sent, which also drops what a photo carries besides the picture, such as where
+it was taken. They're kept with the task under Sennet's data directory, shown in its
+timeline, and deleted with it. Codex and Claude Code both take images.
+
 ## What you hear
 
 The agent is asked to say what it's going to do, give short updates as it works, and

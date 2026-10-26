@@ -24,7 +24,7 @@ class ScriptedSession:
         self.released = asyncio.Event()
         self.jobs: set[asyncio.Task] = set()
 
-    async def send(self, text: str):
+    async def send(self, text: str, images=()):
         self.sent.append(text)
         self._spawn(self._turn(text))
 
@@ -75,7 +75,7 @@ class ScriptedAgent:
     default_command = ["scripted"]
     capabilities = Capabilities(interrupt=False, resume=False, live_approvals=False, approval_modes=APPROVAL_MODES,
                                 access_levels=ACCESS_LEVELS, background_turns=True,
-                                project_config=False, live_model_change=False)
+                                project_config=False, live_model_change=False, images=False)
 
     def __init__(self, command: list[str] | None = None):
         self.sessions: list[ScriptedSession] = []

@@ -185,7 +185,7 @@ def test_agents_report_their_capabilities(client):
     assert codex["capabilities"] == {"interrupt": True, "resume": True, "live_approvals": True,
                                      "approval_modes": ["ask", "auto", "never"],
                                      "access_levels": ["read-only", "workspace", "full"], "background_turns": False,
-                                     "project_config": False, "live_model_change": True}
+                                     "project_config": False, "live_model_change": True, "images": True}
 
 
 def test_agents_are_asked_for_a_version_to_be_heard(client, project, codex_log):

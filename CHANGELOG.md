@@ -5,6 +5,10 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- Images in a message: take a photo in Sennet, choose images, or paste or drop one, and
+  they go with the next thing you say or type, to Codex or Claude Code. They're shrunk on
+  the device first, shown in the task's timeline, and deleted with the task. Taking a
+  photo keeps a conversation listening.
 - The task's timeline shows the agent's other tool calls too: reading and searching
   files, the web, subagents, and MCP servers and connectors such as Gmail, named as
   you'd read them ("Gmail: search threads"). A run of them is one quiet line that opens

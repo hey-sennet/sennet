@@ -123,6 +123,7 @@ JSON text frames.
 | `{"type": "played", "reply": 3, "segment": 0}` | A segment's first audio began playing on this device. The server logs it, with the time since it sent the segment, so each reply can be followed from queued to heard in the service log (§13). |
 | `{"type": "drained", "reply": 3, "segment": 1}` | Playback ran out of audio, the last segment it started being this one. When that is the last segment the server sent, the reply has been heard to its end: the server's `playing`, and `voice_state` `speaking`, end here (§13). |
 | `{"type": "ping"}` | Is this socket still working? The server answers `pong`. The client asks when the page comes back after being hidden, and connects again if no answer comes within 3 s: a phone can leave a backgrounded page's socket looking open with nothing getting through. |
+| `{"type": "attach", "attachments": [41, 42]}` | Images uploaded for the next message said on this session (`POST /api/attachments`), replacing any sent before; `[]` for none. They go with the next transcript dispatched, then the session forgets them. Sent again on `ready`: a new session starts with none. |
 | `{"type": "audio", "state": "suspended", "hidden": true}` | Playback's `AudioContext` changed state (`running`, `suspended`, `interrupted`, `closed`), for the same log. A phone suspends it with the screen off or when another app takes the audio; the client resumes it when it can and, if speech arrives while it can't, asks the user to tap. |
 
 The client picks the `turn` id (any short string, unique per session), so it can tag its
@@ -145,6 +146,9 @@ ignored.
 `final.outcome` is one of:
 
 - `dispatched`: sent to `task_id` (a follow-up, or the task created for `project_id`).
+  With `attachments`, the ids of the images that went with it (§4, `attach`); the client
+  takes them out of what it is holding to send. When they can't go (the agent doesn't take
+  images, or one was already sent), the outcome is `failed` and they stay attached.
 - `empty`: no speech found. Nothing is sent.
 - `interrupted`: in a conversation, a lone word or a "wait" said over a reply: it stopped
   the reply and isn't sent (§12).

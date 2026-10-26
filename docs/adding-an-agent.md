@@ -26,13 +26,15 @@ An `Agent` (see the protocols in `base.py`) has:
 - `capabilities`: what it can do. Every field must be stated, and Sennet adapts to them:
   an agent that can't `interrupt` is stopped instead, one that can't `resume` starts a
   fresh conversation after a restart, and an `approval_modes` or `access_levels` entry it
-  doesn't list is refused before a task starts.
+  doesn't list is refused before a task starts. Without `images`, a message with images
+  is refused before it's sent, and the app hides its image button.
 - `status()`: whether the CLI is installed and logged in, for `doctor` and Settings.
 - `models()`: the models and effort levels it offers, for the model picker.
 - `limits()`: the account's usage limits as `LimitWindow`s, asked for without using any,
   or None when the agent can't say (not logged in, or logged in with an API key).
 - `open(cwd, resume_token, policy, on_event, on_approval)`: starts or resumes a session
-  in the project directory and returns an `AgentSession`, with `send`, `interrupt`,
+  in the project directory and returns an `AgentSession`, with `send` (the message's text,
+  and with `images` its `Image`s: files on this machine and their media types), `interrupt`,
   `set_model`, `close`, `alive` and a `resume_token` to store.
 
 During a turn the session calls `on_event` with `AgentEvent`s (`message_delta`,

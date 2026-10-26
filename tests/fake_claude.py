@@ -223,7 +223,10 @@ async def main():
     while line := await reader.readline():
         message = json.loads(line)
         log({"in": message})
-        await turns.put(message["message"]["content"])
+        content = message["message"]["content"]
+        if isinstance(content, list):  # with images: their blocks, then the text's
+            content = " ".join(block["text"] for block in content if block["type"] == "text")
+        await turns.put(content)
     while not turns.empty():
         await asyncio.sleep(0.05)
     runner.cancel()

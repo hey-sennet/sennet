@@ -108,6 +108,7 @@ class VoiceSession:
         self.floor.set()
         self.conversation: Conversation | None = None
         self.selected: int | None = None  # the task on this device's screen: only its replies are spoken
+        self.attachments: list[int] = []  # images uploaded for the next message said here (`attach`)
         self.replies_made = 0
         self.sending = False          # a reply's segments are going out
         self.last_sent: tuple[int, int] | None = None  # (reply, segment) last sent, until the client drains it
@@ -209,6 +210,12 @@ class VoiceSession:
         elif kind == "audio":
             log.info("voice %s: the device's audio is %s%s", self.id[:4], message.get("state"),
                      " (page hidden)" if message.get("hidden") else "")
+        elif kind == "attach":
+            ids = message.get("attachments")
+            if isinstance(ids, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+                self.attachments = ids
+            else:
+                await self.error("bad_message", "attach takes a list of attachment ids")
         elif kind == "target":
             if (target := await self._target(message)) is not None:
                 self.selected = target["task_id"]

@@ -274,6 +274,7 @@ class Capabilities:
     background_turns: bool             # starts a turn itself to report work it left running
     project_config: bool               # leaves a project's own configuration out unless the project opts in
     live_model_change: bool            # changes model and effort between turns; else its process restarts, resuming
+    images: bool                       # takes images with a message; a message with images to one that can't is refused
 
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
@@ -297,14 +298,22 @@ class AgentStatus:
     detail: str
 
 
+@dataclass(frozen=True)
+class Image:
+    """An image sent with a message: a file on this machine, which the adapter passes on as its CLI takes it."""
+
+    path: Path
+    media_type: str                    # image/jpeg, image/png or image/webp
+
+
 class AgentSession(Protocol):
     # Opaque to everything but the adapter: a thread, session or conversation id that
     # `Agent.open` takes back to continue the same conversation.
     resume_token: str
 
-    async def send(self, text: str) -> None:
-        """Start a turn. Events and approval requests arrive through the callbacks
-        until a `turn_completed` event."""
+    async def send(self, text: str, images: list[Image] = ()) -> None:
+        """Start a turn with this message, and its images when `capabilities.images` (`text` may then
+        be empty). Events and approval requests arrive through the callbacks until a `turn_completed` event."""
 
     async def interrupt(self) -> None:
         """Ask the agent to stop the current turn. Only called when `capabilities.interrupt`."""

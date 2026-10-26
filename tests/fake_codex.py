@@ -192,7 +192,8 @@ async def main():
             turn_id = f"turn-{next(turn_ids)}"
             result = {"turn": {"id": turn_id, "status": "inProgress", "items": [], "error": None}}
             send({"id": request_id, "result": result})
-            task = asyncio.create_task(run_turn(params["threadId"], turn_id, params["input"][0]["text"]))
+            text = " ".join(i["text"] for i in params["input"] if i["type"] == "text")
+            task = asyncio.create_task(run_turn(params["threadId"], turn_id, text))
             turns.add(task)
             task.add_done_callback(turns.discard)
             continue

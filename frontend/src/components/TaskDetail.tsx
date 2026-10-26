@@ -1,8 +1,10 @@
 import { memo, useMemo, useState } from 'react'
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { ChevronDown, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { api, type Approval, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
+import { Dialog, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog'
+import { api, attachmentUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
 import { useStreaming, type Streaming } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -182,13 +184,51 @@ const MessageItem = memo(function MessageItem({ message }: { message: Message })
   }
   return (
     <li className={cn('mt-2 ml-10 self-end first:mt-0', faded)}>
-      <p className="rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 font-serif text-[16px] leading-[1.5] whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {message.text}
-      </p>
+      {message.attachments.length > 0 && <MessageImages images={message.attachments} />}
+      {message.text && (
+        <p className="ml-auto w-fit rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 font-serif text-[16px] leading-[1.5] whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {message.text}
+        </p>
+      )}
       {message.state === 'queued' && <span className="mt-1 block text-right text-xs text-muted-foreground">Queued</span>}
     </li>
   )
 })
+
+/** The images sent with a message, above its words; a tap opens one full size. */
+function MessageImages({ images }: { images: Attachment[] }) {
+  const [open, setOpen] = useState<Attachment | null>(null)
+  const [shown, setShown] = useState<Attachment | null>(null) // kept while it fades out
+  return (
+    <>
+      <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+        {images.map((image) => (
+          <button key={image.id} type="button" aria-label="Open the image" onClick={() => {
+            setShown(image)
+            setOpen(image)
+          }}
+            className="overflow-hidden rounded-xl border bg-secondary transition-opacity hover:opacity-90">
+            {/* Its own size, so the timeline doesn't jump when it loads. */}
+            <img src={attachmentUrl(image.id)} alt="" width={image.width} height={image.height} loading="lazy"
+              className={cn('block object-cover', images.length === 1 ? 'max-h-56 w-auto max-w-[min(100%,240px)]' : 'size-[88px]')} />
+          </button>
+        ))}
+      </div>
+      <Dialog open={open !== null} onOpenChange={(next) => !next && setOpen(null)}>
+        <DialogPortal>
+          <DialogOverlay forceRender className="bg-black/80 duration-300 ease-strata" />
+          <DialogPrimitive.Popup onClick={() => setOpen(null)}
+            className="fixed inset-0 z-50 grid cursor-zoom-out place-items-center p-4 outline-none duration-300 ease-strata
+              data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
+            <DialogTitle className="sr-only">Image</DialogTitle>
+            {shown && <img src={attachmentUrl(shown.id)} alt="" width={shown.width} height={shown.height}
+              className="max-h-full max-w-full rounded-lg object-contain" />}
+          </DialogPrimitive.Popup>
+        </DialogPortal>
+      </Dialog>
+    </>
+  )
+}
 
 const EventItem = memo(function EventItem({ event, working }: { event: TaskEvent; working: boolean }) {
   const { kind, data } = event

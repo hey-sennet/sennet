@@ -328,17 +328,18 @@ export default function App() {
         disabled={!project}
         // Short enough for one line on a phone: the label and the header already name the project and model.
         placeholder={task ? 'Follow up on this task' : homeProject ? 'Start a new task' : 'Add a project first'}
-        onSend={async (text) => {
+        onSend={async (text, attachments) => {
           if (selected !== null) {
-            await api.followUp(selected, text)
+            await api.followUp(selected, text, attachments)
             remember(selected)
           } else if (homeProject) {
-            const created = await api.createTask(homeProject.id, text, nextChoice)
+            const created = await api.createTask(homeProject.id, text, nextChoice, attachments)
             remember(created.id)
             setSelected(created.id)
             setDraft({ project_id: null, model: null, effort: null })
           }
         }}
+        images={!!modelAgent && !!agents?.[modelAgent]?.capabilities.images}
         target={target}
         onNewTask={selected !== null ? newTask : undefined}
         activeTasks={activeTasks}

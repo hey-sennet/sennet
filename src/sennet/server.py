@@ -11,6 +11,10 @@ open: `POST /api/pair`, which redeems a pairing code and is throttled, and
 WebSocket from an unpaired device, or one revoked while it is open, is closed with
 code 4401. The app shell is served to anyone, so an unpaired browser can pair.
 
+Images go up on their own (`POST /api/attachments`, the image as the body) before the message
+that names them, so a spoken turn can carry them too (attachments.py). They are served back
+only to paired devices, like everything else under `/api/`.
+
 A page says on its events socket while it is showing (`{"type": "showing", "showing": true}`),
 so its device isn't sent push notifications meanwhile (push.py).
 
@@ -40,6 +44,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from . import __version__, access, projects
+from .attachments import MAX_BYTES, AttachmentError, Attachments
 from .push import KINDS, Push, keys_valid as push_keys_valid
 from .aio import settle
 from .agents import registry
@@ -89,9 +94,10 @@ class ProjectPatch(BaseModel):
 
 class TaskIn(BaseModel):
     project_id: int
-    text: str
+    text: str = ""
     model: str | None = None
     effort: str | None = None
+    attachments: list[int] = []        # images uploaded for it; the text may be empty with some
 
 
 class ModelIn(BaseModel):
@@ -100,7 +106,8 @@ class ModelIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    text: str
+    text: str = ""
+    attachments: list[int] = []
 
 
 class PrewarmIn(BaseModel):
@@ -161,8 +168,11 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         db = Database(paths.database)
         bus = EventBus()
         approvals = Approvals(db, bus.publish)
-        manager = TaskManager(db, settings, agents, approvals, bus.publish)
+        attachments = Attachments(db, paths.data_dir / "attachments")
+        await asyncio.to_thread(attachments.sweep)
+        manager = TaskManager(db, settings, agents, approvals, bus.publish, attachments)
         app.state.db, app.state.bus, app.state.approvals, app.state.tasks = db, bus, approvals, manager
+        app.state.attachments = attachments
         app.state.speech, loading = _speech(settings, paths, speech)
         app.state.voice = VoiceHub(app.state.speech, manager, bus)
         app.state.voice.start()
@@ -431,10 +441,48 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         database.remove_project(project_id)
         await request.app.state.bus.publish({"type": "project_removed", "project_id": project_id})
 
+    @app.post("/api/attachments", status_code=201)
+    async def upload(request: Request):
+        """An image for a message to come, as the request's body: its id goes in the message."""
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_BYTES:
+                raise HTTPException(413, f"that image is over {MAX_BYTES // (1024 * 1024)} MB")
+        try:
+            attachment = await asyncio.to_thread(request.app.state.attachments.add, bytes(data),
+                                                 request.state.device["id"])
+        except AttachmentError as error:
+            raise HTTPException(400, str(error))
+        return {key: attachment[key] for key in ("id", "media_type", "width", "height")}
+
+    @app.get("/api/attachments/{attachment_id}")
+    async def attachment(attachment_id: int, request: Request):
+        found = db(request).attachment(attachment_id)
+        path = found and request.app.state.attachments.path(found)
+        if found is None or not path.is_file():
+            raise HTTPException(404, "no such image")
+        # An image never changes under its id. Private: it is only for paired devices.
+        return FileResponse(path, media_type=found["media_type"],
+                            headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+    @app.delete("/api/attachments/{attachment_id}", status_code=204)
+    async def remove_attachment(attachment_id: int, request: Request):
+        """An image taken out before its message was sent; one already sent stays with its message."""
+        found = db(request).attachment(attachment_id)
+        if found is None:
+            raise HTTPException(404, "no such image")
+        if found["message_id"] is not None:
+            raise HTTPException(409, "that image was sent with a message")
+        db(request).remove_attachment(attachment_id)
+        request.app.state.attachments.remove([found])
+        return Response(status_code=204)
+
     @app.post("/api/tasks", status_code=201)
     async def create_task(body: TaskIn, request: Request):
         try:
-            return await request.app.state.tasks.create(body.project_id, body.text, body.model, body.effort)
+            return await request.app.state.tasks.create(body.project_id, body.text, body.model, body.effort,
+                                                        body.attachments)
         except TaskError as error:
             raise HTTPException(400, str(error))
 
@@ -481,7 +529,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.post("/api/tasks/{task_id}/messages")
     async def follow_up(task_id: int, body: MessageIn, request: Request):
         try:
-            return await request.app.state.tasks.follow_up(task_id, body.text)
+            return await request.app.state.tasks.follow_up(task_id, body.text, body.attachments)
         except TaskError as error:
             raise HTTPException(404 if "no such" in str(error) else 400, str(error))
 

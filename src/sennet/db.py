@@ -1,4 +1,5 @@
-"""SQLite storage for projects, tasks, messages, events, approvals, paired devices and their push subscriptions.
+"""SQLite storage for projects, tasks, messages and their images, events, approvals, paired devices and their push
+subscriptions.
 
 Task titles and messages are indexed for search (FTS5 with the trigram tokenizer, so part
 of a word matches), kept in step by triggers, including when a task's rows are deleted.
@@ -52,6 +53,18 @@ CREATE TABLE IF NOT EXISTS task_messages (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS task_messages_task ON task_messages(task_id, id);
+-- Images sent with a message (attachments.py); the files are under the data dir, by id.
+CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY,
+    message_id INTEGER REFERENCES task_messages(id) ON DELETE CASCADE,  -- null until a message takes it
+    device_id INTEGER,             -- the device that uploaded it; kept if the device is unpaired
+    media_type TEXT NOT NULL,      -- image/jpeg | image/png | image/webp
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    size INTEGER NOT NULL,         -- bytes
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_id);
 CREATE TABLE IF NOT EXISTS task_events (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -128,7 +141,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 # counted apart from the rest, each up to this many.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
 FINISHED = ("completed", "failed", "cancelled", "unknown")
@@ -191,6 +204,7 @@ class Database:
             if version < 9:
                 self._to_v9()
             # Version 10 only adds a table (push_subscriptions), which SCHEMA creates.
+            # Version 11 only adds a table (attachments), which SCHEMA creates.
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
@@ -307,9 +321,21 @@ class Database:
                           "ORDER BY updated_at DESC, id DESC LIMIT ?", *FINISHED, before, before, before_id, limit + 1)
         return rows[:limit], len(rows) > limit
 
-    def delete_task(self, task_id: int):
-        """With its messages, events and approvals, and its place in the search index."""
-        self.execute("DELETE FROM tasks WHERE id = ?", task_id)
+    def delete_task(self, task_id: int) -> list[dict]:
+        """With its messages, events and approvals, and its place in the search index. Returns its
+        messages' images, whose files are the caller's to remove."""
+        with self.lock:
+            self.conn.execute("BEGIN")
+            try:
+                images = [dict(row) for row in self.conn.execute(
+                    "SELECT a.* FROM attachments a JOIN task_messages m ON m.id = a.message_id WHERE m.task_id = ?",
+                    (task_id,))]
+                self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+        return images
 
     def search(self, query: str, limit: int) -> list[tuple[dict, str]]:
         """Tasks whose title or messages hold every word of `query` (three letters or more, any
@@ -361,15 +387,67 @@ class Database:
 
     # Messages and events
 
-    def add_message(self, task_id: int, role: str, text: str, state: str) -> int:
-        return self.execute("INSERT INTO task_messages (task_id, role, text, state, created_at) VALUES (?, ?, ?, ?, ?)",
-                            task_id, role, text, state, time.time())
+    def add_message(self, task_id: int, role: str, text: str, state: str, attachments: list[int] = ()) -> int:
+        """A message, taking the images with these ids (unsent ones: see Attachments.unsent)."""
+        with self.lock:
+            self.conn.execute("BEGIN")
+            try:
+                message_id = self.conn.execute(
+                    "INSERT INTO task_messages (task_id, role, text, state, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (task_id, role, text, state, time.time())).lastrowid
+                for attachment_id in attachments:
+                    self.conn.execute("UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL",
+                                      (message_id, attachment_id))
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+        return message_id
+
+    def message(self, message_id: int) -> dict | None:
+        rows = self._with_attachments(self.query("SELECT * FROM task_messages WHERE id = ?", message_id))
+        return rows[0] if rows else None
 
     def messages(self, task_id: int) -> list[dict]:
-        return self.query("SELECT * FROM task_messages WHERE task_id = ? ORDER BY id", task_id)
+        return self._with_attachments(self.query("SELECT * FROM task_messages WHERE task_id = ? ORDER BY id", task_id))
 
     def next_queued_message(self, task_id: int) -> dict | None:
-        return self.one("SELECT * FROM task_messages WHERE task_id = ? AND state = 'queued' ORDER BY id LIMIT 1", task_id)
+        rows = self.query("SELECT * FROM task_messages WHERE task_id = ? AND state = 'queued' ORDER BY id LIMIT 1", task_id)
+        return self._with_attachments(rows)[0] if rows else None
+
+    def _with_attachments(self, messages: list[dict]) -> list[dict]:
+        """Each message with its images, in the order they were sent, as `attachments`."""
+        ids = [m["id"] for m in messages]
+        found: dict[int, list[dict]] = {}
+        if ids:
+            marks = ", ".join("?" * len(ids))
+            for row in self.query(f"SELECT id, message_id, media_type, width, height FROM attachments "
+                                  f"WHERE message_id IN ({marks}) ORDER BY id", *ids):
+                found.setdefault(row.pop("message_id"), []).append(row)
+        for message in messages:
+            message["attachments"] = found.get(message["id"], [])
+        return messages
+
+    # Attachments (attachments.py)
+
+    def add_attachment(self, device_id: int | None, media_type: str, width: int, height: int, size: int) -> dict:
+        attachment_id = self.execute(
+            "INSERT INTO attachments (device_id, media_type, width, height, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            device_id, media_type, width, height, size, time.time())
+        return self.attachment(attachment_id)
+
+    def attachment(self, attachment_id: int) -> dict | None:
+        return self.one("SELECT * FROM attachments WHERE id = ?", attachment_id)
+
+    def remove_attachment(self, attachment_id: int):
+        self.execute("DELETE FROM attachments WHERE id = ?", attachment_id)
+
+    def take_unsent_attachments(self, before: float) -> list[dict]:
+        """Uploads no message took, made before `before`, deleted; the files are the caller's to remove."""
+        with self.lock:
+            rows = self.conn.execute("DELETE FROM attachments WHERE message_id IS NULL AND created_at < ? RETURNING *",
+                                     (before,)).fetchall()
+        return [dict(row) for row in rows]
 
     def set_message_state(self, message_id: int, state: str):
         self.execute("UPDATE task_messages SET state = ? WHERE id = ?", state, message_id)

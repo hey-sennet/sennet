@@ -39,12 +39,21 @@ export interface Task {
   updated_at: number
 }
 
+/** An image sent with a message (src/sennet/attachments.py); `attachmentUrl` shows it. */
+export interface Attachment {
+  id: number
+  media_type: 'image/jpeg' | 'image/png' | 'image/webp'
+  width: number
+  height: number
+}
+
 export interface Message {
   id: number
   task_id: number
   role: 'user' | 'agent'
-  text: string
+  text: string // may be empty when images went with it
   state: 'queued' | 'sent' | 'done' | 'cancelled'
+  attachments: Attachment[]
   created_at: number
 }
 
@@ -140,6 +149,7 @@ export interface Capabilities {
   background_turns: boolean
   project_config: boolean
   live_model_change: boolean
+  images: boolean // takes images with a message
 }
 
 /** A task's own model and effort; null for either follows the project. */
@@ -229,11 +239,16 @@ export function whenUnpaired(handler: () => void) {
   onUnpaired = handler
 }
 
+/** Where a message's image is shown from; only a paired device's cookie gets it. */
+export const attachmentUrl = (id: number) => `/api/attachments/${id}`
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // A Blob (an image) goes as it is; anything else as JSON.
+  const blob = body instanceof Blob
   const response = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-Sennet': '1' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { 'Content-Type': blob ? body.type || 'application/octet-stream' : 'application/json', 'X-Sennet': '1' },
+    body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
   })
   if (response.status === 401 && path !== '/api/pair') onUnpaired()
   if (!response.ok) {
@@ -259,9 +274,15 @@ export const api = {
     request<{ tasks: Task[]; more: boolean }>('GET', `/api/tasks?before=${last.updated_at}&before_id=${last.id}&limit=${limit}`),
   deleteTask: (id: number) => request<void>('DELETE', `/api/tasks/${id}`),
   search: (query: string) => request<SearchHit[]>('GET', `/api/search?q=${encodeURIComponent(query)}`),
-  createTask: (project_id: number, text: string, choice?: ModelChoice) =>
-    request<Task>('POST', '/api/tasks', { project_id, text, ...choice }),
-  followUp: (id: number, text: string) => request<Task>('POST', `/api/tasks/${id}/messages`, { text }),
+  /** `attachments`: ids of images uploaded for it (`uploadImage`). */
+  createTask: (project_id: number, text: string, choice?: ModelChoice, attachments: number[] = []) =>
+    request<Task>('POST', '/api/tasks', { project_id, text, ...choice, attachments }),
+  followUp: (id: number, text: string, attachments: number[] = []) =>
+    request<Task>('POST', `/api/tasks/${id}/messages`, { text, attachments }),
+  /** An image for a message to come; its id goes in the message, typed or spoken. */
+  uploadImage: (image: Blob) => request<Attachment>('POST', '/api/attachments', image),
+  /** An image taken out before its message was sent. */
+  removeAttachment: (id: number) => request<void>('DELETE', `/api/attachments/${id}`),
   cancel: (id: number) => request<Task>('POST', `/api/tasks/${id}/cancel`),
   /** A message is likely coming: the server starts the agent early. */
   prewarm: (target: { task_id?: number; project_id?: number } & Partial<ModelChoice>) =>

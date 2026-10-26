@@ -19,6 +19,9 @@ its process stays up (the idle timer waits for the work to end), and follow-ups 
 as usual. When the work is done an agent with `background_turns` starts a turn
 itself; the task runs it like any other, and sends messages queued meanwhile after it.
 
+A message may carry images (attachments.py), uploaded before it and named by id; they go to
+the agent with the message's turn, and only to an agent with `capabilities.images`.
+
 A task is titled from its first message, then renamed with the title its agent writes at
 the start of its first reply, which never reaches the timeline or speech (titles.py).
 
@@ -33,9 +36,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decision, TurnPolicy, check_event
+from .agents.base import Agent, AgentEvent, AgentSession, ApprovalRequest, Decision, Image, TurnPolicy, check_event
 from .agents.registry import ModelError, check_model
 from .approvals import Approvals
+from .attachments import AttachmentError, Attachments
 from .config import Settings
 from . import titles
 from .db import FINISHED, Database
@@ -81,8 +85,10 @@ class TaskBusy(TaskError):
 
 
 class TaskManager:
-    def __init__(self, db: Database, settings: Settings, agents: dict[str, Agent], approvals: Approvals, publish):
+    def __init__(self, db: Database, settings: Settings, agents: dict[str, Agent], approvals: Approvals, publish,
+                 attachments: Attachments):
         self.db = db
+        self.attachments = attachments
         self.settings = settings
         self.agents = agents
         self.approvals = approvals
@@ -115,8 +121,10 @@ class TaskManager:
 
     # Public operations
 
-    async def create(self, project_id: int, text: str, model: str | None = None, effort: str | None = None) -> dict:
-        """A new task, on its own model and effort if given (else the project's)."""
+    async def create(self, project_id: int, text: str, model: str | None = None, effort: str | None = None,
+                     attachments: list[int] = ()) -> dict:
+        """A new task, on its own model and effort if given (else the project's), with the images
+        uploaded as `attachments`."""
         project = self.db.project(project_id)
         if project is None:
             raise TaskError("no such project")
@@ -124,21 +132,23 @@ class TaskManager:
             await check_model(self.agents.get(project["agent"]), model, effort, project["model"])
         except ModelError as error:
             raise TaskError(str(error)) from None
-        text = _clean(text)
-        task_id = self.db.add_task(project_id, project["agent"], titles.from_request(text), model, effort)
-        self.db.add_message(task_id, "user", text, "queued")
+        text = _clean(text, bool(attachments))
+        self._check_images(project["agent"], attachments)
+        title = titles.from_request(text) if text else "An image" if len(attachments) == 1 else "Images"
+        task_id = self.db.add_task(project_id, project["agent"], title, model, effort)
+        self.db.add_message(task_id, "user", text, "queued", attachments)
         await self._publish_task(task_id)
         self._schedule()
         return self.db.task(task_id)
 
-    async def follow_up(self, task_id: int, text: str) -> dict:
+    async def follow_up(self, task_id: int, text: str, attachments: list[int] = ()) -> dict:
         task = self.db.task(task_id)
         if task is None:
             raise TaskError("no such task")
-        text = _clean(text)
-        message_id = self.db.add_message(task_id, "user", text, "queued")
-        await self.publish({"type": "message", "task_id": task_id,
-                            "message": self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)})
+        text = _clean(text, bool(attachments))
+        self._check_images(task["agent"], attachments)
+        message_id = self.db.add_message(task_id, "user", text, "queued", attachments)
+        await self.publish({"type": "message", "task_id": task_id, "message": self.db.message(message_id)})
         if task["status"] not in ACTIVE:
             self.db.update_task(task_id, status="queued", error=None)
             await self._publish_task(task_id)
@@ -193,7 +203,7 @@ class TaskManager:
                 runner.idle_timer.cancel()
             await self._close_session(task_id)  # kept warm for a follow-up that won't come now
             self.runners.pop(task_id, None)
-        self.db.delete_task(task_id)
+        self.attachments.remove(self.db.delete_task(task_id))
         await self.publish({"type": "task_removed", "task_id": task_id})
 
     async def choose_model(self, task_id: int, model: str | None, effort: str | None) -> dict:
@@ -214,6 +224,23 @@ class TaskManager:
                                     else self._prewarm_spare(project_id, model, effort))
         self.warming.add(job)
         job.add_done_callback(self.warming.discard)
+
+    def _check_images(self, agent_name: str, attachments: list[int]):
+        """The images can go with a message to this agent."""
+        if not attachments:
+            return
+        agent = self.agents.get(agent_name)
+        if agent is not None and not agent.capabilities.images:
+            raise TaskError(f"{agent.title} can't take images")
+        try:
+            self.attachments.unsent(list(attachments))
+        except AttachmentError as error:
+            raise TaskError(str(error)) from None
+
+    def _images(self, message: dict) -> list[Image]:
+        """The message's images, as files for the agent; any whose file has gone are left out."""
+        found = [(self.attachments.path(a), a["media_type"]) for a in message["attachments"]]
+        return [Image(path, media_type) for path, media_type in found if path.is_file()]
 
     def snapshot(self, task_id: int) -> dict | None:
         task = self.db.task(task_id)
@@ -254,7 +281,7 @@ class TaskManager:
                     break  # cancelled while the agent was starting
                 await self._set_message_state(message["id"], "sent")
                 runner.turn_result = {}
-                await runner.session.send(message["text"])
+                await runner.session.send(message["text"], self._images(message))
                 if runner.cancelling:
                     await runner.session.interrupt()  # cancelled while the turn was starting
                 status = await self._end_turn(task_id, message["id"])
@@ -491,8 +518,7 @@ class TaskManager:
             if not text:
                 return  # nothing but its title
             message_id = self.db.add_message(task_id, "agent", text, "done")
-            await self.publish({"type": "message", "task_id": task_id,
-                                "message": self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)})
+            await self.publish({"type": "message", "task_id": task_id, "message": self.db.message(message_id)})
             return
         if event.kind == "usage":
             self.db.add_usage(task_id, event.data["input"], event.data["cached"], event.data["output"])
@@ -574,7 +600,7 @@ class TaskManager:
 
     async def _set_message_state(self, message_id: int, state: str):
         self.db.set_message_state(message_id, state)
-        message = self.db.one("SELECT * FROM task_messages WHERE id = ?", message_id)
+        message = self.db.message(message_id)
         await self.publish({"type": "message", "task_id": message["task_id"], "message": message})
 
     async def _publish_task(self, task_id: int):
@@ -590,9 +616,10 @@ def _choice(task: dict, project: dict) -> tuple[str | None, str | None]:
     return model, effort
 
 
-def _clean(text: str) -> str:
+def _clean(text: str, images: bool = False) -> str:
+    """The message's text; it may be empty when images go with it."""
     text = text.strip()
-    if not text:
+    if not text and not images:
         raise TaskError("message is empty")
     if len(text) > 32000:
         raise TaskError("message is too long")

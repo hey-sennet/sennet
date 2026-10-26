@@ -11,6 +11,8 @@ Usage limits come from `account/rateLimits/updated` during turns and from
 A turn can end with a command still running (Codex's background terminals): that is the
 task's background work until the command's `item/completed` arrives, between turns.
 Codex doesn't start a turn of its own when it ends (spikes/codex, #3).
+
+Images go with a turn as `localImage` inputs, by path: Codex reads the file itself.
 """
 from __future__ import annotations
 
@@ -26,7 +28,7 @@ from pathlib import Path
 
 from .. import __version__
 from .base import (ACCESS_LEVELS, APPROVAL_MODES, AgentEvent, AgentStatus, ApprovalHandler, ApprovalRequest,
-                   Capabilities, Decision, EventSink, FileChange, LimitWindow, ModelOption, TurnPolicy,
+                   Capabilities, Decision, EventSink, FileChange, Image, LimitWindow, ModelOption, TurnPolicy,
                    mcp_tool_title, spoken_instructions, tool_summary)
 from .callbacks import CallbackServer
 
@@ -302,9 +304,12 @@ class CodexSession:
             raise
         self.watcher = asyncio.create_task(self._watch())
 
-    async def send(self, text: str):
+    async def send(self, text: str, images: list[Image] = ()):
         self.turn_done.clear()
-        params = {"threadId": self.resume_token, "input": [{"type": "text", "text": text, "text_elements": []}]}
+        inputs = [{"type": "localImage", "path": str(image.path)} for image in images]
+        if text or not inputs:
+            inputs.append({"type": "text", "text": text, "text_elements": []})
+        params = {"threadId": self.resume_token, "input": inputs}
         if self.model:
             params["model"] = self.model
         if self.effort:
@@ -478,7 +483,7 @@ class CodexAgent:
     capabilities = Capabilities(interrupt=True, resume=True, live_approvals=True,
                                 approval_modes=tuple(m for m in APPROVAL_MODES if m != "classifier"),
                                 access_levels=ACCESS_LEVELS,
-                                background_turns=False, project_config=False, live_model_change=True)
+                                background_turns=False, project_config=False, live_model_change=True, images=True)
 
     def __init__(self, command: list[str], callbacks: CallbackServer | None = None):
         self.command = command  # Codex asks for approvals on its own pipe, not through callbacks
