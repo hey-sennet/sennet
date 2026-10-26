@@ -15,6 +15,9 @@ until 1.0, a minor version may change how things work.
   machine's name and addresses, links and keys are taken out, and settings are kept only
   when they're known to be safe, so a new one isn't shared by default. Tasks, messages
   and paired devices are never read. The bug report form asks for it.
+- A reply whose spoken version came after a line the agent wrote first showed the
+  `<spoken>` tags in its timeline, and voice read the whole reply. The spoken version is
+  now found after a short lead too, and the lead stays in the message.
 
 ## 0.2.0 (2026-10-26)
 

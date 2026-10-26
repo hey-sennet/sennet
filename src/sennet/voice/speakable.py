@@ -40,9 +40,11 @@ LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 HEADING = re.compile(r"^\s*#{1,6}\s+")
 QUOTE = re.compile(r"^\s*>\s?")
 RULE = re.compile(r"^\s*(?:[-*_]\s*){3,}$")
-# The version of a reply the agent wrote to be heard (agents.base.SPOKEN_INSTRUCTIONS). Only
-# at the start: elsewhere, "<spoken>" is the agent talking about the tags.
-SPOKEN = re.compile(r"^\s*<spoken>\s*(.*?)\s*</spoken>\s*", re.S)
+# The version of a reply the agent wrote to be heard (agents.base.SPOKEN_INSTRUCTIONS). At the start,
+# or on a line of its own after a short plain lead (up to three lines, no code or tags), which an agent
+# sometimes writes first despite the instructions; the lead stays in the message. Anywhere else,
+# "<spoken>" is the agent talking about the tags. Markdown.tsx's withoutSpoken matches it the same way.
+SPOKEN = re.compile(r"^\s*((?:[^\n`<]*\n){0,3}?)[ \t]*<spoken>\s*(.*?)\s*</spoken>\s*", re.S)
 
 CURRENCIES = {"$": ("dollar", "cent"), "£": ("pound", "pence"), "€": ("euro", "cent"), "¥": ("yen", None),
               "₹": ("rupee", "paise")}
@@ -102,11 +104,11 @@ def for_speech(markdown: str) -> str:
 def spoken_part(markdown: str) -> str | None:
     """The agent's version of a reply to be heard, if it wrote one."""
     found = SPOKEN.search(markdown)
-    return found.group(1) if found and found.group(1) else None
+    return found.group(2) if found and found.group(2) else None
 
 
 def without_spoken(markdown: str) -> str:
-    return SPOKEN.sub("", markdown).strip()
+    return SPOKEN.sub(r"\1", markdown, count=1).strip()
 
 
 def clauses(text: str) -> list[str]:

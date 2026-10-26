@@ -30,15 +30,24 @@ const components: Components = {
   td: ({ children }) => <td className="border-b px-2 py-1 align-top">{children}</td>,
 }
 
+// What may come before the version to be heard: nothing, or a short plain lead an agent sometimes
+// writes first despite its instructions (up to three lines, no code or tags), kept in the message.
+// As speakable.SPOKEN matches it.
+const LEAD = String.raw`^\s*((?:[^\n\`<]*\n){0,3}?)[ \t]*`
+const PARTIAL_TAG = new RegExp(LEAD + String.raw`<(?:s(?:p(?:o(?:k(?:e(?:n)?)?)?)?)?)?$`)
+const SPOKEN_BLOCK = new RegExp(LEAD + String.raw`<spoken>[\s\S]*?(?:<\/spoken>\s*|$(?![\s\S]))`)
+const SPOKEN_CLOSED = new RegExp(LEAD + String.raw`<spoken>\s*([\s\S]*?)\s*<\/spoken>`)
+
 /** A reply without the version the agent wrote to be heard, which voice speaks instead of reading
- *  out the reply. It is only ever at the start; while it streams it may not be closed yet. */
+ *  out the reply. It is only ever at the start, after at most a short lead; while it streams it may
+ *  not be closed yet. */
 export function withoutSpoken(markdown: string): string {
-  return markdown.replace(/^\s*<(?:s(?:p(?:o(?:k(?:e(?:n)?)?)?)?)?)?$/, '').replace(/^\s*<spoken>[\s\S]*?(?:<\/spoken>\s*|$(?![\s\S]))/, '')
+  return markdown.replace(PARTIAL_TAG, '$1').replace(SPOKEN_BLOCK, '$1')
 }
 
 /** The version of a reply the agent wrote to be heard, once it is closed (speakable.spoken_part). */
 export function spokenPart(markdown: string): string | null {
-  return markdown.match(/^\s*<spoken>\s*([\s\S]*?)\s*<\/spoken>/)?.[1].replace(/\s+/g, ' ') || null
+  return markdown.match(SPOKEN_CLOSED)?.[2].replace(/\s+/g, ' ') || null
 }
 
 /** A reply flattened to one line of prose for the stage: no markup, code blocks dropped. */

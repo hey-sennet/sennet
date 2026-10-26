@@ -92,3 +92,16 @@ def test_the_spoken_version_is_found_and_left_out_of_the_reply():
     # Only at the start: elsewhere it is the agent talking about the tags.
     about = "Put it in `<spoken>` tags.\n\n`<spoken>Hi</spoken>` is an example."
     assert spoken_part(about) is None and without_spoken(about) == about
+
+
+def test_a_spoken_version_after_a_short_lead_is_found_and_the_lead_kept():
+    # Agents sometimes write a line first despite the instructions.
+    reply = "Both pieces work.\n\n<spoken>\nIt is committed.\n</spoken>\n\n**Done.** Details."
+    assert spoken_part(reply) == "It is committed."
+    assert without_spoken(reply) == "Both pieces work.\n\n**Done.** Details."
+    # Not after a long lead, code, or mid-line: then it is the agent talking about the tags.
+    long = "One.\nTwo.\nThree.\nFour.\n<spoken>Hi</spoken>"
+    code = "```\n<spoken>Hi</spoken>\n```"
+    inline = "Write it as <spoken>Hi</spoken> at the start."
+    for text in (long, code, inline):
+        assert spoken_part(text) is None and without_spoken(text) == text
