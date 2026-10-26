@@ -343,7 +343,8 @@ Replies:
   a long message with one, in `<spoken>` tags, and it is heard a sentence at a time as it streams.
   The agent knows what mattered, so this is the most faithful version; it costs a few
   sentences of the user's agent usage per long reply. The timeline hides it.
-- A long message without one is cut to its opening sentences.
+- A long message without one is cut to its opening sentences, skipping any heading, table or
+  code block it opens with.
 - The timeline always has the reply in full.
 - Approvals use the fixed flow (§4.4).
 

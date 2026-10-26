@@ -192,7 +192,8 @@ def test_agents_are_asked_for_a_version_to_be_heard(client, project, codex_log):
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "hi"}).json()
     wait_for(client, task["id"], finished)
     instructions = codex_log("thread/start")[0]["params"]["developerInstructions"]
-    assert instructions == spoken_instructions("request_user_input_async")
+    assert instructions.startswith(spoken_instructions("request_user_input_async"))
+    assert "must begin with a <spoken></spoken>" in instructions
     assert "<spoken></spoken>" in instructions
 
 

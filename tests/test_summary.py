@@ -48,6 +48,39 @@ def test_a_spoken_version_is_left_out():
     assert summary.shorten("<spoken>Heard already.</spoken>\nAll 40 tests pass.") == "All 40 tests pass."
 
 
+PROSE = ("Search took 40 seconds because every request opened a new connection. "
+         "Pooling them brought it down to 3 seconds. The pool holds ten connections. "
+         "Nothing else changed.")
+TABLE = """| | Before | After |
+|---|---|---|
+| Search | 40 s | 3 s |
+| Index | 12 s | 12 s |"""
+
+
+def test_a_long_reply_skips_its_leading_heading_and_table():
+    reply = f"## Summary\n\n**What changed**\n\n{TABLE}\n\n---\n\n{PROSE}\n\n" + "More detail follows. " * 30
+    assert summary.shorten(reply) == PROSE
+
+
+def test_a_long_reply_skips_a_leading_code_block():
+    reply = f"```\nuv run pytest\n```\n{PROSE}\n\n" + "More detail follows. " * 30
+    assert summary.shorten(reply) == PROSE
+
+
+def test_bold_text_starting_a_sentence_is_not_skipped():
+    reply = f"**Fixed:** the search was slow. {PROSE}\n\n" + "More detail follows. " * 30
+    assert summary.shorten(reply).startswith("Fixed: the search was slow.")
+
+
+def test_a_long_reply_with_no_prose_keeps_its_notes():
+    reply = "\n\n".join([f"## Part {n}\n\n{TABLE}" for n in range(20)])
+    assert summary.shorten(reply).startswith("Part 0. There's a table in the timeline.")
+
+
+def test_a_short_reply_keeps_its_heading():
+    assert summary.shorten("## Done\n\nAll 40 tests pass.") == "Done. All 40 tests pass."
+
+
 # In the daemon
 
 @pytest.fixture

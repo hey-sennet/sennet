@@ -218,7 +218,8 @@ request like any other.
   as one reply that stays open until the closing tag, so the voice starts before the rest
   is written; the timeline hides it.
 - A long message without one, longer than six sentences or 600 characters, is cut to
-  its first four sentences.
+  its first four sentences. A heading, table or code block it opens with is skipped, so
+  those are the first four sentences of prose.
 - A turn the agent starts itself, to report work it left running when its last turn
   ended, answers no request. Its messages are spoken the same way on the session that
   owns the task, if it is connected, and the first carries `cue: true`: the report can

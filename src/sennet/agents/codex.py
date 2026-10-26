@@ -51,8 +51,21 @@ STEP_STATUS = {"pending": "pending", "inProgress": "active", "completed": "done"
 WINDOWS = {300: ("session", "5-hour"), 10080: ("weekly", "weekly")}
 # Token counts in `thread/tokenUsage/updated`, as the contract's. Input includes the cached part.
 TOKENS = {"inputTokens": "input", "cachedInputTokens": "cached", "outputTokens": "output"}
+# Codex skipped the spoken version more often than Claude Code, mostly on short reports of its
+# work; this firmer reminder, with an example, had it write one every time (spikes/tokens, work.py).
+SPOKEN_REMINDER = """
+
+The voice reads only the <spoken> part of a long message aloud. Without one, the user hears \
+the first few sentences of the written message instead. So every message longer than three \
+sentences, and every final message that reports your work, must begin with a <spoken></spoken> \
+part. For example:
+
+<spoken>I fixed the failing test: the discount was applied twice. All 12 tests pass now.</spoken>
+**Fixed:** the discount was applied twice in `cart.py`...
+
+Before you send your final message, check that it begins with <spoken>."""
 # Codex's own tool for asking the user mid-turn, which a voice user can't answer (see SPOKEN_INSTRUCTIONS).
-INSTRUCTIONS = spoken_instructions("request_user_input_async")
+INSTRUCTIONS = spoken_instructions("request_user_input_async") + SPOKEN_REMINDER
 
 
 # Codex reports commands wrapped in a login shell: /bin/bash -lc 'npm test'.
