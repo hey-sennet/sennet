@@ -38,6 +38,7 @@ until 1.0, a minor version may change how things work.
   note says where to allow them; allowing them shows at once.
 - An approval under the disc names the task asking, now that two in one project can
   both be working; tapping it opens the task.
+- Screenshots in the README.
 
 ## 0.1.0 (2026-10-25)
 

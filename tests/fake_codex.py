@@ -8,6 +8,7 @@ Turn behaviour is driven by the user's text:
   hang            keep working until interrupted
   crash           exit mid-turn
   limit           fail at the usage limit, which is then full
+  a SCENES key    a titled turn that reads like real work, for the README's screenshots
 Anything else gets a short reply. Each reply reports its tokens, in two model responses,
 and the limits. Every call is appended to $FAKE_CODEX_LOG.
 """
@@ -18,6 +19,35 @@ import os
 import sys
 
 ids = itertools.count(1000)
+
+# frontend/tests/screenshots.spec.ts says these; each may edit a file and may ask to run a command.
+SCENES = {
+    "the upload test keeps failing on CI, can you find out why and fix it": {
+        "title": "Fix the flaky upload test",
+        "say": "It times out waiting for a progress event. Small files finish before the first one is sent, "
+               "so I'll make the test wait for the upload itself, then run it on its own.",
+        "edit": ("tests/upload.spec.ts", "-  await page.waitForEvent('upload-progress')\n"
+                                         "+  await expect(page.getByText('Uploaded')).toBeVisible()\n"),
+        "command": "npm test -- upload.spec.ts --repeat-each 20",
+        "reply": "Fixed. The test waited for a progress event that a small file never sends; it now waits "
+                 "for the upload to finish, and passes 20 runs in a row.",
+    },
+    "add a health check endpoint that says whether the database is up": {
+        "title": "Add a health check",
+        "edit": ("src/server/health.ts", "+export async function health(db: Database) {\n"
+                                         "+  const ok = await db.ping().then(() => true, () => false)\n"
+                                         "+  return Response.json({ ok }, { status: ok ? 200 : 503 })\n"
+                                         "+}\n"),
+        "reply": "Added GET /health. It pings the database and answers 200 with ok true, or 503 when "
+                 "the database is down, so the load balancer can take this instance out.",
+    },
+    "why is the dashboard slow to load": {
+        "title": "Find why the dashboard is slow",
+        "reply": "The dashboard asks for each project's stats one at a time: 40 requests in a row on your "
+                 "account. One request for all of them would take it from about 3 seconds to under half a second. "
+                 "Shall I change it?",
+    },
+}
 threads = itertools.count(1)
 waiting: dict[int, asyncio.Future] = {}
 interrupted = asyncio.Event()
@@ -132,6 +162,24 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
         notify("error", threadId=thread_id, turnId=turn_id, willRetry=False, error=error)
         notify("turn/completed", threadId=thread_id, turn={"id": turn_id, "items": [], "status": "failed", "error": error})
         return
+    elif scene := SCENES.get(text):
+        notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0, item={
+            "type": "agentMessage", "id": "msg0", "phase": None,
+            "text": f"<sennet-title>{scene['title']}</sennet-title>\n\n{scene.get('say', 'Looking.')}"})
+        if "edit" in scene:
+            path, diff = scene["edit"]
+            item = {"type": "fileChange", "id": "edit1", "status": "inProgress",
+                    "changes": [{"path": path, "kind": {"type": "update", "move_path": None}, "diff": diff}]}
+            notify("item/started", threadId=thread_id, turnId=turn_id, startedAtMs=0, item=item)
+            notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0, item={**item, "status": "completed"})
+        reply = scene["reply"]
+        if "command" in scene:
+            response = await ask("item/commandExecution/requestApproval", kind="command", threadId=thread_id,
+                                 turnId=turn_id, itemId="cmd1", startedAtMs=0, environmentId=None,
+                                 command=scene["command"], cwd="/tmp", reason=None,
+                                 commandActions=[{"type": "unknown", "command": scene["command"]}])
+            if response["decision"] != "accept":
+                reply = "Okay, I won't run it."
     elif text.startswith("title:"):
         # A first reply that starts with the task's title, as the instructions ask; it streams a word at a time.
         reply = f"<sennet-title>{text[6:]}</sennet-title>\n\nOn it, done."

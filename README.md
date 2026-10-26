@@ -12,6 +12,12 @@ Sennet is a free, open source, self-hosted voice interface for coding agents. Sp
 request from your phone or desktop, let Codex or Claude Code work on your own computer
 under your existing subscription, approve what it wants to do, and hear what it did.
 
+<!-- Absolute URLs, so they show on PyPI too. Made from the test server: SCREENSHOTS=1 npx playwright test screenshots -->
+<p>
+  <img src="https://raw.githubusercontent.com/hey-sennet/sennet/main/docs/images/desktop.png" alt="Sennet on a desktop: a task asking to run a command, with its timeline beside it" width="72%">
+  <img src="https://raw.githubusercontent.com/hey-sennet/sennet/main/docs/images/phone.png" alt="Sennet on a phone: the same approval under the disc" width="22%">
+</p>
+
 - **Your agents, your subscription.** Sennet drives the official agent CLIs under your
   own login. It never holds API keys or calls a provider itself.
 - **Speech stays on your machine.** Recognition and the voice run locally, on CPU or an
