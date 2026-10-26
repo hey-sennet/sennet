@@ -590,3 +590,18 @@ test('replies are muted on this device until unmuted, across a reload', async ({
   await page.getByRole('button', { name: 'Unmute replies' }).click()
   await expect(page.getByRole('button', { name: 'Mute replies' })).toHaveAttribute('aria-pressed', 'false')
 })
+
+test('Settings keeps its title over what scrolls, so nothing passes under the close button', async ({ page }, info) => {
+  await page.goto('/')
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog')
+  const header = dialog.locator('[data-slot="dialog-header"]')
+  await expect(header).toBeVisible()
+  await header.evaluate((el) => el.parentElement!.scrollTo({ top: 1e6 }))
+  await page.waitForTimeout(300)
+  const [box, close, top] = [await header.boundingBox(), await dialog.getByRole('button', { name: 'Close' }).boundingBox(), await dialog.boundingBox()]
+  expect(box!.y - top!.y).toBeLessThanOrEqual(2) // inside the dialog's border, still at its top
+  expect(box!.y + box!.height).toBeGreaterThanOrEqual(close!.y + close!.height)
+  await page.screenshot({ path: `test-results/${info.project.name}-settings-scrolled.png` })
+})

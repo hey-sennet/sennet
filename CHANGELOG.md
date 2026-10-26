@@ -43,6 +43,8 @@ until 1.0, a minor version may change how things work.
   Dark only is a decision, not a gap: see design/README.md.
 - A task titled from your first words doesn't show them again as its first message;
   once its agent writes a title, or when the title is cut short, the message shows.
+- Settings keeps its title in view as it scrolls, so nothing passes under its close
+  button.
 
 ## 0.1.0 (2026-10-25)
 

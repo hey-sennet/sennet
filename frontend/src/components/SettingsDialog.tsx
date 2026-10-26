@@ -80,11 +80,12 @@ export function SettingsDialog({ open, onOpenChange, projects, rules, settings, 
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* A column of its own, scrolled inside, so nothing wide (a long path) pushes it off a phone. */}
       <DialogContent className="flex max-h-[min(90dvh,880px)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-[28px] border border-border bg-background p-0 ring-0 duration-300 ease-strata sm:max-w-2xl">
-        <div className="flex min-w-0 flex-col gap-9 overflow-y-auto overscroll-contain px-6 pt-8 pb-10 sm:px-10 sm:pt-10">
-        <DialogHeader className="animate-word-in gap-1.5 pr-8 motion-reduce:animate-none">
+        <div className="flex min-w-0 flex-col gap-9 overflow-y-auto overscroll-contain px-6 pb-10 sm:px-10">
+        {/* The title stays as the rest scrolls, on the dialog's own background, so nothing passes under the close button. */}
+        <DialogHeader className="sticky top-0 z-10 -mx-6 -mb-7 animate-word-in bg-background px-6 pt-8 pr-14 pb-2 motion-reduce:animate-none after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-5 after:bg-linear-to-b after:from-background after:to-transparent sm:-mx-10 sm:px-10 sm:pt-10">
           <DialogTitle className="font-serif text-[30px] leading-[1.1] font-normal tracking-[-0.01em]">Settings</DialogTitle>
-          <DialogDescription>Projects, approvals, agents, notifications and paired devices.</DialogDescription>
         </DialogHeader>
+        <DialogDescription className="animate-word-in motion-reduce:animate-none">Projects, approvals, agents, notifications and paired devices.</DialogDescription>
 
         <Section title="Agents" order={1}>
           {!agents && <p className="text-sm text-muted-foreground">Checking…</p>}
