@@ -53,6 +53,8 @@ test('add a project, run a task, approve a command, follow up', async ({ page },
   // The timeline: a drawer on desktop, the tasks sheet on phones.
   const timeline = await openTask(page, 'run:npm test')
   await expect(timeline.getByText('Ran it.')).toBeVisible()
+  // Titled from what was typed, so those words show once, as the heading.
+  await expect(timeline.getByText('run:npm test', { exact: true })).toHaveCount(1)
   await expect(timeline.getByText('Queued')).toHaveCount(0)
   await expect(timeline.getByText('Done', { exact: true })).toBeVisible()
   await page.screenshot({ path: `test-results/${info.project.name}-timeline.png` })

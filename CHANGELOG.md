@@ -41,6 +41,8 @@ until 1.0, a minor version may change how things work.
 - Screenshots in the README.
 - The page declares itself dark, so the browser's own controls and scrollbars match.
   Dark only is a decision, not a gap: see design/README.md.
+- A task titled from your first words doesn't show them again as its first message;
+  once its agent writes a title, or when the title is cut short, the message shows.
 
 ## 0.1.0 (2026-10-25)
 

@@ -7,6 +7,7 @@ import { Dialog, DialogOverlay, DialogPortal, DialogTitle } from '@/components/u
 import { useAgents } from '@/lib/agents'
 import { api, attachmentUrl, thumbnailUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
+import { repeatsTitle } from '@/lib/titles'
 import { useStreaming, type Streaming } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { ApprovalCard } from './ApprovalCard'
@@ -65,6 +66,9 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
     }
     return folded
   }, [detail.messages, detail.events])
+  // The heading already says it: a task titled from your first words doesn't show them twice.
+  const first = detail.messages[0]
+  const repeated = first?.role === 'user' && repeatsTitle(detail.title, first.text) ? first.id : null
 
   return (
     <div>
@@ -84,7 +88,7 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
         {entries.map((entry) =>
-          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} />
+          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} wordless={entry.message.id === repeated} />
             : 'tools' in entry ? <ToolCalls key={`t${entry.key}`} calls={entry.tools} working={working} />
             : <EventItem key={`e${entry.key}`} event={entry.event} working={working} />,
         )}
@@ -179,7 +183,11 @@ function StreamingReply({ streaming, working }: { streaming: Streaming; working:
 }
 
 /** Your messages sit in a bubble on the right, like a chat; the agent's replies run as prose. */
-const MessageItem = memo(function MessageItem({ message }: { message: Message }) {
+const MessageItem = memo(function MessageItem({ message, wordless }: {
+  message: Message
+  wordless?: boolean // its words are the task's title: only its images, if any, show
+}) {
+  if (wordless && !message.attachments.length) return null
   const faded = cn(message.state === 'queued' && 'opacity-60', message.state === 'cancelled' && 'line-through opacity-40')
   if (message.role === 'agent') {
     return <li className={faded}><Markdown className="font-serif text-[16px] leading-[1.6]">{message.text}</Markdown></li>
@@ -187,7 +195,7 @@ const MessageItem = memo(function MessageItem({ message }: { message: Message })
   return (
     <li className={cn('mt-2 ml-10 self-end first:mt-0', faded)}>
       {message.attachments.length > 0 && <MessageImages images={message.attachments} />}
-      {message.text && (
+      {message.text && !wordless && (
         <p className="ml-auto w-fit rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 font-serif text-[16px] leading-[1.5] whitespace-pre-wrap [overflow-wrap:anywhere]">
           {message.text}
         </p>
