@@ -92,7 +92,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
         <StatusDot status={status} className="mt-[7px] size-[7px]" />
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 text-sm leading-snug">
-            <span className="truncate">{task.title}</span>
+            <span className="min-w-0 truncate">{task.title}</span>
             {unheard?.has(task.id) && <span role="img" aria-label="New reply" className="size-1.5 shrink-0 rounded-full bg-agent" />}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -221,7 +221,8 @@ function TaskRow({ task, selected, swiped, leaving, onSwipe, onSelect, onDelete,
   }
 
   return (
-    <li className={cn('group grid overflow-hidden rounded-2xl transition-[grid-template-rows,opacity] ease-strata',
+    // One column no wider than the list: an auto column grows to a long title's full width.
+    <li className={cn('group grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-2xl transition-[grid-template-rows,opacity] ease-strata',
       leaving ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr]')} style={{ transitionDuration: `${LEAVE_MS}ms` }} inert={leaving}>
       <div className="relative min-h-0">
         {offset < 0 && (

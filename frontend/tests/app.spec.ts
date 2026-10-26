@@ -304,11 +304,18 @@ test('search finds a task by what was said in it, typos and all', async ({ page 
 })
 
 test('a finished task is deleted from the list, after asking', async ({ page }, info) => {
-  const title = `delete me ${info.project.name}`
+  // Long enough to run past a phone's edge, and short of the 80 characters a title is cut to.
+  const title = `delete me ${info.project.name}, a title long enough to run well past the list`
   await finishedTasks(page, `delete-${info.project.name}`, [title])
   await page.goto('/')
   const list = await openList(page)
   const row = list.getByRole('listitem').filter({ hasText: title })
+  // It ends in an ellipsis, inside the list, rather than widening its row.
+  const fits = await row.evaluate((li) => {
+    const span = li.querySelector('span.truncate')!
+    return { cut: span.scrollWidth > span.clientWidth, inside: li.getBoundingClientRect().right <= li.parentElement!.getBoundingClientRect().right + 0.5 }
+  })
+  expect(fits).toEqual({ cut: true, inside: true })
   const confirm = page.getByRole('alertdialog')
   if (info.project.name === 'desktop') {
     await row.hover()
@@ -327,6 +334,8 @@ test('a finished task is deleted from the list, after asking', async ({ page }, 
     for (const dx of [10, 40, 80, 110]) await surface.dispatchEvent('pointermove', at(box.x + box.width - 20 - dx))
     await surface.dispatchEvent('pointerup', at(box.x + box.width - 130))
     await page.screenshot({ path: `test-results/${info.project.name}-delete.png` })
+    const button = (await row.getByRole('button', { name: 'Delete', exact: true }).boundingBox())!
+    expect(button.x + button.width).toBeLessThanOrEqual(page.viewportSize()!.width)
     await row.getByRole('button', { name: 'Delete', exact: true }).click()
   }
   await expect(confirm).toHaveAccessibleName(`Delete “${title}”?`)
