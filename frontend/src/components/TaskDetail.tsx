@@ -4,6 +4,7 @@ import { ChevronDown, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog'
+import { useAgents } from '@/lib/agents'
 import { api, attachmentUrl, thumbnailUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
 import { useStreaming, type Streaming } from '@/lib/store'
@@ -28,7 +29,8 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
   approvals: Approval[]
   stop?: boolean // false where the stop button is pinned above the timeline instead (the phone's sheet)
 }) {
-  const active = detail.status === 'running' || detail.status === 'awaiting_approval'
+  const agents = useAgents()
+  const active =detail.status === 'running' || detail.status === 'awaiting_approval'
   const working = active || detail.status === 'background' // a command can outlast its turn
 
   const entries = useMemo<Entry[]>(() => {
@@ -67,7 +69,7 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
   return (
     <div>
       <p className="text-xs text-muted-foreground">
-        {project?.name ?? 'Removed project'} · {detail.agent}
+        {project?.name ?? 'Removed project'} · {agents?.[detail.agent]?.title ?? detail.agent}
         {detail.input_tokens + detail.output_tokens > 0 && (
           <span title={`${detail.input_tokens.toLocaleString()} input tokens, ${detail.cached_tokens.toLocaleString()} of them from cache; ${detail.output_tokens.toLocaleString()} output`}>
             {' '}· {tokenCount(detail.input_tokens)} in, {tokenCount(detail.output_tokens)} out

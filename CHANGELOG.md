@@ -30,6 +30,7 @@ until 1.0, a minor version may change how things work.
 - Tasks in one project run side by side instead of queueing behind each other. Only
   `tasks.max_concurrent` limits how many run at once, now 8 by default rather than 3
   (a config file saved earlier keeps the number in it).
+- A task's header names its agent as everywhere else ("Codex"), not by its id ("codex").
 
 ## 0.1.0 (2026-10-25)
 
