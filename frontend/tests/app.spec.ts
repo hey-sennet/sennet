@@ -605,3 +605,29 @@ test('Settings keeps its title over what scrolls, so nothing passes under the cl
   expect(box!.y + box!.height).toBeGreaterThanOrEqual(close!.y + close!.height)
   await page.screenshot({ path: `test-results/${info.project.name}-settings-scrolled.png` })
 })
+
+test('closing the type bar eases the glyphs back to the middle, without a jump at the end', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('header[data-connection="live"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  await page.getByRole('textbox').fill('a few words')
+  await page.waitForTimeout(700) // open
+  const close = page.getByRole('button', { name: 'Close typing' })
+  // Where the mute glyph is on each frame for a second after closing.
+  const xs = await close.evaluate((button) => new Promise<number[]>((resolve) => {
+    const seen: number[] = []
+    const start = performance.now()
+    const frame = () => {
+      const mute = document.querySelector('[aria-label="Mute replies"], [aria-label="Unmute replies"]')
+      if (mute) seen.push(mute.getBoundingClientRect().x)
+      if (performance.now() - start < 1000) requestAnimationFrame(frame)
+      else resolve(seen)
+    }
+    ;(button as HTMLElement).click()
+    requestAnimationFrame(frame)
+  }))
+  // Easing moves them most at first, then less each frame; a jump is a big step out of near stillness.
+  const steps = xs.slice(1).map((x, i) => Math.abs(x - xs[i]))
+  const jumps = steps.filter((step, i) => i > 0 && step > Math.max(2 * steps[i - 1], 10))
+  expect(jumps).toEqual([])
+})

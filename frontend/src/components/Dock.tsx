@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUp, AudioLines, ImagePlus, Keyboard, ListTodo, Plus, Volume2, VolumeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -73,6 +73,29 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, im
     if (typing) input.current?.focus()
   }, [typing])
 
+  // The type bar closes from its open width in pixels. Open, it's `min(100%, 560px)`, and while that
+  // shrinks the browser can't size the middle group from it: the group held its open width, and the
+  // glyphs jumped sideways when the bar finished closing.
+  const form = useRef<HTMLFormElement>(null)
+  const openWidth = useRef(0)
+  useEffect(() => {
+    const bar = form.current
+    if (!typing || !bar) return
+    const observer = new ResizeObserver(() => (openWidth.current = bar.offsetWidth))
+    observer.observe(bar)
+    return () => observer.disconnect()
+  }, [typing])
+  useLayoutEffect(() => {
+    const bar = form.current
+    if (typing || !bar || !openWidth.current) return
+    bar.style.transition = 'none'
+    bar.style.width = `${openWidth.current}px`
+    void bar.offsetWidth // take that width now, then ease from it to the glyph's
+    bar.style.transition = ''
+    bar.style.width = ''
+    openWidth.current = 0
+  }, [typing])
+
   // Typing a request takes longer than starting an agent: start it as the type bar opens.
   const targetKey = JSON.stringify(target)
   useEffect(() => {
@@ -135,6 +158,7 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, im
           {/* The outline is an inset ring, not a border, so the closed form is the glyph's full 44px and doesn't clip its own ring;
               clip, not hidden, so focusing the text can't scroll it sideways and leave the glyph shifted once it's closed. */}
           <form
+            ref={form}
             className={cn('flex items-end overflow-clip rounded-[22px] ring-inset transition-[width,background-color,box-shadow] duration-600 ease-strata',
               typing ? 'min-h-11 w-[min(100%,560px)] min-w-0 bg-card ring-1 ring-border' : 'size-11 shrink-0')}
             onSubmit={(event) => {
