@@ -132,9 +132,11 @@ export function Dock({ typing, onTypingChange, placeholder, onSend, disabled, im
             </button>
           )}
           {images && !typing && !disabled && <AttachButton className={glyph} />}
+          {/* The outline is an inset ring, not a border, so the closed form is the glyph's full 44px and doesn't clip its own ring;
+              clip, not hidden, so focusing the text can't scroll it sideways and leave the glyph shifted once it's closed. */}
           <form
-            className={cn('flex items-end overflow-hidden rounded-[22px] border transition-[width,background-color,border-color] duration-600 ease-strata',
-              typing ? 'min-h-11 w-[min(100%,560px)] min-w-0 border-border bg-card' : 'h-11 w-11 shrink-0 border-transparent')}
+            className={cn('flex items-end overflow-clip rounded-[22px] ring-inset transition-[width,background-color,box-shadow] duration-600 ease-strata',
+              typing ? 'min-h-11 w-[min(100%,560px)] min-w-0 bg-card ring-1 ring-border' : 'size-11 shrink-0')}
             onSubmit={(event) => {
               event.preventDefault()
               void send()

@@ -32,6 +32,8 @@ until 1.0, a minor version may change how things work.
   (a config file saved earlier keeps the number in it).
 - A task's header names its agent as everywhere else ("Codex"), not by its id ("codex").
 - Long task titles end in an ellipsis; they were cut mid-letter.
+- The dock's keyboard button showed only part of its circle, and after typing could sit
+  shifted inside it.
 
 ## 0.1.0 (2026-10-25)
 
