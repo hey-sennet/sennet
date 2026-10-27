@@ -37,6 +37,7 @@ export type Control =
   | ({ type: 'open_mic' | 'target' } & TargetFields) // a conversation, and the task on screen (docs/voice-protocol.md §9, §12)
   | { type: 'close_mic' }
   | { type: 'attach'; attachments: number[] } // images uploaded for the next message said here
+  | { type: 'replay'; message_ids: number[] } // §9: speak these agent messages again
   | { type: 'codecs'; uplink: Codec; downlink: Codec } // §3: PCM unless the client asks for Opus
   | { type: 'played' | 'drained'; reply: number; segment: number } // §4: began playing; ran out after it
   | { type: 'audio'; state: string; hidden: boolean }       // §5: playback was suspended or resumed

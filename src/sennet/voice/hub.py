@@ -207,6 +207,18 @@ class VoiceHub:
         self._follow(session, task_id)  # before anything awaits, so the hub sees the message sent
         await session.interrupt()  # typing stops any speech, as talking does (voice-protocol §7)
 
+    def replay(self, session: VoiceSession, message_ids: list[int]):
+        """Speak agent messages again on `session`, in the order given, as they were when they came:
+        each one's spoken version, or itself cut to its opening. Only those about the task on screen
+        are heard, as with any reply."""
+        for message_id in message_ids:
+            message = self.tasks.db.message(message_id)
+            if message is None or message["role"] != "agent":
+                continue
+            spoken = spoken_part(message["text"])
+            text = for_speech(spoken) if spoken is not None else summary.shorten(message["text"])
+            session.speak(clauses(text), task_id=message["task_id"])
+
     def _follow(self, session: VoiceSession, task_id: int):
         """Speak the replies to the task's newest request on `session`."""
         self.owners[task_id] = session

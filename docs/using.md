@@ -72,7 +72,10 @@ Nothing leaves the browser until the phrase is heard.
 
 Only the task on screen is spoken. A reply on any other task is kept quiet, and a blue
 dot on the task, and on the tasks button, shows there's something to read; it clears when
-you open the task. The task you just spoke to is the one on screen.
+you open the task, which then offers **Hear what you missed**: the answers it gave since
+you left it, oldest first. Any of the agent's messages can be heard again with the play
+button below it. Neither plays by itself, so opening a task to read it stays quiet. The
+task you just spoke to is the one on screen.
 
 Use headphones or a quiet room for conversations. Sennet cancels its own echo, but a loud
 speaker next to the mic can still cut a reply short.

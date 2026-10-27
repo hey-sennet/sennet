@@ -33,7 +33,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
   agents: Record<string, AgentStatus> | null
   selected: number | null
   more: boolean // older finished tasks to page through
-  unheard?: ReadonlySet<number> // tasks with a reply that wasn't spoken, being off screen
+  unheard?: { has(id: number): boolean } // tasks with a reply that wasn't spoken, being off screen
   onSelect: (id: number) => void
   onShowMore: () => Promise<void>
   onFound: (tasks: Task[]) => void // a task opened from search, which the list may not have yet

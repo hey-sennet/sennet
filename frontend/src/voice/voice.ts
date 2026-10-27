@@ -41,6 +41,7 @@ export interface Words {
 export interface VoiceSnapshot {
   connected: boolean
   stt: SpeechStatus | null       // null until the server says
+  tts: SpeechStatus | null       // speech output, the same
   turnReady: boolean             // end-of-turn detection: conversations can open
   conversation: boolean          // the microphone is open and the server finds the turns
   listening: boolean             // a turn is open on this device
@@ -86,7 +87,7 @@ export class Voice {
   private lastStarted: { reply: number; segment: number } | null = null // reported in `drained`
   private wordsTimer: ReturnType<typeof setTimeout> | null = null
   private snapshot: VoiceSnapshot = {
-    connected: false, stt: null, turnReady: false, conversation: false, listening: false, opening: false,
+    connected: false, stt: null, tts: null, turnReady: false, conversation: false, listening: false, opening: false,
     speaking: false, state: 'idle', words: null, wakePhrase: null, wake: 'off',
     wakeEnabled: loadFlag(WAKE_KEY), wakePaused: false, muted: loadFlag(MUTED_KEY),
   }
@@ -111,7 +112,7 @@ export class Voice {
       } else if (!this.snapshot.wakePhrase) {
         void wakePhrase().then((phrase) => this.update({ wakePhrase: phrase }))
       }
-      this.update({ connected, ...(connected ? {} : { stt: null, state: 'idle' }) })
+      this.update({ connected, ...(connected ? {} : { stt: null, tts: null, state: 'idle' }) })
     }
     this.socket.on((message) => this.receive(message))
     // Images waiting in the tray go with the next thing said, as with the next thing typed.
@@ -376,6 +377,12 @@ export class Voice {
     if (this.snapshot.speaking && this.playingTask !== to) this.stop()
   }
 
+  /** Speak these agent messages again, in order, in place of anything being said. */
+  replay(messageIds: number[]) {
+    this.stop()
+    this.socket.send({ type: 'replay', message_ids: messageIds })
+  }
+
   /** Stop speaking. Agent work carries on. */
   stop() {
     this.socket.send({ type: 'stop' })
@@ -525,7 +532,7 @@ export class Voice {
       void this.negotiate(message.codecs ?? [])
     }
     if (message.type === 'ready' || message.type === 'speech_status') {
-      this.update({ stt: message.speech.stt, turnReady: message.speech.turn === 'ready' })
+      this.update({ stt: message.speech.stt, tts: message.speech.tts, turnReady: message.speech.turn === 'ready' })
     }
     if (message.type === 'mic' && !message.open && this.snapshot.conversation) {
       this.endConversation()

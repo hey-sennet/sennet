@@ -1,15 +1,18 @@
 import { memo, useMemo, useState } from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
-import { ChevronDown, Square } from 'lucide-react'
+import { ChevronDown, Square, Volume2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog'
 import { useAgents } from '@/lib/agents'
 import { api, attachmentUrl, thumbnailUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
+import { missedAnswers } from '@/lib/missed'
 import { repeatsTitle } from '@/lib/titles'
 import { useStreaming, type Streaming } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { useVoice } from '@/voice/usePushToTalk'
+import { voice } from '@/voice/voice'
 import { ApprovalCard } from './ApprovalCard'
 import { Diff } from './Diff'
 import { Markdown } from './Markdown'
@@ -23,14 +26,21 @@ const VISIBLE_EVENTS = new Set(['command_started', 'command_finished', 'tool_use
  * A task's timeline (design/README.md): your request in a bubble, then commands with their results,
  * the other tools it used, files edited and the agent's reply set for reading. The task's own approvals sit at the end.
  */
-export function TaskDetail({ detail, streaming, project, approvals, stop = true }: {
+export function TaskDetail({ detail, streaming, project, approvals, stop = true, missedSince, onHeardMissed }: {
   detail: Detail
   streaming: Streaming
   project?: Project
   approvals: Approval[]
   stop?: boolean // false where the stop button is pinned above the timeline instead (the phone's sheet)
+  // Opened for a reply you didn't hear (its blue dot): when you left it, or null if not known.
+  missedSince?: number | null
+  onHeardMissed?: () => void
 }) {
   const agents = useAgents()
+  const { connected, tts } = useVoice()
+  const playable = connected && tts === 'ready'
+  const missed = useMemo(() => missedSince === undefined ? [] : missedAnswers(detail.messages, detail.events, missedSince),
+    [detail.messages, detail.events, missedSince])
   const active =detail.status === 'running' || detail.status === 'awaiting_approval'
   const working = active || detail.status === 'background' // a command can outlast its turn
 
@@ -85,10 +95,19 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true 
         <StatusBadge status={detail.status} />
         {stop && <StopTask detail={detail} />}
       </div>
+      {/* Only tapped: opening a task to read it stays quiet. */}
+      {playable && missed.length > 0 && (
+        <Button variant="secondary" size="sm" className="mt-4" onClick={() => {
+          voice().replay(missed.map((m) => m.id))
+          onHeardMissed?.()
+        }}>
+          <Volume2 /> Hear what you missed
+        </Button>
+      )}
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
         {entries.map((entry) =>
-          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} wordless={entry.message.id === repeated} />
+          'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} wordless={entry.message.id === repeated} playable={playable} />
             : 'tools' in entry ? <ToolCalls key={`t${entry.key}`} calls={entry.tools} working={working} />
             : <EventItem key={`e${entry.key}`} event={entry.event} working={working} />,
         )}
@@ -183,14 +202,25 @@ function StreamingReply({ streaming, working }: { streaming: Streaming; working:
 }
 
 /** Your messages sit in a bubble on the right, like a chat; the agent's replies run as prose. */
-const MessageItem = memo(function MessageItem({ message, wordless }: {
+const MessageItem = memo(function MessageItem({ message, wordless, playable }: {
   message: Message
   wordless?: boolean // its words are the task's title: only its images, if any, show
+  playable?: boolean // speech output is there: a reply can be heard again
 }) {
   if (wordless && !message.attachments.length) return null
   const faded = cn(message.state === 'queued' && 'opacity-60', message.state === 'cancelled' && 'line-through opacity-40')
   if (message.role === 'agent') {
-    return <li className={faded}><Markdown className="font-serif text-[16px] leading-[1.6]">{message.text}</Markdown></li>
+    return (
+      <li className={faded}>
+        <Markdown className="font-serif text-[16px] leading-[1.6]">{message.text}</Markdown>
+        {playable && (
+          <Button variant="ghost" size="icon-xs" aria-label="Hear this reply" title="Hear this reply"
+            className="mt-1 -ml-1.5 text-muted-foreground" onClick={() => voice().replay([message.id])}>
+            <Volume2 />
+          </Button>
+        )}
+      </li>
+    )
   }
   return (
     <li className={cn('mt-2 ml-10 self-end first:mt-0', faded)}>

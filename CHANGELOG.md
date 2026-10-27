@@ -26,6 +26,10 @@ until 1.0, a minor version may change how things work.
 - A typed request is answered aloud, like a spoken one, on the device that typed it, and
   sending it stops a reply that's still being said. Mute the device to read replies
   instead.
+- Hear a reply again: each of the agent's messages in a task's timeline has a play
+  button. A task with a blue dot, for a reply that came while you were on another task,
+  opens with "Hear what you missed", which plays the answers it gave since you left it,
+  oldest first. Both are only tapped, so opening a task to read it stays quiet.
 
 ## 0.2.0 (2026-10-26)
 

@@ -526,6 +526,30 @@ def test_typed_requests_are_not_spoken_without_speech_output(client, voice, spee
     assert nothing_spoken(voice)
 
 
+def test_a_reply_can_be_heard_again(client, voice, speech, project):
+    speech.tts.gate.set()
+    db = client.app.state.tasks.db
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
+    voice.next("speech_end")
+    wait_for(client, task["id"], lambda t: t["status"] == "completed")
+    written = db.add_message(task["id"], "agent", "<spoken>The short version.</spoken>\n\nThe long one.", "done")
+    said = next(m["id"] for m in client.get(f"/api/tasks/{task['id']}").json()["messages"] if m["role"] == "agent")
+    voice.send(type="replay", message_ids=[written, said, 999])  # 999: no such message
+    spoken = [m["text"] for m in voice.until("speech_end", reply=3) if m["type"] == "speech"]
+    assert spoken == ["The short version.", "You said: add a test."]
+
+
+def test_only_agent_messages_are_heard_again(client, voice, speech, project):
+    speech.tts.gate.set()
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
+    voice.next("speech_end")
+    asked = next(m["id"] for m in client.get(f"/api/tasks/{task['id']}").json()["messages"] if m["role"] == "user")
+    voice.send(type="replay", message_ids=[asked])
+    assert nothing_spoken(voice)
+    voice.send(type="replay", message_ids="all")
+    assert voice.next("voice_error")["code"] == "bad_message"
+
+
 def test_a_failed_turn_says_so(client, voice, speech, project):
     speech.tts.gate.set()
     speech.stt.transcript = "crash"

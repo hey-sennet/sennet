@@ -124,6 +124,7 @@ JSON text frames.
 | `{"type": "drained", "reply": 3, "segment": 1}` | Playback ran out of audio, the last segment it started being this one. When that is the last segment the server sent, the reply has been heard to its end: the server's `playing`, and `voice_state` `speaking`, end here (§13). |
 | `{"type": "ping"}` | Is this socket still working? The server answers `pong`. The client asks when the page comes back after being hidden, and connects again if no answer comes within 3 s: a phone can leave a backgrounded page's socket looking open with nothing getting through. |
 | `{"type": "attach", "attachments": [41, 42]}` | Images uploaded for the next message said on this session (`POST /api/attachments`), replacing any sent before; `[]` for none. They go with the next transcript dispatched, then the session forgets them. Sent again on `ready`: a new session starts with none. |
+| `{"type": "replay", "message_ids": [88, 93]}` | Speak these agent messages again, in this order (§9): each one's spoken version, or itself cut to its opening, as when it came. Only those about the task on screen are heard. They queue like any reply, so send `stop` first to replace what is playing. Up to 50 ids; other messages are skipped. |
 | `{"type": "audio", "state": "suspended", "hidden": true}` | Playback's `AudioContext` changed state (`running`, `suspended`, `interrupted`, `closed`), for the same log. A phone suspends it with the screen off or when another app takes the audio; the client resumes it when it can and, if speech arrives while it can't, asks the user to tap. |
 
 The client picks the `turn` id (any short string, unique per session), so it can tag its
@@ -224,6 +225,10 @@ request like any other.
   ended, answers no request. Its messages are spoken the same way on the session that
   owns the task, if it is connected, and the first carries `cue: true`: the report can
   come minutes later, so it opens with the chime rather than out of silence.
+- A reply can be heard again with `replay`: the play button on an agent message, and
+  "Hear what you missed" on a task opened for its `unheard` mark, which replays the
+  answers (each finished turn's last message) written since this device left the task.
+  Only tapped, never on opening: reading a task stays quiet.
 - An agent that doesn't report such work itself (Codex) gets a line in Sennet's words
   when all of it has finished, spoken the same way: "The command Codex left running has
   finished", or how many of them failed.

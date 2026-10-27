@@ -11,6 +11,7 @@ import { TaskList } from '@/components/TaskList'
 import { useAgents } from '@/lib/agents'
 import { api, type ModelChoice } from '@/lib/api'
 import { limitLine, pressing } from '@/lib/limits'
+import { seenUntil } from '@/lib/missed'
 import { approvalsHere, useMine } from '@/lib/mine'
 import { onNotificationOpened } from '@/lib/push'
 import { useLiveState, useTaskDetail, type Connection } from '@/lib/store'
@@ -77,13 +78,22 @@ export default function App() {
   useEffect(() => {
     selectedRef.current = selected
   }, [selected])
-  // Tasks with a reply that wasn't spoken, being about a task not on screen. Opening one clears it.
-  const [unheard, setUnheard] = useState<ReadonlySet<number>>(() => new Set())
+  // Tasks with a reply that wasn't spoken, being about a task not on screen, each with when you
+  // left it (null if it wasn't open here). Opening one clears it, and offers to hear what you missed.
+  const [unheard, setUnheard] = useState<ReadonlyMap<number, number | null>>(() => new Map())
+  const [missed, setMissed] = useState<{ task_id: number; since: number | null } | null>(null)
   if (selected !== null && unheard.has(selected)) {
-    const next = new Set(unheard)
+    const next = new Map(unheard)
     next.delete(selected)
     setUnheard(next)
+    setMissed({ task_id: selected, since: unheard.get(selected) ?? null })
+  } else if (missed && missed.task_id !== selected) {
+    setMissed(null)
   }
+  const seen = useRef(new Map<number, number>()) // task → its newest message while it was open here
+  useEffect(() => {
+    if (detail) seen.current.set(detail.id, seenUntil(detail.messages))
+  }, [detail])
   const replyElsewhere = live.tasks.some((t) => unheard.has(t.id))
   useEffect(() => {
     const v = voice()
@@ -97,7 +107,7 @@ export default function App() {
       }
       if (message.type === 'unheard' && message.task_id !== selectedRef.current) {
         const id = message.task_id
-        setUnheard((current) => (current.has(id) ? current : new Set(current).add(id)))
+        setUnheard((current) => (current.has(id) ? current : new Map(current).set(id, seen.current.get(id) ?? null)))
       }
     })
     return () => {
@@ -242,7 +252,8 @@ export default function App() {
   const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
   const timeline = detail && (
     <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals} stop={desktop}
-      project={live.projects.find((p) => p.id === detail.project_id)} />
+      project={live.projects.find((p) => p.id === detail.project_id)}
+      missedSince={missed?.task_id === detail.id ? missed.since : undefined} onHeardMissed={() => setMissed(null)} />
   )
 
   return (

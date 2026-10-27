@@ -187,6 +187,39 @@ test('the reply is spoken, and pressing the disc silences it', async ({ page }, 
   await expect(speaking).toBeHidden()
 })
 
+test('a reply that came while you were elsewhere can be heard, and any reply again', async ({ page }, info) => {
+  const name = `voice-missed-${info.project.name}`
+  await addProject(page, name)
+  await page.goto('/')
+  await chooseProject(page, name)
+  await page.getByRole('button', { name: 'Type instead' }).click()
+  const composer = page.getByPlaceholder('Start a new task')
+  await composer.fill('two:Looking now.|All done.')
+  await composer.press('Enter')
+  // Leave before its answer, which comes a second after the first message.
+  const stage = page.getByRole('main')
+  await expect(stage.getByText('Looking now.')).toBeVisible()
+  await page.getByTitle('New task (N)', { exact: true }).click()
+
+  const phone = (page.viewportSize()?.width ?? 0) < 1024
+  await page.getByRole('button', phone ? { name: 'Tasks', exact: true } : { name: /^Show tasks/ }).click()
+  const list = phone ? page.getByRole('region', { name: 'Tasks' }) : page.getByRole('complementary', { name: 'Tasks' })
+  const row = list.getByRole('listitem').filter({ hasText: 'two:' }).first()
+  await expect(row.getByRole('img', { name: 'New reply' })).toBeVisible()
+  await row.getByRole('button').first().click()
+  const timeline = phone ? list : page.getByRole('complementary', { name: 'Task', exact: true })
+
+  const speaking = page.locator('canvas[data-state="speaking"]')
+  await expect(timeline.getByRole('button', { name: 'Hear what you missed' })).toBeVisible()
+  await page.screenshot({ path: `test-results/${info.project.name}-missed.png` })
+  await timeline.getByRole('button', { name: 'Hear what you missed' }).click()
+  await expect(speaking).toBeVisible()
+  await expect(timeline.getByRole('button', { name: 'Hear what you missed' })).toBeHidden()
+  await expect(speaking).toBeHidden()
+  await timeline.getByRole('button', { name: 'Hear this reply' }).first().click()
+  await expect(speaking).toBeVisible()
+})
+
 /** The binary frames on the voice socket, each way. */
 function audioFrames(page: Page) {
   const frames = { sent: [] as Buffer[], received: [] as Buffer[] }

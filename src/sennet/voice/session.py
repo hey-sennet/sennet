@@ -44,6 +44,7 @@ PLAYBACK_TAIL_S = 0.4   # the client starts each run of audio a little late (pla
 DRAIN_GRACE_S = 3.0
 STREAM_WAIT_S = 0.25    # how often a reply waiting for its next sentence checks for a stop
 STREAM_IDLE_S = 60.0    # a streaming reply with nothing more for this long is ended, so later ones aren't held
+REPLAY_LIMIT = 50       # messages one `replay` can ask for
 
 
 @dataclass(eq=False)  # each turn is itself: kept in a set while open
@@ -216,6 +217,13 @@ class VoiceSession:
                 self.attachments = ids
             else:
                 await self.error("bad_message", "attach takes a list of attachment ids")
+        elif kind == "replay":
+            ids = message.get("message_ids")
+            if isinstance(ids, list) and len(ids) <= REPLAY_LIMIT \
+                    and all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+                self.hub.replay(self, ids)
+            else:
+                await self.error("bad_message", f"replay takes a list of up to {REPLAY_LIMIT} message ids")
         elif kind == "target":
             if (target := await self._target(message)) is not None:
                 self.selected = target["task_id"]
