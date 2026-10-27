@@ -321,6 +321,18 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
           </span>
         </label>
       )}
+      {(project.repo || project.worktrees) && (
+        <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" className="mt-0.5" checked={project.worktrees}
+            onChange={(event) => attempt(() => api.updateProject(project.id, { worktrees: event.target.checked }),
+              'Could not update the project')} />
+          <span>
+            Each task in its own worktree. A new task gets a git worktree on a branch of its own, so tasks
+            side by side don't edit the same files; when it's done, merge it from the task. A fresh worktree
+            has no installed dependencies, such as node_modules or .venv.
+          </span>
+        </label>
+      )}
     </div>
   )
 }

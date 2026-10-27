@@ -17,6 +17,7 @@ import { ApprovalCard } from './ApprovalCard'
 import { Diff } from './Diff'
 import { Markdown } from './Markdown'
 import { StatusBadge, StatusDot } from './StatusBadge'
+import { Worktree } from './Worktree'
 
 type Entry = { at: number; message: Message } | { at: number; key: number; event: TaskEvent } | { at: number; key: number; tools: TaskEvent[] }
 
@@ -104,6 +105,7 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
           <Volume2 /> Hear what you missed
         </Button>
       )}
+      <Worktree detail={detail} className="mt-4" />
 
       <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
         {entries.map((entry) =>

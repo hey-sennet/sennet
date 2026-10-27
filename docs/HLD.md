@@ -161,8 +161,9 @@ become the single adapter path. Decide after the Codex adapter works natively.
 ### 4.3 Concurrency
 
 - Many tasks may run at once, each with its own agent process/session.
-- Tasks in one project run side by side, as people run agents. Keeping them out of each
-  other's way (a git worktree each, say) is up to the user.
+- Tasks in one project run side by side, as people run agents. A project can give each
+  new task its own git worktree and branch (worktrees.py), which the task merges and
+  removes when it's done; otherwise keeping them out of each other's way is up to the user.
 - Global limit on concurrent agent processes (configurable, default 8).
 - Shared local inference (STT, TTS) is one instance each, with priority
   STT > TTS. Agent processes are never blocked by speech work.

@@ -68,7 +68,7 @@ def test_projects_are_listed_by_number_agent_and_settings_only(paths, tmp_path):
     found = report.projects(paths)
     lines = report.project_lines(found)
     assert lines == [(f"Project {found[0]['id']}: claude, approvals default, access default, model default, "
-                      "effort default, its own agent config off")]
+                      "effort default, its own agent config off, a worktree for each task off")]
 
 
 class Logged:

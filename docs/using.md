@@ -27,9 +27,36 @@ The dock along the bottom has, from left to right:
 A request goes to a **project**: a directory with an agent and a name. Add
 projects with `sennet project add` or in Settings. Each request starts a **task**, which
 keeps its conversation with the agent, so follow-ups pick up where it left off. Tasks in
-a project run side by side, so keep them out of each other's way (a git worktree each,
-say) if they edit the same files. Up to eight tasks run at once in all
-(`tasks.max_concurrent`); more queue.
+a project run side by side, so they can edit the same files unless each has its own
+worktree (below). Up to eight tasks run at once in all (`tasks.max_concurrent`); more
+queue.
+
+### A worktree for each task
+
+For a project that's a git repository, turn on **Each task in its own worktree** in its
+settings. Each new task then gets a git worktree on a branch of its own,
+`sennet/<number>-<words from its title>`, made from the branch the project has checked
+out. The worktree is kept in Sennet's data directory, and the agent works there. The task
+shows its branch, how many files it changed, and its commits not yet in that branch.
+
+When the task is done:
+
+- **Merge into main** (or whichever branch it came from) commits whatever the agent left
+  uncommitted, titled with the task, then merges the branch in the project's own checkout.
+  It fast-forwards when it can and makes a merge commit when it can't. The project has to
+  have that branch checked out. If the merge would conflict, nothing is merged: the task
+  names the files, and **Ask the agent to resolve it** asks the agent to merge the branch
+  in and fix them.
+- **Remove worktree** removes its folder and anything left uncommitted in it, and can
+  delete the branch too. If you keep the branch, a follow-up puts the worktree back.
+- Deleting the task asks whether to keep its worktree and branch, remove the worktree, or
+  remove both.
+
+A fresh worktree has none of what isn't committed, such as `node_modules` or `.venv`, so
+the agent may need to install them first. Approvals work as in the project: "Always" rules
+are the project's, and `workspace` access means the task's worktree. A project with
+worktrees doesn't start an agent early for a new task, so the first reply can take a
+moment longer.
 
 To aim a request, **select** a project or task on screen, then talk. With a task
 selected, what you say is a follow-up to it. Nothing guesses where a request should go:

@@ -2,15 +2,17 @@
 
 A task is one piece of agent work in one project: an agent conversation plus the
 messages sent to it. Messages queue; each becomes one agent turn. Tasks in one project
-run side by side, as people run agents; keeping them out of each other's way (a git
-worktree each, say) is up to the user. At most `max_concurrent` run overall. Agent
+run side by side, as people run agents; with the project's `worktrees` on, each new task
+gets a git worktree of its own to run in (worktrees.py), which it can merge and remove when
+it's done. At most `max_concurrent` run overall. Agent
 processes stay warm for `idle_timeout_s` after a turn so follow-ups start instantly;
 after that the conversation is resumed from its resume token, when the agent can resume.
 
 A process can also start before its message arrives (`prewarm`): when someone starts talking
 or typing to a task or project, since saying and transcribing a request takes longer than
 an agent takes to start. A follow-up warms the task's own session; a new task warms a spare
-session for its project, which the task takes over if it matches. Unused, either closes
+session for its project, which the task takes over if it matches; not in a project with
+worktrees, since its tasks don't start in the project's directory. Unused, either closes
 after `PREWARM_IDLE_S`. And when an interrupt ends an agent's process (Claude's ends on
 SIGINT), the session is resumed at once, since a correction usually follows.
 
@@ -41,7 +43,7 @@ from .agents.registry import ModelError, check_model
 from .approvals import Approvals
 from .attachments import AttachmentError, Attachments
 from .config import Settings
-from . import titles
+from . import titles, worktrees
 from .db import FINISHED, Database
 from .usage import Limits, limit_reached
 
@@ -86,8 +88,9 @@ class TaskBusy(TaskError):
 
 class TaskManager:
     def __init__(self, db: Database, settings: Settings, agents: dict[str, Agent], approvals: Approvals, publish,
-                 attachments: Attachments):
+                 attachments: Attachments, worktrees_dir: Path):
         self.db = db
+        self.worktrees_dir = worktrees_dir.absolute()  # tasks' own worktrees, one directory each; git runs elsewhere
         self.attachments = attachments
         self.settings = settings
         self.agents = agents
@@ -136,6 +139,13 @@ class TaskManager:
         self._check_images(project["agent"], attachments)
         title = titles.from_request(text) if text else "An image" if len(attachments) == 1 else "Images"
         task_id = self.db.add_task(project_id, project["agent"], title, model, effort)
+        if project["worktrees"]:
+            try:
+                made = await worktrees.add(Path(project["path"]), self.worktrees_dir / str(task_id), task_id, title)
+            except worktrees.WorktreeError as error:
+                self.db.delete_task(task_id)
+                raise TaskError(f"couldn't make the task a worktree: {error}") from None
+            self.db.update_task(task_id, **made)
         self.db.add_message(task_id, "user", text, "queued", attachments)
         await self._publish_task(task_id)
         self._schedule()
@@ -190,14 +200,14 @@ class TaskManager:
             await self._close_session(task_id)  # the work runs in the agent's process, and ends with it
         return self.db.task(task_id)
 
-    async def delete(self, task_id: int):
-        """Delete a finished task from Sennet. The agent keeps its own copy of the conversation."""
-        task = self.db.task(task_id)
-        if task is None:
-            raise TaskError("no such task")
+    async def delete(self, task_id: int, worktree: str = "keep"):
+        """Delete a finished task from Sennet. The agent keeps its own copy of the conversation.
+        Its worktree, if it has one, is kept, or removed (`remove`), or removed with its branch
+        (`delete`)."""
+        task = self._idle(task_id, "deleting it")
+        if task["worktree"] and worktree in ("remove", "delete"):
+            await self._remove_worktree(task, worktree == "delete")
         runner = self.runners.get(task_id)
-        if task["status"] not in FINISHED or (runner and (runner.background or (runner.job and not runner.job.done()))):
-            raise TaskBusy("the task is still working; stop it before deleting it")
         if runner:
             if runner.idle_timer:
                 runner.idle_timer.cancel()
@@ -213,6 +223,67 @@ class TaskManager:
         self.db.update_task(task_id, model=model, effort=effort)
         await self._publish_task(task_id)
         return self.db.task(task_id)
+
+    async def worktree(self, task_id: int) -> dict:
+        """The task's worktree and branch as they are: see worktrees.status."""
+        task = self._worktree_task(task_id)
+        project = self.db.project(task["project_id"])
+        try:
+            return await worktrees.status(Path(project["path"]), Path(task["worktree"]), task["branch"], task["base"])
+        except worktrees.WorktreeError as error:
+            raise TaskError(str(error)) from None
+
+    async def merge(self, task_id: int) -> dict:
+        """Merge the finished task's branch into the branch it came from (worktrees.merge), and
+        the worktree as it is now."""
+        task = self._worktree_task(task_id)
+        self._idle(task_id, "merging it")
+        if task["branch"] is None:
+            raise TaskError("its branch was deleted")
+        project = self.db.project(task["project_id"])
+        try:
+            merged = await worktrees.merge(Path(project["path"]), Path(task["worktree"]), task["branch"],
+                                           task["base"], task["title"])
+        except worktrees.WorktreeError as error:
+            raise TaskError(str(error)) from None
+        return {**merged, "status": await self.worktree(task_id)}
+
+    async def remove_worktree(self, task_id: int, delete_branch: bool = False) -> dict:
+        """Remove the finished task's worktree, with what's left uncommitted in it, and its branch
+        if asked. With the branch kept, a follow-up puts the worktree back."""
+        task = self._worktree_task(task_id)
+        self._idle(task_id, "removing its worktree")
+        await self._remove_worktree(task, delete_branch)
+        return await self.worktree(task_id)
+
+    async def _remove_worktree(self, task: dict, delete_branch: bool):
+        await self._close_session(task["id"])  # an agent kept warm there
+        project = self.db.project(task["project_id"])
+        try:
+            await worktrees.remove(Path(project["path"]), Path(task["worktree"]), task["branch"], delete_branch)
+        except worktrees.WorktreeError as error:
+            raise TaskError(f"couldn't remove its worktree: {error}") from None
+        if delete_branch and task["branch"]:
+            self.db.update_task(task["id"], branch=None)
+            await self._publish_task(task["id"])
+
+    def _worktree_task(self, task_id: int) -> dict:
+        task = self.db.task(task_id)
+        if task is None:
+            raise TaskError("no such task")
+        if not task["worktree"]:
+            raise TaskError("the task has no worktree")
+        return task
+
+    def _idle(self, task_id: int, doing: str) -> dict:
+        """The task, finished and with nothing of its agent's still running; else TaskBusy."""
+        task = self.db.task(task_id)
+        if task is None:
+            raise TaskError("no such task")
+        runner = self.runners.get(task_id)
+        if task["status"] not in FINISHED or (runner and (runner.background or (runner.job and not runner.job.done()))):
+            raise TaskBusy(f"the task is still working; stop it before {doing}")
+        return task
 
     def prewarm(self, task_id: int | None = None, project_id: int | None = None, model: str | None = None,
                 effort: str | None = None):
@@ -339,8 +410,14 @@ class TaskManager:
             if runner.background:
                 return  # restarting would end the work; the change waits for it
         await self._close_session(task_id)  # what is left of one that ended, or used another model
-        path, policy = self._policy(agent, project, choice)
-        if task["resume_token"] is None and (session := await self._take_spare(task_id, agent, policy)):
+        if task["worktree"] and not Path(task["worktree"]).is_dir():
+            try:
+                await worktrees.restore(Path(project["path"]), Path(task["worktree"]), task["branch"])
+            except worktrees.WorktreeError as error:
+                raise TaskError(f"couldn't put the task's worktree back: {error}") from None
+        path, policy = self._policy(agent, project, choice, task["worktree"])
+        if task["resume_token"] is None and not task["worktree"] and \
+                (session := await self._take_spare(task_id, agent, policy)):
             runner.session = session
         else:
             # Without resume, a new process starts a new conversation; the old one can't be continued.
@@ -352,10 +429,12 @@ class TaskManager:
         if runner.session.resume_token != task["resume_token"]:
             self.db.update_task(task_id, resume_token=runner.session.resume_token)
 
-    def _policy(self, agent: Agent, project: dict, choice: tuple[str | None, str | None]) -> tuple[Path, TurnPolicy]:
-        path = Path(project["path"])
+    def _policy(self, agent: Agent, project: dict, choice: tuple[str | None, str | None],
+                worktree: str | None = None) -> tuple[Path, TurnPolicy]:
+        """Where the agent runs (the task's worktree, else the project's directory), and how."""
+        path = Path(worktree or project["path"])
         if not path.is_dir():
-            raise TaskError(f"project directory {path} does not exist")
+            raise TaskError(f"{'worktree' if worktree else 'project directory'} {path} does not exist")
         policy = TurnPolicy(mode=project["approval_mode"] or self.settings.approvals.mode,
                             access=project["access"] or self.settings.approvals.access,
                             project_config=project["project_config"], model=choice[0], effort=choice[1])
@@ -386,7 +465,7 @@ class TaskManager:
     async def _prewarm_spare(self, project_id: int, model: str | None, effort: str | None):
         """Start a session for a new task in the project, unless a matching one is up or starting."""
         project = self.db.project(project_id)
-        if project is None or (agent := self.agents.get(project["agent"])) is None:
+        if project is None or project["worktrees"] or (agent := self.agents.get(project["agent"])) is None:
             return
         choice = _choice({"agent": project["agent"], "model": model, "effort": effort}, project)
         try:

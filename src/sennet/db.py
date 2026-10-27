@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS projects (
     project_config INTEGER NOT NULL DEFAULT 0,  -- let the agent load the project's own hooks and servers
     model TEXT,                    -- the agent's model id for new tasks; null for the agent's default
     effort TEXT,                   -- reasoning effort; null for the model's default
+    worktrees INTEGER NOT NULL DEFAULT 0,  -- each new task in its own git worktree (worktrees.py)
     created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
@@ -40,6 +41,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     input_tokens INTEGER NOT NULL DEFAULT 0,   -- summed over the task's turns; input includes cached
     cached_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    worktree TEXT,                 -- its own worktree's directory, kept once removed; null for the project's
+    branch TEXT,                   -- the worktree's branch; null once Sennet deletes it
+    base TEXT,                     -- the branch it came from, which it merges into
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -142,7 +146,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 # counted apart from the rest, each up to this many.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
 FINISHED = ("completed", "failed", "cancelled", "unknown")
@@ -208,11 +212,24 @@ class Database:
             # Version 11 only adds a table (attachments), which SCHEMA creates.
             if version == 11:
                 self._to_v12()
+            if version < 13:
+                self._to_v13()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
         return version
+
+    def _to_v13(self):
+        """A worktree for each task. Without a tasks table yet, SCHEMA makes one with them."""
+        def columns(table: str) -> list[str]:
+            return [row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")]
+        if "worktrees" not in columns("projects"):
+            self.conn.execute("ALTER TABLE projects ADD COLUMN worktrees INTEGER NOT NULL DEFAULT 0")
+        existing = columns("tasks")
+        for column in ("worktree", "branch", "base"):
+            if existing and column not in existing:
+                self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
 
     def _to_v12(self):
         """Thumbnails for images. Before version 11 there is no attachments table yet: SCHEMA makes it with them."""
@@ -593,6 +610,8 @@ class Database:
 def _project(row: dict | None) -> dict | None:
     if row is not None:
         row["project_config"] = bool(row["project_config"])
+        row["worktrees"] = bool(row["worktrees"])
+        row["repo"] = os.path.exists(os.path.join(row["path"], ".git"))  # one can have worktrees
     return row
 
 

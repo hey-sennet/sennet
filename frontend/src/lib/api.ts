@@ -20,6 +20,8 @@ export interface Project {
   project_config: boolean
   model: string | null // the agent's model id for new tasks; null for the agent's default
   effort: string | null
+  worktrees: boolean // each new task in its own git worktree (src/sennet/worktrees.py)
+  repo: boolean // the top of a git repository, so it can have them
 }
 
 export interface Task {
@@ -35,8 +37,33 @@ export interface Task {
   input_tokens: number // summed over its turns; input includes the cached part
   cached_tokens: number
   output_tokens: number
+  worktree: string | null // its own worktree's directory, kept once removed; null runs in the project's
+  branch: string | null // the worktree's branch; null once deleted
+  base: string | null // the branch it came from, which it merges into
   created_at: number
   updated_at: number
+}
+
+/** A task's worktree and branch as they are now (worktrees.status). */
+export interface WorktreeStatus {
+  worktree: string
+  exists: boolean
+  branch: string | null // null once it's gone
+  base: string | null
+  checked_out: string | null // the branch the project has checked out
+  files: string[] // changed from the base, committed or not
+  uncommitted: number // files left uncommitted in the worktree
+  commits: number // on the branch and not in the base yet
+}
+
+/** How a merge went: one that would conflict isn't started, and names the files instead. */
+export interface MergeResult {
+  merged: boolean
+  commits: number
+  committed: boolean // what was left uncommitted was committed first
+  fast_forward: boolean
+  conflicts: string[]
+  status: WorktreeStatus
 }
 
 /** An image sent with a message (src/sennet/attachments.py); `attachmentUrl` shows it. */
@@ -283,7 +310,13 @@ export const api = {
   /** Finished tasks older than `last`, newest first. */
   earlierTasks: (last: Task, limit = 20) =>
     request<{ tasks: Task[]; more: boolean }>('GET', `/api/tasks?before=${last.updated_at}&before_id=${last.id}&limit=${limit}`),
-  deleteTask: (id: number) => request<void>('DELETE', `/api/tasks/${id}`),
+  /** `worktree`: what happens to its worktree, if it has one: kept, removed, or removed with its branch. */
+  deleteTask: (id: number, worktree: 'keep' | 'remove' | 'delete' = 'keep') =>
+    request<void>('DELETE', `/api/tasks/${id}?worktree=${worktree}`),
+  worktree: (id: number) => request<WorktreeStatus>('GET', `/api/tasks/${id}/worktree`),
+  mergeWorktree: (id: number) => request<MergeResult>('POST', `/api/tasks/${id}/worktree/merge`),
+  removeWorktree: (id: number, deleteBranch: boolean) =>
+    request<WorktreeStatus>('DELETE', `/api/tasks/${id}/worktree?branch=${deleteBranch ? 'delete' : 'keep'}`),
   search: (query: string) => request<SearchHit[]>('GET', `/api/search?q=${encodeURIComponent(query)}`),
   /** `attachments`: ids of images uploaded for it (`uploadImage`). */
   createTask: (project_id: number, text: string, choice?: ModelChoice, attachments: number[] = []) =>
@@ -305,7 +338,7 @@ export const api = {
     request<Project>('POST', '/api/projects', body),
   chooseModel: (id: number, model: string | null, effort: string | null) =>
     request<Task>('PATCH', `/api/tasks/${id}`, { model, effort }),
-  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'agent' | 'approval_mode' | 'access' | 'project_config' | 'model' | 'effort'>>) =>
+  updateProject: (id: number, body: Partial<Pick<Project, 'name' | 'agent' | 'approval_mode' | 'access' | 'project_config' | 'model' | 'effort' | 'worktrees'>>) =>
     request<Project>('PATCH', `/api/projects/${id}`, body),
   removeProject: (id: number) => request<void>('DELETE', `/api/projects/${id}`),
   directories: (path?: string) =>

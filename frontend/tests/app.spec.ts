@@ -1,5 +1,6 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test'
-import { mkdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { chooseProject } from './projects'
 
@@ -352,6 +353,48 @@ test('a finished task is deleted from the list, after asking', async ({ page }, 
   await page.screenshot({ path: `test-results/${info.project.name}-delete-confirm.png` })
   await confirm.getByRole('button', { name: 'Delete' }).click()
   await expect(row).toHaveCount(0)
+})
+
+test('a task in its own worktree is merged into main and removed, from its view', async ({ page }, info) => {
+  const name = `worktree-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: directory }).toString()
+  git('init', '--quiet', '-b', 'main')
+  git('config', 'user.name', 'E2E')
+  git('config', 'user.email', 'e2e@example.com')
+  writeFileSync(path.join(directory, 'README.md'), 'hello\n')
+  git('add', '.')
+  git('commit', '--quiet', '-m', 'first')
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  await page.request.patch(`/api/projects/${project.id}`, { data: { worktrees: true }, headers })
+  const title = `add a health check in ${name}`
+  const created = await (await page.request.post('/api/tasks', { data: { project_id: project.id, text: title }, headers })).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${created.id}`)).json()).status).toBe('completed')
+  const task = await (await page.request.get(`/api/tasks/${created.id}`)).json()
+  writeFileSync(path.join(task.worktree, 'health.ts'), 'export const ok = true\n') // as the agent would have
+
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByText(title).first().click()
+  const panel = page.getByRole('region', { name: 'Worktree' })
+  await expect(panel).toContainText(task.branch)
+  await expect(panel).toContainText('1 file changed, 1 uncommitted')
+  await page.screenshot({ path: `test-results/${info.project.name}-worktree.png` })
+  await panel.getByRole('button', { name: 'Merge into main' }).click()
+  await expect(page.getByText('Merged into main')).toBeVisible()
+  expect(git('log', '-1', '--format=%s').trim()).toBe(title)
+  await expect(panel).toContainText('Nothing to merge into main.')
+
+  await panel.getByRole('button', { name: 'Remove worktree' }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm.getByRole('checkbox', { name: 'Delete its branch too' })).toBeChecked() // merged: nothing to lose
+  await confirm.evaluate((sheet) => Promise.all(sheet.getAnimations().map((a) => a.finished)))
+  await page.screenshot({ path: `test-results/${info.project.name}-worktree-remove.png` })
+  await confirm.getByRole('button', { name: 'Remove' }).click()
+  await expect(panel).toContainText('Its worktree and branch were removed.')
+  expect(git('branch')).not.toContain(task.branch)
 })
 
 test('removing a project asks first, over Settings, and a tap beside the question dismisses it', async ({ page }, info) => {

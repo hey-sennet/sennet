@@ -46,6 +46,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
   const [swiped, setSwiped] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const deleting = useConfirm<Task>()
+  const [worktree, setWorktree] = useState<'keep' | 'remove' | 'delete'>('keep') // a deleted task's own worktree
   const [leaving, setLeaving] = useState<number | null>(null)
   const searching = query.trim().length >= 3
 
@@ -68,7 +69,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
     setLeaving(task.id)
     await new Promise((resolve) => setTimeout(resolve, LEAVE_MS))
     try {
-      await api.deleteTask(task.id)
+      await api.deleteTask(task.id, task.branch ? worktree : 'keep')
       setHits((found) => found && Object.assign(found.filter((hit) => hit.task.id !== task.id), { query: found.query }))
     } catch (error) {
       setLeaving(null)
@@ -83,6 +84,7 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
         leaving={leaving === task.id}
         onSwipe={(open) => setSwiped(open ? task.id : null)} onDelete={() => {
           setSwiped(null)
+          setWorktree('keep')
           deleting.ask(task)
         }}
         onSelect={() => {
@@ -124,6 +126,17 @@ export function TaskList({ tasks, projects, approvals, agents, selected, more, u
     <ConfirmDialog open={deleting.open} title={`Delete “${task?.title}”?`} action="Delete"
       onConfirm={() => task && remove(task)} onCancel={deleting.close}>
       This removes it from Sennet. {task && (agents?.[task.agent]?.title ?? task.agent)} keeps its own copy of the conversation.
+      {task?.branch && (
+        <span role="radiogroup" aria-label="Its worktree" className="mt-3 flex flex-col gap-1.5 text-foreground">
+          {([['keep', 'Keep its worktree and branch'], ['remove', 'Remove its worktree, keep the branch'],
+            ['delete', 'Remove its worktree and branch']] as const).map(([value, label]) => (
+            <label key={value} className="flex items-center gap-2">
+              <input type="radio" name="worktree" value={value} checked={worktree === value} onChange={() => setWorktree(value)} />
+              {label}
+            </label>
+          ))}
+        </span>
+      )}
     </ConfirmDialog>
   )
 

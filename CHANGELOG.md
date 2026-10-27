@@ -5,6 +5,12 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- Each task in its own git worktree: a project setting for git repositories. A new task
+  gets a worktree on a branch of its own, so tasks side by side don't edit the same files.
+  When it's done, merge it into the branch it came from, or remove it, from the task, on
+  the phone too. A merge that would conflict isn't started: it names the files, and the
+  agent can be asked to resolve them. Deleting the task asks what to do with its worktree
+  and branch.
 - `sennet doctor` and Settings show which version of Claude Code and Codex is installed,
   and warn, in yellow, when it's newer than Sennet has been tested with (Claude Code 2.1.x,
   Codex 0.164.x). Both CLIs update themselves, and a change in how they talk to Sennet

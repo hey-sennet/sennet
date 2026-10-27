@@ -196,7 +196,8 @@ def project_lines(found: list[dict]) -> list[str]:
         return value if value else "default"
     return [f"Project {p['id']}: {p['agent']}, approvals {setting(p['approval_mode'])}, access {setting(p['access'])}, "
             f"model {setting(p['model'])}, effort {setting(p['effort'])}, "
-            f"its own agent config {'on' if p['project_config'] else 'off'}" for p in sorted(found, key=lambda p: p["id"])]
+            f"its own agent config {'on' if p['project_config'] else 'off'}, "
+            f"a worktree for each task {'on' if p.get('worktrees') else 'off'}" for p in sorted(found, key=lambda p: p["id"])]
 
 
 def service_log() -> str:

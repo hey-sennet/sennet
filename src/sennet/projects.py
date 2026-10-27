@@ -44,7 +44,7 @@ def update(db: Database, project_id: int, **fields) -> dict:
     project = db.project(project_id)
     if project is None:
         raise ProjectError("no such project")
-    allowed = {"name", "agent", "approval_mode", "access", "project_config", "model", "effort"}
+    allowed = {"name", "agent", "approval_mode", "access", "project_config", "model", "effort", "worktrees"}
     if unknown := set(fields) - allowed:
         raise ProjectError(f"cannot change {', '.join(sorted(unknown))}")
     if "approval_mode" in fields and fields["approval_mode"] not in (None, *APPROVAL_MODES):
@@ -55,6 +55,10 @@ def update(db: Database, project_id: int, **fields) -> dict:
         raise ProjectError(f"agent must be one of {registry.NAMES}")
     if "project_config" in fields and not isinstance(fields["project_config"], bool):
         raise ProjectError("project_config must be true or false")
+    if "worktrees" in fields and not isinstance(fields["worktrees"], bool):
+        raise ProjectError("worktrees must be true or false")
+    if fields.get("worktrees") and not project["repo"]:
+        raise ProjectError("a worktree for each task needs the top directory of a git repository")
     if fields.get("agent", project["agent"]) != project["agent"]:
         fields.setdefault("model", None)  # another agent's models
         fields.setdefault("effort", None)

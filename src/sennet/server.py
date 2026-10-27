@@ -57,7 +57,7 @@ from .events import EventBus, batches
 from .speech import Speech
 from .speech import models as speech_models
 from . import search
-from .tasks import TaskBusy, TaskError, TaskManager
+from .tasks import TaskError, TaskManager
 from .voice import VoiceHub, VoiceSession
 
 log = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ class ProjectPatch(BaseModel):
     project_config: bool | None = None
     model: str | None = None
     effort: str | None = None
+    worktrees: bool | None = None
 
 
 class TaskIn(BaseModel):
@@ -171,7 +172,7 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         approvals = Approvals(db, bus.publish)
         attachments = Attachments(db, paths.data_dir / "attachments")
         await asyncio.to_thread(attachments.sweep)
-        manager = TaskManager(db, settings, agents, approvals, bus.publish, attachments)
+        manager = TaskManager(db, settings, agents, approvals, bus.publish, attachments, paths.data_dir / "worktrees")
         app.state.db, app.state.bus, app.state.approvals, app.state.tasks = db, bus, approvals, manager
         app.state.attachments = attachments
         app.state.speech, loading = _speech(settings, paths, speech)
@@ -526,15 +527,39 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
         return search.search(db(request), q[:200])
 
     @app.delete("/api/tasks/{task_id}", status_code=204)
-    async def delete_task(task_id: int, request: Request):
-        """A finished task, from Sennet only: the agent keeps its own copy of the conversation."""
+    async def delete_task(task_id: int, request: Request, worktree: Literal["keep", "remove", "delete"] = "keep"):
+        """A finished task, from Sennet only: the agent keeps its own copy of the conversation.
+        Its worktree is kept, removed, or removed with its branch (`delete`)."""
         try:
-            await request.app.state.tasks.delete(task_id)
-        except TaskBusy as error:
-            raise HTTPException(409, str(error))
+            await request.app.state.tasks.delete(task_id, worktree)
         except TaskError as error:
-            raise HTTPException(404, str(error))
+            raise _task_error(error)
         return Response(status_code=204)
+
+    @app.get("/api/tasks/{task_id}/worktree")
+    async def task_worktree(task_id: int, request: Request):
+        """The task's own worktree and branch, as they are now."""
+        try:
+            return await request.app.state.tasks.worktree(task_id)
+        except TaskError as error:
+            raise _task_error(error)
+
+    @app.post("/api/tasks/{task_id}/worktree/merge")
+    async def merge_worktree(task_id: int, request: Request):
+        """Merge the finished task's branch into the branch it came from. One that would conflict
+        isn't started: `merged` is false and `conflicts` names the files."""
+        try:
+            return await request.app.state.tasks.merge(task_id)
+        except TaskError as error:
+            raise _task_error(error)
+
+    @app.delete("/api/tasks/{task_id}/worktree")
+    async def remove_worktree(task_id: int, request: Request, branch: Literal["keep", "delete"] = "keep"):
+        """Remove the finished task's worktree, and its branch if `branch=delete`."""
+        try:
+            return await request.app.state.tasks.remove_worktree(task_id, branch == "delete")
+        except TaskError as error:
+            raise _task_error(error)
 
     @app.get("/api/tasks/{task_id}")
     async def get_task(task_id: int, request: Request):
@@ -680,6 +705,11 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             return _built(WEB_DIR / "index.html", request, "no-cache")
 
     return app
+
+
+def _task_error(error: TaskError) -> HTTPException:
+    """No such task is 404; one still working, or a worktree git won't change, is 409."""
+    return HTTPException(404 if str(error).startswith("no such") else 409, str(error))
 
 
 def _speech(settings: Settings, paths: Paths, speech: Speech | None) -> tuple[Speech, asyncio.Task | None]:
