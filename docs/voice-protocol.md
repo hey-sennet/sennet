@@ -308,8 +308,10 @@ agent message ──▶ hub ──▶ session queue ──▶ socket ──▶ p
    about is cut to what should be heard: its `<spoken>` part (a sentence at a time as it
    streams, in a reply left open until the tag closes), or its opening sentences. It is
    split into clauses and handed to the session. *Waits:* behind speech still being prepared for the same task, so a
-   task's messages and failure are said in order. *Dropped:* when the turn was
-   talked over (`hushed`, §12), and for requests that weren't spoken (typed ones).
+   task's messages and failure are said in order. A typed request counts as asked on
+   the newest voice session of the device that typed it, and stops what that session
+   is saying, as starting a turn does (§7). *Dropped:* when the turn was talked over
+   (`hushed`, §12), and for a typed request from a device with no voice session.
 2. **Session queue, per device** (`voice/session.py`, `speak`). The reply gets its id and
    joins the device's queue. Logged `reply N … queued`.
    *Waits:* for any open turn on this device to close (`floor`): nothing is said while

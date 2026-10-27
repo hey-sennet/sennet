@@ -507,10 +507,12 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.post("/api/tasks", status_code=201)
     async def create_task(body: TaskIn, request: Request):
         try:
-            return await request.app.state.tasks.create(body.project_id, body.text, body.model, body.effort,
+            task = await request.app.state.tasks.create(body.project_id, body.text, body.model, body.effort,
                                                         body.attachments)
         except TaskError as error:
             raise HTTPException(400, str(error))
+        await request.app.state.voice.typed(request.state.device["id"], task["id"])
+        return task
 
     @app.get("/api/tasks")
     async def earlier_tasks(before: float, before_id: int, request: Request, limit: int = 20):
@@ -555,9 +557,11 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
     @app.post("/api/tasks/{task_id}/messages")
     async def follow_up(task_id: int, body: MessageIn, request: Request):
         try:
-            return await request.app.state.tasks.follow_up(task_id, body.text, body.attachments)
+            task = await request.app.state.tasks.follow_up(task_id, body.text, body.attachments)
         except TaskError as error:
             raise HTTPException(404 if "no such" in str(error) else 400, str(error))
+        await request.app.state.voice.typed(request.state.device["id"], task_id)
+        return task
 
     @app.post("/api/prewarm", status_code=204)
     async def prewarm(body: PrewarmIn, request: Request):

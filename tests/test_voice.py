@@ -500,8 +500,27 @@ def test_the_reply_is_spoken_on_the_device_that_asked(client, voice, speech, pro
         assert nothing_spoken(other)
 
 
-def test_typed_requests_are_not_spoken(client, voice, speech, project):
+def test_a_typed_request_is_spoken_like_a_spoken_one(client, voice, speech, project):
     speech.tts.gate.set()
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
+    spoken = voice.next("speech")
+    assert (spoken["text"], spoken["task_id"]) == ("You said: add a test.", task["id"])
+    voice.next("speech_end")
+    client.post(f"/api/tasks/{task['id']}/messages", json={"text": "and another"})
+    assert voice.next("speech")["text"] == "You said: and another."
+
+
+def test_typing_stops_the_reply_being_spoken(client, voice, speech, project):
+    speak(client, "First part.", "Second part.")
+    voice.next("speech", segment=0)
+    client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"})
+    assert voice.next("stopped")["generation"] == 1
+    speech.tts.gate.set()
+    assert voice.next("speech")["text"] == "You said: add a test."
+
+
+def test_typed_requests_are_not_spoken_without_speech_output(client, voice, speech, project):
+    client.portal.call(lambda: speech._set("tts", "unavailable", "turned off"))
     task = client.post("/api/tasks", json={"project_id": project["id"], "text": "add a test"}).json()
     wait_for(client, task["id"], lambda t: t["status"] == "completed")
     assert nothing_spoken(voice)

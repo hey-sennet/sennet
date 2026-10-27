@@ -1,10 +1,12 @@
 """The daemon's voice sessions, where their transcripts go, and their replies.
 
 A task is owned by the session that last dispatched to it. A reply is spoken on
-the session whose request it answers: the hub follows each spoken request's
-message from `sent` to `done` on the event bus and speaks each agent message in
+the session whose request it answers: the hub follows each request's message from
+`sent` to `done` on the event bus and speaks each agent message in
 between as it arrives, so a preamble ("I'll move it to Trash") is heard as soon as
-it is written. Approvals are answered on their card, never by voice.
+it is written. A typed request is answered aloud too, on the newest session of
+the device that typed it, and stops what that device is saying, as talking does.
+Approvals are answered on their card, never by voice.
 
 A device's next session takes over what its last one was waiting for, so a page
 that reloads, or a phone that closed it and came back, hears the replies still to
@@ -52,7 +54,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Pending:
-    """A spoken request the agent is working on."""
+    """A request, spoken or typed, the agent is working on."""
 
     session: VoiceSession
     message_id: int | None          # None for a turn the agent started
@@ -98,8 +100,9 @@ class VoiceHub:
         self.bus = bus
         self.sessions: set[VoiceSession] = set()
         self.owners: dict[int, VoiceSession] = {}
-        self.requests: dict[int, VoiceSession] = {}   # queued user message id → session that spoke it
-        self.turns: dict[int, Pending] = {}            # task id → the spoken request now running
+        self.newest: dict[int, VoiceSession] = {}      # device id → its session that speaks its replies
+        self.requests: dict[int, VoiceSession] = {}   # queued user message id → session that asked
+        self.turns: dict[int, Pending] = {}            # task id → the request now running
         self.voicing: dict[int, asyncio.Task] = {}     # task id → its speech still being prepared
         self.streams: dict[int, dict[str, str | None]] = {}  # task id → message item → text so far, None once read
         self.early: dict[int, list[str]] = {}          # task id → spoken versions said before their message ended
@@ -118,6 +121,7 @@ class VoiceHub:
         if session.device is not None:
             # The device's newest session speaks its replies. An older one is a page it has left, even
             # if its socket still looks open: a phone keeps a backgrounded page's socket up.
+            self.newest[session.device] = session
             self._hand_over(lambda s: s is not session and s.device == session.device, session)
 
     def remove(self, session: VoiceSession):
@@ -128,6 +132,11 @@ class VoiceHub:
             successors = [s for s in self.sessions if s.device == session.device]
             if successors:
                 self._hand_over(lambda s: s is session, successors[-1])
+            if self.newest.get(session.device) is session:
+                if successors:
+                    self.newest[session.device] = successors[-1]
+                else:
+                    del self.newest[session.device]
             return
         for task_id in [t for t, owner in self.owners.items() if owner is session]:
             del self.owners[task_id]
@@ -184,14 +193,27 @@ class VoiceHub:
         if task is None:
             await session.error("no_target", "choose a task or a project first", turn.id)
             return {"outcome": "failed"}
-        self.owners[task["id"]] = session
-        session.selected = task["id"]  # the task just spoken to is the one on screen (App selects it)
-        message = self.tasks.db.one("SELECT id FROM task_messages WHERE task_id = ? AND role = 'user' "
-                                    "ORDER BY id DESC LIMIT 1", task["id"])
-        self.requests[message["id"]] = session
+        self._follow(session, task["id"])
         if session.attachments == images:
             session.attachments = []  # sent; the client clears them on `final`
         return {"outcome": "dispatched", "task_id": task["id"], **({"attachments": images} if images else {})}
+
+    async def typed(self, device: int, task_id: int):
+        """A request was just typed on `device` to this task: its reply is spoken there, as a spoken
+        one's is. Without a voice session on the device, or without speech, it's only in the timeline."""
+        session = self.newest.get(device)
+        if session is None or self.speech.status["tts"] == "unavailable":
+            return
+        self._follow(session, task_id)  # before anything awaits, so the hub sees the message sent
+        await session.interrupt()  # typing stops any speech, as talking does (voice-protocol §7)
+
+    def _follow(self, session: VoiceSession, task_id: int):
+        """Speak the replies to the task's newest request on `session`."""
+        self.owners[task_id] = session
+        session.selected = task_id  # the task just asked is the one on screen (App selects it)
+        message = self.tasks.db.one("SELECT id FROM task_messages WHERE task_id = ? AND role = 'user' "
+                                    "ORDER BY id DESC LIMIT 1", task_id)
+        self.requests[message["id"]] = session
 
     async def _dispatch(self, turn: Turn, text: str, images: list[int]) -> dict | None:
         """A follow-up to the selected task, or a new task in the selected project with the turn's model."""

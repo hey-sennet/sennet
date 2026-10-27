@@ -17,7 +17,8 @@ The dock along the bottom has, from left to right:
 - **Conversation**: open the mic, so you can just talk.
 - **Mute replies**: silence the agent on this device. Replies still come, with their
   captions, and play on unheard; unmuting picks up where they've got to.
-- **Type instead** (`/`): a keyboard, for when you can't talk.
+- **Type instead** (`/`): a keyboard, for when you can't talk. A typed request is
+  answered aloud like a spoken one; mute the device if you'd rather read.
 - **Tasks**: your tasks, with their status, timeline, commands and file changes, and a
   search box.
 

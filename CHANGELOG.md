@@ -23,6 +23,9 @@ until 1.0, a minor version may change how things work.
 - A reply whose spoken version came after a line the agent wrote first showed the
   `<spoken>` tags in its timeline, and voice read the whole reply. The spoken version is
   now found after a short lead too, and the lead stays in the message.
+- A typed request is answered aloud, like a spoken one, on the device that typed it, and
+  sending it stops a reply that's still being said. Mute the device to read replies
+  instead.
 
 ## 0.2.0 (2026-10-26)
 
