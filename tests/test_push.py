@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from sennet import push
 from sennet.push import Push, Vapid, b64, unb64
-from conftest import wait_for
+from conftest import pending_approval, wait_for
 
 ENDPOINT = "https://push.example.com/send/abc"
 
@@ -168,12 +168,45 @@ def test_a_pending_approval_notifies(client, project):
     notifier: Push = client.app.state.push
     db = client.app.state.db
     task_id = db.add_task(project["id"], "codex", "Deploy")
-    approval_id = db.add_approval(task_id, "command", "destructive", "Run git push", {})
+    approval_id = db.add_approval(task_id, "command", "execute", "run npm test", {})
     approval = {"type": "approval", "approval": db.approval(approval_id)}
-    assert notifier.notice(approval) == ("approval", {"title": "Approval needed", "body": "Deploy",
-                                                      "task_id": task_id, "kind": "approval"})
+    assert notifier.notice(approval) == ("approval", {"title": "Approval needed", "body": "Run npm test\nDeploy",
+                                                      "task_id": task_id, "kind": "approval",
+                                                      "approval_id": approval_id, "answerable": True})
     db.decide_approval(approval_id, "approved", "user")
     assert notifier.notice({"type": "approval", "approval": db.approval(approval_id)}) is None
+
+
+def test_a_destructive_approval_isnt_answerable_from_its_notification_and_a_long_one_is_cut(client, project):
+    notifier: Push = client.app.state.push
+    db = client.app.state.db
+    task_id = db.add_task(project["id"], "codex", "Deploy")
+    risky = db.add_approval(task_id, "command", "destructive", "run git push", {})
+    kind, payload = notifier.notice({"type": "approval", "approval": db.approval(risky)})
+    assert (payload["body"], payload["answerable"]) == ("Run git push\nDeploy", False)
+    long = db.add_approval(task_id, "tool", "execute", "use search: " + "x" * 200, {})
+    asked = notifier.notice({"type": "approval", "approval": db.approval(long)})[1]["body"].split("\n")[0]
+    assert len(asked) == push.ASKED_SHOWN and asked.endswith("…")
+
+
+def test_a_notification_approves_or_declines_but_not_always_and_never_a_destructive_one(client, project):
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "run:git push origin main"}).json()
+    risky = pending_approval(client)
+    response = client.post(f"/api/approvals/{risky['id']}", json={"decision": "approve", "via": "notification"})
+    assert response.status_code == 400 and "card" in response.json()["detail"]
+    client.post(f"/api/approvals/{risky['id']}", json={"decision": "decline"})  # on its card
+    wait_for(client, task["id"], lambda t: t["status"] == "completed")
+
+    task = client.post("/api/tasks", json={"project_id": project["id"], "text": "run:npm test"}).json()
+    approval = pending_approval(client)
+    always = client.post(f"/api/approvals/{approval['id']}", json={"decision": "approve_always", "via": "notification"})
+    assert always.status_code == 400
+    answered = client.post(f"/api/approvals/{approval['id']}", json={"decision": "approve", "via": "notification"})
+    assert answered.status_code == 200 and answered.json()["status"] == "approved"
+    assert wait_for(client, task["id"], lambda t: t["status"] == "completed")["messages"][-1]["text"] == "Ran it."
+    # Already answered: the service worker says so.
+    again = client.post(f"/api/approvals/{approval['id']}", json={"decision": "approve", "via": "notification"})
+    assert again.status_code == 404
 
 
 def test_a_finished_task_reaches_the_device_encrypted(client, project, service):

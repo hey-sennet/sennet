@@ -171,6 +171,13 @@ choose **Notify this device**, allow it when the browser asks, and pick what not
 a task waiting for your approval, finishing, or failing. **Send a test** checks it works.
 Tapping a notification opens its task.
 
+An approval's notification says what's asked, such as "Run npm test", and has **Approve**
+and **Decline** buttons, so you can answer without opening Sennet; other devices see the
+answer as if it was given on the card. A destructive request (the ones shown in red, like
+`git push` or `rm`) has only **Open**: it's answered on its card, never from a lock screen.
+**Always in this project** is on the card only. Chrome and Edge show the buttons, on Android
+and on a computer; on an iPhone or iPad, tap the notification to answer in Sennet.
+
 They are per device, and off until you turn them on. A device with Sennet showing isn't
 notified: it hears the reply there. They need Sennet over HTTPS, as with its Tailscale
 address. On an iPhone or iPad, add Sennet to your Home Screen first (Share, then Add to
@@ -179,4 +186,4 @@ Home Screen) and turn them on in that app; Safari itself can't receive them.
 Notifications go through your browser's own push service (Google's for Chrome, Mozilla's
 for Firefox, Apple's for Safari), encrypted so that only your device can read them. Sennet
 uses no other service. A notification says only what happened, such as "Approval needed",
-and the task's title.
+the task's title, and for an approval what it asks.

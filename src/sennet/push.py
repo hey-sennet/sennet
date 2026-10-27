@@ -2,7 +2,9 @@
 
 A phone stops a backgrounded page's microphone and audio, so nothing it would hear reaches it
 until the page is opened again. A device that turns notifications on in Settings gets one when
-a task waits on an approval, finishes, or fails, as it chose; tapping it opens the task.
+a task waits on an approval, finishes, or fails, as it chose; tapping it opens the task. An
+approval's notification says what's asked and can be answered there, unless it's destructive:
+that is answered on its card, never from a lock screen.
 
 Each device's subscription is the browser's push service URL and keys (db.push_subscriptions).
 Payloads are encrypted for the browser (RFC 8291), so its push service carries them without
@@ -49,6 +51,20 @@ SEND_TIMEOUT_S = 15
 CONTACT = "https://github.com/hey-sennet/sennet"
 # A task that was in one of these and is now completed (or left work running) has finished a turn.
 WORKING = ("running", "awaiting_approval", "background")
+
+
+ASKED_SHOWN = 100                # an approval's summary on a lock screen, at most
+
+
+def answerable(approval: dict) -> bool:
+    """Whether a notification may answer it: not what its card shows in red."""
+    return approval["risk"] != "destructive"
+
+
+def _asked(summary: str) -> str:
+    """What an approval asks, as its card's title says it: "Run npm test"."""
+    asked = summary[:1].upper() + summary[1:]
+    return asked if len(asked) <= ASKED_SHOWN else asked[:ASKED_SHOWN - 1] + "…"
 
 
 def b64(data: bytes) -> str:
@@ -182,7 +198,10 @@ class Push:
             task = self.db.task(approval["task_id"])
             if approval["status"] != "pending" or task is None:
                 return None
-            return "approval", self._payload(task, "Approval needed", "approval")
+            return "approval", {
+                **self._payload(task, "Approval needed", "approval"),
+                "body": f"{_asked(approval['summary'])}\n{task['title']}",
+                "approval_id": approval["id"], "answerable": answerable(approval)}
         if event.get("type") == "task_removed":
             self.statuses.pop(event["task_id"], None)
         if event.get("type") != "task" or not (task := event.get("task")):
@@ -200,7 +219,8 @@ class Push:
 
     def _payload(self, task: dict, what: str, kind: str) -> dict:
         """Kept short, so it reads at a glance: what happened, and the task's title (what was said
-        and done is in the task); none of the task's words but its title leave this machine."""
+        and done is in the task); none of the task's words but its title, and for an approval what
+        it asks, leave this machine."""
         return {"title": what, "body": task["title"], "task_id": task["id"], "kind": kind}
 
     # Sending

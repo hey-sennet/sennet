@@ -15,6 +15,11 @@ until 1.0, a minor version may change how things work.
   machine's name and addresses, links and keys are taken out, and settings are kept only
   when they're known to be safe, so a new one isn't shared by default. Tasks, messages
   and paired devices are never read. The bug report form asks for it.
+- Approve or decline from an approval's notification, without opening Sennet. The
+  notification says what's asked ("Run npm test") and has Approve and Decline buttons in
+  Chrome and Edge. A destructive request, shown in red on its card, has only Open, so it's
+  never approved from a lock screen, and "Always in this project" stays on the card. If the
+  answer doesn't get through, or the approval was already answered, a notification says so.
 - A reply whose spoken version came after a line the agent wrote first showed the
   `<spoken>` tags in its timeline, and voice read the whole reply. The spoken version is
   now found after a short lead too, and the lead stays in the message.

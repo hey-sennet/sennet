@@ -45,7 +45,7 @@ from pydantic import BaseModel
 
 from . import __version__, access, projects
 from .attachments import MAX_BYTES, THUMBNAIL_MAX_BYTES, AttachmentError, Attachments
-from .push import KINDS, Push, keys_valid as push_keys_valid
+from .push import KINDS, Push, answerable as push_answerable, keys_valid as push_keys_valid
 from .aio import settle
 from .agents import registry
 from .agents.base import Agent
@@ -139,6 +139,7 @@ class PushIn(BaseModel):
 
 class DecisionIn(BaseModel):
     decision: Literal["approve", "approve_always", "decline", "cancel"]
+    via: Literal["card", "notification"] = "card"
 
 
 def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None = None,
@@ -573,6 +574,13 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
 
     @app.post("/api/approvals/{approval_id}")
     async def decide(approval_id: int, body: DecisionIn, request: Request):
+        if body.via == "notification":
+            # The service worker offers only these, and only on what isn't destructive; held here too.
+            approval = db(request).approval(approval_id)
+            if body.decision not in ("approve", "decline"):
+                raise HTTPException(400, "a notification can only approve or decline")
+            if approval and not push_answerable(approval):
+                raise HTTPException(400, "a destructive request is answered on its card, not from a notification")
         try:
             return await request.app.state.approvals.decide(approval_id, body.decision)
         except LookupError as error:
