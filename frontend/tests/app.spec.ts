@@ -781,21 +781,24 @@ test('closing the type bar eases the glyphs back to the middle, without a jump a
   await page.getByRole('textbox').fill('a few words')
   await page.waitForTimeout(700) // open
   const close = page.getByRole('button', { name: 'Close typing' })
-  // Where the mute glyph is on each frame for a second after closing.
-  const xs = await close.evaluate((button) => new Promise<number[]>((resolve) => {
-    const seen: number[] = []
+  // Where the mute glyph is, and when, on each frame for a second after closing.
+  const seen = await close.evaluate((button) => new Promise<[number, number][]>((resolve) => {
+    const seen: [number, number][] = []
     const start = performance.now()
-    const frame = () => {
+    const frame = (now: number) => {
       const mute = document.querySelector('[aria-label="Mute replies"], [aria-label="Unmute replies"]')
-      if (mute) seen.push(mute.getBoundingClientRect().x)
-      if (performance.now() - start < 1000) requestAnimationFrame(frame)
+      if (mute) seen.push([now, mute.getBoundingClientRect().x])
+      if (now - start < 1000) requestAnimationFrame(frame)
       else resolve(seen)
     }
     ;(button as HTMLElement).click()
     requestAnimationFrame(frame)
   }))
-  // Easing moves them most at first, then less each frame; a jump is a big step out of near stillness.
-  const steps = xs.slice(1).map((x, i) => Math.abs(x - xs[i]))
-  const jumps = steps.filter((step, i) => i > 0 && step > Math.max(2 * steps[i - 1], 10))
+  // Easing moves them fastest at first, then slower; a jump is a burst of speed out of near stillness.
+  // From the frame before they start to move: on a busy machine they can sit still a frame or two
+  // first. And speed, not distance per frame: frames are dropped there too, and a step spans several.
+  const moved = seen.slice(Math.max(0, seen.findIndex(([, x]) => x !== seen[0][1]) - 1))
+  const speeds = moved.slice(1).map(([t, x], i) => Math.abs(x - moved[i][1]) / Math.max(t - moved[i][0], 1)) // px per ms
+  const jumps = speeds.filter((speed, i) => i > 0 && speed > Math.max(2 * speeds[i - 1], 0.6)) // 0.6: 10px in a 60 Hz frame
   expect(jumps).toEqual([])
 })
