@@ -378,6 +378,7 @@ test('a task in its own worktree is merged into main and removed, from its view'
   await page.goto('/')
   const list = await openList(page)
   await list.getByText(title).first().click()
+  await page.getByRole('tab', { name: 'Changes' }).click() // merging sits with what it changed
   const panel = page.getByRole('region', { name: 'Worktree' })
   await expect(panel).toContainText(task.branch)
   await expect(panel).toContainText('1 file changed, 1 uncommitted')
@@ -395,6 +396,57 @@ test('a task in its own worktree is merged into main and removed, from its view'
   await confirm.getByRole('button', { name: 'Remove' }).click()
   await expect(panel).toContainText('Its worktree and branch were removed.')
   expect(git('branch')).not.toContain(task.branch)
+})
+
+test('what a task changed shows in one view, file by file, each opening to its net diff', async ({ page }, info) => {
+  const name = `changes-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: directory }).toString()
+  git('init', '--quiet', '-b', 'main')
+  git('config', 'user.name', 'E2E')
+  git('config', 'user.email', 'e2e@example.com')
+  writeFileSync(path.join(directory, 'notes.txt'), 'one\n')
+  git('add', '.')
+  git('commit', '--quiet', '-m', 'first')
+  const headers = { 'X-Sennet': '1' }
+  const project = await (await page.request.post('/api/projects', { data: { path: directory, name }, headers })).json()
+  const task = await (await page.request.post('/api/tasks', { data: { project_id: project.id, text: 'write:notes.txt=two' }, headers })).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).status).toBe('completed')
+  await page.request.post(`/api/tasks/${task.id}/messages`, { data: { text: 'write:notes.txt=three' }, headers })
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).messages.length).toBe(4)
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).status).toBe('completed')
+
+  await page.goto('/')
+  const list = await openList(page)
+  await list.getByText('write:notes.txt=two').first().click()
+  await page.getByRole('tab', { name: 'Changes' }).click()
+  const changes = page.getByRole('region', { name: 'Changes' })
+  await expect(changes).toContainText('Uncommitted, on main')
+  await expect(changes).toContainText('Not committed · 1')
+  const file = changes.getByRole('button', { name: /notes\.txt/ })
+  await expect(file).toContainText('+1 −1') // two edits, one net change
+  await file.click()
+  await expect(changes.locator('pre')).toContainText('+three')
+  await expect(changes.locator('pre')).not.toContainText('+two')
+  await page.screenshot({ path: `test-results/${info.project.name}-changes.png` })
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await expect(changes).toHaveCount(0)
+
+  // The header stays in reach however far the timeline scrolls.
+  for (let i = 0; i < 6; i++) {
+    await page.request.post(`/api/tasks/${task.id}/messages`, { data: { text: `a longer conversation, part ${i}` }, headers })
+  }
+  await expect.poll(async () => (await (await page.request.get(`/api/tasks/${task.id}`)).json()).messages.length).toBe(16)
+  const tab = page.getByRole('tab', { name: 'Changes' })
+  await tab.evaluate((element) => {
+    for (let at = element.parentElement; at; at = at.parentElement) if (getComputedStyle(at).overflowY === 'auto') at.scrollTop = at.scrollHeight
+  })
+  await expect(page.getByText('a longer conversation, part 5', { exact: true })).toBeInViewport()
+  await expect(tab).toBeInViewport()
+  await page.screenshot({ path: `test-results/${info.project.name}-changes-sticky.png` })
+  await tab.click()
+  await expect(changes).toBeInViewport()
 })
 
 test('removing a project asks first, over Settings, and a tap beside the question dismisses it', async ({ page }, info) => {

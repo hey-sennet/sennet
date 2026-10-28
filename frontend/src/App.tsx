@@ -391,7 +391,9 @@ export default function App() {
           <section
             aria-label="Tasks"
             inert={sheet === 'closed'}
-            className={cn('fixed inset-x-2 bottom-2 z-30 flex max-h-[86dvh] flex-col overflow-hidden rounded-[26px] border bg-card/95 pt-2.5 backdrop-blur-xl',
+            className={cn('fixed inset-x-2 bottom-2 z-30 flex flex-col overflow-hidden rounded-[26px] border bg-card/95 pt-2.5 backdrop-blur-xl',
+              // An open task rises to just below the header, for as much of its timeline as fits; the list stops lower.
+              sheet === 'task' ? 'max-h-[calc(100dvh-4rem)]' : 'max-h-[86dvh]',
               'transition-transform duration-650 ease-strata', sheet === 'closed' ? 'translate-y-[110%]' : 'translate-y-0')}
           >
             {/* Out of the scroll, so the task's actions are there however far down you are. */}

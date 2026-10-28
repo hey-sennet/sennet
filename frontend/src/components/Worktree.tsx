@@ -95,7 +95,9 @@ export function Worktree({ detail, className }: { detail: TaskDetail; className?
         </code>
         {base && <span className="shrink-0 text-muted-foreground">from {base}</span>}
       </p>
-      <p className="mt-1 text-muted-foreground" title={status.files.join('\n')}>{said}</p>
+      <p className="mt-1 text-muted-foreground" title={status.files.join('\n')}>
+        {said}
+      </p>
       {conflicts && (
         <div className="mt-2 flex flex-col items-start gap-1.5">
           <p className="text-warn">

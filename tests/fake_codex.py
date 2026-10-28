@@ -4,6 +4,7 @@ Turn behaviour is driven by the user's text:
   run:<command>   ask to run a command, then run it if approved
   bg:<seconds>    start a command and end the turn with it running; it finishes that much later
   edit:<path>     ask to edit a file, then apply it if approved
+  write:<path>=<text>  write a file in its working directory, without asking, and report the edit
   look            call an MCP tool and search the web, shaped like spikes/codex/transcripts/tools.jsonl
   hang            keep working until interrupted
   crash           exit mid-turn
@@ -116,6 +117,17 @@ async def run_turn(thread_id: str, turn_id: str, text: str):
         background.add(task := asyncio.ensure_future(finish()))
         task.add_done_callback(background.discard)
         reply = "Started it in the background."
+    elif text.startswith("write:"):
+        path, content = text[6:].split("=", 1)
+        target = os.path.abspath(path)  # Codex names files by absolute path
+        existed = os.path.exists(target)
+        with open(target, "w") as f:
+            f.write(content + "\n")
+        item = {"type": "fileChange", "id": "write1", "status": "inProgress", "changes": [
+            {"path": target, "kind": {"type": "update" if existed else "add", "move_path": None}, "diff": f"+{content}\n"}]}
+        notify("item/started", threadId=thread_id, turnId=turn_id, startedAtMs=0, item=item)
+        notify("item/completed", threadId=thread_id, turnId=turn_id, completedAtMs=0, item={**item, "status": "completed"})
+        reply = "Wrote it."
     elif text.startswith("edit:"):
         changes = [{"path": text[5:], "kind": {"type": "update", "move_path": None}, "diff": "-a\n+b\n"}]
         item = {"type": "fileChange", "id": "edit1", "changes": changes, "status": "inProgress"}

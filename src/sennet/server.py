@@ -536,6 +536,22 @@ def create_app(settings: Settings, paths: Paths, agents: dict[str, Agent] | None
             raise _task_error(error)
         return Response(status_code=204)
 
+    @app.get("/api/tasks/{task_id}/changes")
+    async def task_changes(task_id: int, request: Request):
+        """What the task changed, file by file, and whether it's committed (changes.py)."""
+        try:
+            return await request.app.state.tasks.changes(task_id)
+        except TaskError as error:
+            raise _task_error(error)
+
+    @app.get("/api/tasks/{task_id}/changes/diff")
+    async def task_diff(task_id: int, path: str, request: Request):
+        """One of those files' diffs; only a file the task changed."""
+        try:
+            return await request.app.state.tasks.changes(task_id, path)
+        except TaskError as error:
+            raise _task_error(error)
+
     @app.get("/api/tasks/{task_id}/worktree")
     async def task_worktree(task_id: int, request: Request):
         """The task's own worktree and branch, as they are now."""

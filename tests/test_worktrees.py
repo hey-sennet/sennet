@@ -1,37 +1,20 @@
-import subprocess
 import time
 from pathlib import Path
 
 import pytest
 
-from conftest import wait_for
+from conftest import git, git_repo, wait_for
+
+pytestmark = pytest.mark.usefixtures("git_identity")
 
 
 def done(task):
     return task["status"] == "completed"
 
 
-def git(cwd, *args) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
-
-
-@pytest.fixture(autouse=True)
-def git_identity(tmp_path, monkeypatch):
-    """Git as on a fresh machine, apart from who commits: none of this user's own config."""
-    config = tmp_path / "gitconfig"
-    config.write_text("[user]\n\tname = Test\n\temail = test@example.com\n")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-
 @pytest.fixture
 def repo(client, tmp_path):
-    directory = tmp_path / "app"
-    directory.mkdir()
-    git(directory, "init", "--quiet", "-b", "main")
-    (directory / "a.txt").write_text("one\n")
-    git(directory, "add", ".")
-    git(directory, "commit", "--quiet", "-m", "first")
+    directory = git_repo(tmp_path / "app")
     project = client.post("/api/projects", json={"path": str(directory), "name": "app"}).json()
     assert project["repo"] is True and project["worktrees"] is False
     response = client.patch(f"/api/projects/{project['id']}", json={"worktrees": True})

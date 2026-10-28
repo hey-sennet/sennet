@@ -43,7 +43,7 @@ from .agents.registry import ModelError, check_model
 from .approvals import Approvals
 from .attachments import AttachmentError, Attachments
 from .config import Settings
-from . import titles, worktrees
+from . import changes, titles, worktrees
 from .db import FINISHED, Database
 from .usage import Limits, limit_reached
 
@@ -233,6 +233,20 @@ class TaskManager:
         except worktrees.WorktreeError as error:
             raise TaskError(str(error)) from None
 
+    async def changes(self, task_id: int, path: str | None = None) -> dict:
+        """What the task changed, file by file (changes.py); with `path`, that file's diff."""
+        task = self.db.task(task_id)
+        if task is None:
+            raise TaskError("no such task")
+        project = self.db.project(task["project_id"])
+        events = self.db.events(task_id)
+        try:
+            if path is None:
+                return await changes.changes(task, project, events)
+            return await changes.diff(task, project, events, path)
+        except changes.ChangesError as error:
+            raise TaskError(str(error)) from None
+
     async def merge(self, task_id: int) -> dict:
         """Merge the finished task's branch into the branch it came from (worktrees.merge), and
         the worktree as it is now."""
@@ -350,6 +364,7 @@ class TaskManager:
                 await self._ensure_session(task_id)
                 if runner.cancelling:
                     break  # cancelled while the agent was starting
+                await self._mark_start(task_id)
                 await self._set_message_state(message["id"], "sent")
                 runner.turn_result = {}
                 await runner.session.send(message["text"], self._images(message))
@@ -378,6 +393,20 @@ class TaskManager:
             if runner.session and not runner.session.alive and task["status"] == "cancelled" and \
                     agent and agent.capabilities.resume:
                 self.prewarm(task_id)  # the interrupt ended the process, and a correction usually follows
+
+    async def _mark_start(self, task_id: int):
+        """Keep the commit the project is at as the task's first turn starts, which what it changed
+        is counted from (changes.py). A task in a worktree has its own from when that was made."""
+        task = self.db.task(task_id)
+        if task["start_commit"] or task["worktree"] or \
+                self.db.one("SELECT 1 FROM task_messages WHERE task_id = ? AND state IN ('sent', 'done')", task_id):
+            return
+        path = Path(self.db.project(task["project_id"])["path"])
+        if not worktrees.is_repo(path):
+            return
+        code, out, _ = await worktrees.run("rev-parse", "--verify", "--quiet", "HEAD", cwd=path)
+        if code == 0:
+            self.db.execute("UPDATE tasks SET start_commit = ? WHERE id = ?", out.strip(), task_id)
 
     async def _end_turn(self, task_id: int, message_id: int | None = None) -> str:
         """Wait for the turn to end, and record how it did."""

@@ -46,8 +46,9 @@ def branch_name(task_id: int, title: str) -> str:
     return f"{BRANCH_PREFIX}{task_id}-{words}" if words else f"{BRANCH_PREFIX}{task_id}"
 
 
-async def _run(*args: str, cwd: Path) -> tuple[int, str, str]:
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true", "LC_ALL": "C"}
+async def run(*args: str, cwd: Path) -> tuple[int, str, str]:
+    """Git in `cwd`: its exit code and what it printed. Paths given are paths, not patterns."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true", "LC_ALL": "C", "GIT_LITERAL_PATHSPECS": "1"}
     if not cwd.is_dir():
         raise WorktreeError(f"{cwd} doesn't exist")
     try:
@@ -65,8 +66,9 @@ async def _run(*args: str, cwd: Path) -> tuple[int, str, str]:
     return process.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
-async def _git(*args: str, cwd: Path) -> str:
-    code, out, err = await _run(*args, cwd=cwd)
+async def git(*args: str, cwd: Path) -> str:
+    """What git printed; WorktreeError, in git's words, if it failed."""
+    code, out, err = await run(*args, cwd=cwd)
     if code != 0:
         said = [line.removeprefix("error: ").removeprefix("fatal: ").strip()
                 for line in (err or out).strip().splitlines() if line.strip()]
@@ -75,22 +77,23 @@ async def _git(*args: str, cwd: Path) -> str:
 
 
 async def _branch_exists(repo: Path, branch: str) -> bool:
-    code, _, _ = await _run("show-ref", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo)
+    code, _, _ = await run("show-ref", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo)
     return code == 0
 
 
 async def current_branch(repo: Path) -> str | None:
     """The branch the checkout is on; None when it isn't on one."""
-    code, out, _ = await _run("symbolic-ref", "--quiet", "--short", "HEAD", cwd=repo)
+    code, out, _ = await run("symbolic-ref", "--quiet", "--short", "HEAD", cwd=repo)
     return out.strip() if code == 0 else None
 
 
 async def add(repo: Path, where: Path, task_id: int, title: str) -> dict:
     """A worktree at `where` on a new branch from what the project has checked out: its
-    `worktree`, `branch` and `base` (the branch it came from; None if the checkout was on none)."""
+    `worktree`, `branch`, `base` (the branch it came from; None if the checkout was on none) and
+    `start_commit`, the commit it starts at, which what it changed is counted from (changes.py)."""
     if not is_repo(repo):
         raise WorktreeError(f"{repo} isn't the top of a git repository")
-    if (await _run("rev-parse", "--verify", "--quiet", "HEAD", cwd=repo))[0] != 0:
+    if (await run("rev-parse", "--verify", "--quiet", "HEAD", cwd=repo))[0] != 0:
         raise WorktreeError("the repository has no commits yet")
     where = where.absolute()  # git runs in the project, which a relative path would be taken from
     base = await current_branch(repo)
@@ -100,17 +103,18 @@ async def add(repo: Path, where: Path, task_id: int, title: str) -> dict:
             break
         branch = f"{branch_name(task_id, title)}-{n}"
     where.parent.mkdir(parents=True, exist_ok=True)
-    await _git("worktree", "add", "--quiet", "-b", branch, str(where), "HEAD", cwd=repo)
-    return {"worktree": str(where), "branch": branch, "base": base}
+    start = (await git("rev-parse", "HEAD", cwd=repo)).strip()
+    await git("worktree", "add", "--quiet", "-b", branch, str(where), start, cwd=repo)
+    return {"worktree": str(where), "branch": branch, "base": base, "start_commit": start}
 
 
 async def restore(repo: Path, where: Path, branch: str | None):
     """Put a removed worktree back, on its branch, where it was."""
     if branch is None or not await _branch_exists(repo, branch):
         raise WorktreeError("its worktree and branch were removed, so it can't go on; start a new task")
-    await _git("worktree", "prune", cwd=repo)
+    await git("worktree", "prune", cwd=repo)
     where.parent.mkdir(parents=True, exist_ok=True)
-    await _git("worktree", "add", "--quiet", str(where), branch, cwd=repo)
+    await git("worktree", "add", "--quiet", str(where), branch, cwd=repo)
 
 
 async def status(repo: Path, where: Path, branch: str | None, base: str | None) -> dict:
@@ -122,16 +126,16 @@ async def status(repo: Path, where: Path, branch: str | None, base: str | None) 
     files: set[str] = set()
     uncommitted = commits = 0
     if exists:
-        porcelain = await _git("status", "--porcelain", "--untracked-files=all", cwd=where)
+        porcelain = await git("status", "--porcelain", "--untracked-files=all", cwd=where)
         uncommitted = len(porcelain.splitlines())
     if has_branch and has_base:
-        commits = int((await _git("rev-list", "--count", f"{base}..{branch}", cwd=repo)).strip() or 0)
-        fork = (await _git("merge-base", base, branch, cwd=repo)).strip()
+        commits = int((await git("rev-list", "--count", f"{base}..{branch}", cwd=repo)).strip() or 0)
+        fork = (await git("merge-base", base, branch, cwd=repo)).strip()
         if exists:  # the worktree's files as they are, committed or not
-            files.update((await _git("diff", "--name-only", fork, cwd=where)).splitlines())
-            files.update((await _git("ls-files", "--others", "--exclude-standard", cwd=where)).splitlines())
+            files.update((await git("diff", "--name-only", fork, cwd=where)).splitlines())
+            files.update((await git("ls-files", "--others", "--exclude-standard", cwd=where)).splitlines())
         else:
-            files.update((await _git("diff", "--name-only", fork, branch, cwd=repo)).splitlines())
+            files.update((await git("diff", "--name-only", fork, branch, cwd=repo)).splitlines())
     return {"worktree": str(where), "exists": exists, "branch": branch if has_branch else None, "base": base,
             "checked_out": await current_branch(repo) if is_repo(repo) else None,
             "files": sorted(f for f in files if f), "uncommitted": uncommitted, "commits": commits}
@@ -139,10 +143,10 @@ async def status(repo: Path, where: Path, branch: str | None, base: str | None) 
 
 async def commit(where: Path, message: str) -> bool:
     """Commit everything left in the worktree, untracked files too; whether there was anything."""
-    if not (await _git("status", "--porcelain", cwd=where)).strip():
+    if not (await git("status", "--porcelain", cwd=where)).strip():
         return False
-    await _git("add", "--all", cwd=where)
-    await _git("commit", "--quiet", "-m", message, cwd=where)
+    await git("add", "--all", cwd=where)
+    await git("commit", "--quiet", "-m", message, cwd=where)
     return True
 
 
@@ -157,23 +161,23 @@ async def merge(repo: Path, where: Path, branch: str, base: str | None, title: s
     if on != base:
         raise WorktreeError(f"the project has {on or 'no branch'} checked out; check out {base} to merge into it")
     committed = await commit(where, title) if where.is_dir() else False
-    commits = int((await _git("rev-list", "--count", f"{base}..{branch}", cwd=repo)).strip() or 0)
+    commits = int((await git("rev-list", "--count", f"{base}..{branch}", cwd=repo)).strip() or 0)
     if commits == 0:
         return {"merged": True, "commits": 0, "committed": committed, "fast_forward": False, "conflicts": []}
     # Tried apart from any checkout first (git 2.38 and later): 0 merges cleanly, 1 conflicts.
-    code, out, _ = await _run("merge-tree", "--write-tree", "--name-only", "--no-messages", base, branch, cwd=repo)
+    code, out, _ = await run("merge-tree", "--write-tree", "--name-only", "--no-messages", base, branch, cwd=repo)
     if code == 1:
         conflicts = [line for line in out.splitlines()[1:] if line.strip()]
         return {"merged": False, "commits": commits, "committed": committed, "fast_forward": False,
                 "conflicts": sorted(set(conflicts))}
-    fast_forward = (await _run("merge-base", "--is-ancestor", base, branch, cwd=repo))[0] == 0
+    fast_forward = (await run("merge-base", "--is-ancestor", base, branch, cwd=repo))[0] == 0
     try:
-        await _git("merge", "--no-edit", "-m", f"Merge {branch}: {title}", branch, cwd=repo)
+        await git("merge", "--no-edit", "-m", f"Merge {branch}: {title}", branch, cwd=repo)
     except WorktreeError:
         # Changes in the checkout in the way are refused before anything is touched; a conflict
         # merge-tree couldn't foresee (an older git) is backed out.
-        if (await _run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", cwd=repo))[0] == 0:
-            await _run("merge", "--abort", cwd=repo)
+        if (await run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", cwd=repo))[0] == 0:
+            await run("merge", "--abort", cwd=repo)
         raise
     return {"merged": True, "commits": commits, "committed": committed, "fast_forward": fast_forward, "conflicts": []}
 
@@ -182,7 +186,7 @@ async def remove(repo: Path, where: Path, branch: str | None, delete_branch: boo
     """Remove the worktree, with anything left uncommitted in it, and its branch if asked. What's
     already gone is skipped."""
     if where.is_dir():
-        await _git("worktree", "remove", "--force", str(where), cwd=repo)
-    await _git("worktree", "prune", cwd=repo)
+        await git("worktree", "remove", "--force", str(where), cwd=repo)
+    await git("worktree", "prune", cwd=repo)
     if delete_branch and branch is not None and await _branch_exists(repo, branch):
-        await _git("branch", "-D", branch, cwd=repo)
+        await git("branch", "-D", branch, cwd=repo)

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { ChevronDown, Square, Volume2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -7,6 +7,7 @@ import { Dialog, DialogOverlay, DialogPortal, DialogTitle } from '@/components/u
 import { useAgents } from '@/lib/agents'
 import { api, attachmentUrl, thumbnailUrl, type Approval, type Attachment, type Message, type Project, type StepStatus, type TaskDetail as Detail, type TaskEvent, type TurnStatus } from '@/lib/api'
 import { tokenCount } from '@/lib/limits'
+import { STATUS_LABELS } from '@/lib/status'
 import { missedAnswers } from '@/lib/missed'
 import { repeatsTitle } from '@/lib/titles'
 import { useStreaming, type Streaming } from '@/lib/store'
@@ -14,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { useVoice } from '@/voice/usePushToTalk'
 import { voice } from '@/voice/voice'
 import { ApprovalCard } from './ApprovalCard'
+import { Changes } from './Changes'
 import { Diff } from './Diff'
 import { Markdown } from './Markdown'
 import { StatusBadge, StatusDot } from './StatusBadge'
@@ -44,6 +46,29 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
     [detail.messages, detail.events, missedSince])
   const active =detail.status === 'running' || detail.status === 'awaiting_approval'
   const working = active || detail.status === 'background' // a command can outlast its turn
+  // The timeline, or what the task changed, in one view; back to the timeline for another task.
+  const [view, setView] = useState<{ task: number; changes: boolean } | null>(null)
+  const showingChanges = view?.task === detail.id && view.changes
+  const root = useRef<HTMLDivElement>(null)
+  // Whether the heading has scrolled up under the sticky row, which then names the task itself.
+  const heading = useRef<HTMLHeadingElement>(null)
+  const [headingGone, setHeadingGone] = useState(false)
+  useEffect(() => {
+    if (!heading.current) return
+    const observer = new IntersectionObserver(([entry]) => setHeadingGone(!entry.isIntersecting && entry.boundingClientRect.top < (entry.rootBounds?.top ?? 0) + 48),
+      { root: scrollParent(root.current), rootMargin: '-40px 0px 0px 0px' })
+    observer.observe(heading.current)
+    return () => observer.disconnect()
+  }, [detail.id])
+  const showChanges = (changes: boolean) => {
+    setView({ task: detail.id, changes })
+    // Changes opens at its top, the timeline back at its latest.
+    requestAnimationFrame(() => {
+      const scroller = scrollParent(root.current)
+      scroller?.scrollTo({ top: changes ? 0 : scroller.scrollHeight })
+    })
+  }
+  const changed = !!detail.worktree || !!detail.start_commit || detail.events.some((e) => e.kind === 'file_change')
 
   const entries = useMemo<Entry[]>(() => {
     const messages: Entry[] = detail.messages.map((message) => ({ at: message.created_at, message }))
@@ -82,7 +107,7 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
   const repeated = first?.role === 'user' && repeatsTitle(detail.title, first.text) ? first.id : null
 
   return (
-    <div>
+    <div ref={root}>
       <p className="text-xs text-muted-foreground">
         {project?.name ?? 'Removed project'} · {agents?.[detail.agent]?.title ?? detail.agent}
         {detail.input_tokens + detail.output_tokens > 0 && (
@@ -91,13 +116,34 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
           </span>
         )}
       </p>
-      <h2 className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
-      <div className="mt-2.5 flex items-center justify-between gap-3">
-        <StatusBadge status={detail.status} />
-        {stop && <StopTask detail={detail} />}
-      </div>
+      <h2 ref={heading} className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
+      {/* One slim row stays at the top as the task scrolls: its state, or its name once the heading has gone
+          up past it, and Timeline and Changes. Its top edge reaches up over the scroll's own padding. */}
+      <header className={cn('sticky top-0 z-10 mt-1.5 flex h-10 items-center gap-3 bg-card',
+        'before:absolute before:inset-x-0 before:bottom-full before:h-3 before:bg-card', changed && 'border-b')}>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {headingGone ? (
+            <>
+              <StatusDot status={detail.status} />
+              <span className="min-w-0 truncate text-sm" title={`${detail.title} · ${STATUS_LABELS[detail.status]}`}>{detail.title}</span>
+            </>
+          ) : <StatusBadge status={detail.status} />}
+        </div>
+        {changed && (
+          <div role="tablist" aria-label="Show" className="flex h-full shrink-0 gap-4 text-xs">
+            {([[false, 'Timeline'], [true, 'Changes']] as const).map(([changes, label]) => (
+              <button key={label} type="button" role="tab" aria-selected={showingChanges === changes} onClick={() => showChanges(changes)}
+                className={cn('-mb-px border-b-2 transition-colors', showingChanges === changes
+                  ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {stop && <StopTask detail={detail} className="-mr-2.5 shrink-0" />}
+      </header>
       {/* Only tapped: opening a task to read it stays quiet. */}
-      {playable && missed.length > 0 && (
+      {!showingChanges && playable && missed.length > 0 && (
         <Button variant="secondary" size="sm" className="mt-4" onClick={() => {
           voice().replay(missed.map((m) => m.id))
           onHeardMissed?.()
@@ -105,9 +151,20 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
           <Volume2 /> Hear what you missed
         </Button>
       )}
-      <Worktree detail={detail} className="mt-4" />
 
-      <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
+      {showingChanges ? (
+        <>
+          {/* Merging and removing a worktree sit with what it changed. */}
+          <Worktree detail={detail} className="mt-5" />
+          <Changes detail={detail} />
+          {/* What it's asking stays in sight whichever is showing. */}
+          {approvals.length > 0 && (
+            <ul className="mt-6 flex flex-col gap-[18px]">
+              {approvals.map((approval) => <li key={approval.id}><ApprovalCard approval={approval} project={project} /></li>)}
+            </ul>
+          )}
+        </>
+      ) : <ol className="mt-7 flex flex-col gap-[18px] border-l pl-4">
         {entries.map((entry) =>
           'message' in entry ? <MessageItem key={`m${entry.message.id}`} message={entry.message} wordless={entry.message.id === repeated} playable={playable} />
             : 'tools' in entry ? <ToolCalls key={`t${entry.key}`} calls={entry.tools} working={working} />
@@ -116,9 +173,17 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
         <StreamingReply streaming={streaming} working={active && !approvals.length} />
         {approvals.map((approval) => <li key={approval.id}><ApprovalCard approval={approval} project={project} /></li>)}
         {detail.error && <li className="text-sm text-destructive">{detail.error}</li>}
-      </ol>
+      </ol>}
     </div>
   )
+}
+
+/** The element the task scrolls in: the drawer's or the sheet's. */
+function scrollParent(element: HTMLElement | null): HTMLElement | null {
+  for (let at = element?.parentElement; at; at = at.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(at).overflowY)) return at
+  }
+  return null
 }
 
 /** How many pieces of background work show before the list folds to its first. */

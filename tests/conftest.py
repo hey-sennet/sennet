@@ -1,6 +1,7 @@
 import json
 import shlex
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -141,3 +142,26 @@ def pending_approval(client, timeout: float = 10) -> dict:
             return approvals[0]
         time.sleep(0.02)
     raise AssertionError("no approval was requested")
+
+
+def git(cwd, *args) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+
+@pytest.fixture
+def git_identity(tmp_path, monkeypatch):
+    """Git as on a fresh machine, apart from who commits: none of this user's own config."""
+    config = tmp_path / "gitconfig"
+    config.write_text("[user]\n\tname = Test\n\temail = test@example.com\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def git_repo(directory) -> Path:
+    """A repository on main with one commit: a.txt, "one"."""
+    directory.mkdir()
+    git(directory, "init", "--quiet", "-b", "main")
+    (directory / "a.txt").write_text("one\n")
+    git(directory, "add", ".")
+    git(directory, "commit", "--quiet", "-m", "first")
+    return directory

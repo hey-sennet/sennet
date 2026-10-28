@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     worktree TEXT,                 -- its own worktree's directory, kept once removed; null for the project's
     branch TEXT,                   -- the worktree's branch; null once Sennet deletes it
     base TEXT,                     -- the branch it came from, which it merges into
+    start_commit TEXT,             -- HEAD as its first turn started, or its worktree was made (changes.py)
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -146,7 +147,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 # counted apart from the rest, each up to this many.
 MAX_EVENTS_PER_TASK = 500
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # A task that has ended, whose agent isn't working on it: these may be deleted, and are "Earlier".
 FINISHED = ("completed", "failed", "cancelled", "unknown")
@@ -214,11 +215,19 @@ class Database:
                 self._to_v12()
             if version < 13:
                 self._to_v13()
+            if version < 14:
+                self._to_v14()
             self.conn.execute("COMMIT")
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
         return version
+
+    def _to_v14(self):
+        """The commit a task started at. Without a tasks table yet, SCHEMA makes one with it."""
+        columns = [row[1] for row in self.conn.execute("PRAGMA table_info(tasks)")]
+        if columns and "start_commit" not in columns:
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN start_commit TEXT")
 
     def _to_v13(self):
         """A worktree for each task. Without a tasks table yet, SCHEMA makes one with them."""

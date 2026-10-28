@@ -40,6 +40,7 @@ export interface Task {
   worktree: string | null // its own worktree's directory, kept once removed; null runs in the project's
   branch: string | null // the worktree's branch; null once deleted
   base: string | null // the branch it came from, which it merges into
+  start_commit: string | null // where the project was as it started; what it changed is counted from it
   created_at: number
   updated_at: number
 }
@@ -54,6 +55,39 @@ export interface WorktreeStatus {
   files: string[] // changed from the base, committed or not
   uncommitted: number // files left uncommitted in the worktree
   commits: number // on the branch and not in the base yet
+}
+
+/** A file a task changed (src/sennet/changes.py), with its lines added and removed. */
+export interface ChangedFile {
+  path: string
+  kind: 'add' | 'delete' | 'update' | 'move'
+  added: number
+  removed: number
+  binary: boolean
+  committed?: boolean // from git: no different from what's committed now
+}
+
+/** What a task changed: from git (`net`, each file's change from where it started) or, without it,
+ * its edits as made. `elsewhere`: changed in the project since it started, but not by its edits. */
+export interface TaskChanges {
+  source: 'git' | 'events'
+  net: boolean
+  files: ChangedFile[]
+  more: number // files past the list's limit
+  elsewhere: string[]
+  branch: string | null
+  base: string | null
+  state: 'uncommitted' | 'committed' | 'pushed' | 'merged' | null
+  gone: boolean // its worktree was removed: only its edits are left to show
+  estimated: boolean // from before start commits were kept: counted from where the project was when it was made
+}
+
+/** One file's diff; `truncated` when it ran past the server's limit of `lines`. */
+export interface FileDiff {
+  path: string
+  diff: string
+  lines: number
+  truncated: boolean
 }
 
 /** How a merge went: one that would conflict isn't started, and names the files instead. */
@@ -313,6 +347,9 @@ export const api = {
   /** `worktree`: what happens to its worktree, if it has one: kept, removed, or removed with its branch. */
   deleteTask: (id: number, worktree: 'keep' | 'remove' | 'delete' = 'keep') =>
     request<void>('DELETE', `/api/tasks/${id}?worktree=${worktree}`),
+  changes: (id: number) => request<TaskChanges>('GET', `/api/tasks/${id}/changes`),
+  changeDiff: (id: number, path: string) =>
+    request<FileDiff>('GET', `/api/tasks/${id}/changes/diff?path=${encodeURIComponent(path)}`),
   worktree: (id: number) => request<WorktreeStatus>('GET', `/api/tasks/${id}/worktree`),
   mergeWorktree: (id: number) => request<MergeResult>('POST', `/api/tasks/${id}/worktree/merge`),
   removeWorktree: (id: number, deleteBranch: boolean) =>

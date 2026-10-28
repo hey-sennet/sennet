@@ -5,6 +5,14 @@ until 1.0, a minor version may change how things work.
 
 ## Unreleased
 
+- What a task changed, in one view: **Changes**, beside its timeline, lists each file it
+  changed with lines added and removed, opening to its net diff, and says whether the
+  change is uncommitted, committed, pushed or merged, with files under Not committed and
+  Committed. In a project's shared checkout only the files the task edited count, and
+  other files changed meanwhile are listed apart. Without git it shows each edit as it
+  was made. A worktree's Merge and Remove are at the top of Changes.
+- An open task's name, status and tabs stay at the top as it scrolls, and on a phone an
+  open task can rise to just below the header.
 - Each task in its own git worktree: a project setting for git repositories. A new task
   gets a worktree on a branch of its own, so tasks side by side don't edit the same files.
   When it's done, merge it into the branch it came from, or remove it, from the task, on

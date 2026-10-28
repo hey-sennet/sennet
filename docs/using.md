@@ -31,13 +31,30 @@ a project run side by side, so they can edit the same files unless each has its 
 worktree (below). Up to eight tasks run at once in all (`tasks.max_concurrent`); more
 queue.
 
+### What a task changed
+
+**Changes**, beside a task's **Timeline**, shows everything it changed in one place: each
+file with its lines added and removed, opening to its diff, under **Not committed** or
+**Committed**, and whether the change as a whole is uncommitted, committed, pushed or, from
+its own worktree, merged. The task's name and both tabs stay at the top as it scrolls. A file edited five times
+is one diff, from the commit the project was at when the task started to the file as it is
+now. It's read-only: ask the agent to commit or undo it.
+
+In its own worktree, everything that changed there is the task's, edits made by commands
+such as a formatter included. In the project's own checkout, only the files its edits name
+are counted, so another task's or your own edits aren't; other files that changed since it
+started are listed below, by name. A task from before 0.3.0 is counted from the commit the
+project was at when it was made. Without git, or once a task's worktree is removed, Changes
+shows each edit's diff as it was made, one after another.
+
 ### A worktree for each task
 
 For a project that's a git repository, turn on **Each task in its own worktree** in its
 settings. Each new task then gets a git worktree on a branch of its own,
 `sennet/<number>-<words from its title>`, made from the branch the project has checked
 out. The worktree is kept in Sennet's data directory, and the agent works there. The task
-shows its branch, how many files it changed, and its commits not yet in that branch.
+shows its branch, how many files it changed and its commits not yet in that branch at the
+top of its Changes, with what follows.
 
 When the task is done:
 
