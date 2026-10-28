@@ -44,6 +44,14 @@ until 1.0, a minor version may change how things work.
   button. A task with a blue dot, for a reply that came while you were on another task,
   opens with "Hear what you missed", which plays the answers it gave since you left it,
   oldest first. Both are only tapped, so opening a task to read it stays quiet.
+- An open task says when it started, how long it ran and the tokens it used, under its
+  title: "2:14 pm · 3 min · 24k in, 1.2k out". How long counts only its turns, and counts
+  up while it works.
+- On a computer the task list starts open on wide windows, and remembers on each device
+  whether you closed it. Its tab and the task's are bigger and say what they are.
+- Settings uses Sennet's own menus and checkboxes in place of the browser's, and each
+  project's menus line up. Adding a project has a heading, and its agent menu sits on the
+  row with the name and Add.
 
 ## 0.2.0 (2026-10-26)
 

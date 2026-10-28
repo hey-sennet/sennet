@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type UIEvent } from 'react'
-import { ChevronLeft, ChevronRight, Ear, EarOff, Plus, Settings } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type UIEvent } from 'react'
+import { ChevronLeft, ChevronRight, Ear, EarOff, ListTodo, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { Dock } from '@/components/Dock'
@@ -24,6 +24,26 @@ import { toast } from 'sonner'
 // From here the task rail and drawer replace the dock's tasks glyph and the sheet.
 const desktopQuery = window.matchMedia('(min-width: 1024px)')
 
+// The rail's and the drawer's tabs, at their edges.
+const tab = 'absolute top-1/2 z-10 flex w-9 -translate-y-1/2 flex-col items-center gap-2.5 rounded-[16px] border bg-background py-3.5 text-muted-foreground transition-colors hover:text-foreground'
+
+// The task list starts open where there's room for it beside the stage and the task, until you
+// open or close it yourself on this device.
+const RAIL_KEY = 'sennet.rail'
+const wideQuery = window.matchMedia('(min-width: 1440px)')
+
+function useRail() {
+  const [open, setOpen] = useState(() => {
+    const stored = localStorage.getItem(RAIL_KEY)
+    return stored ? stored === 'open' : wideQuery.matches
+  })
+  const choose = useCallback((next: boolean) => {
+    setOpen(next)
+    localStorage.setItem(RAIL_KEY, next ? 'open' : 'closed')
+  }, [])
+  return [open, choose] as const
+}
+
 function useDesktop() {
   return useSyncExternalStore(
     (onChange) => {
@@ -37,8 +57,8 @@ function useDesktop() {
 /**
  * Strata's layout (design/README.md). The disc stays put on every view. Phone: one column with
  * the disc, its words and the dock; tasks open as a bottom sheet. Desktop: the task rail on the
- * left and the selected task's timeline on the right, each a drawer collapsed to a tab at its
- * edge by default, widening a column when open so the disc glides aside. The selected task is what talking and typing
+ * left and the selected task's timeline on the right, each a drawer that collapses to a tab at its
+ * edge (the rail starts open on wide windows), widening a column when open so the disc glides aside. The selected task is what talking and typing
  * follow up on; with none, they start a task in the header's project.
  */
 export default function App() {
@@ -49,7 +69,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [homeProjectId, setHomeProjectId] = useState<number | null>(null)
   const [typing, setTyping] = useState(false)
-  const [railOpen, setRailOpen] = useState(false)
+  const [railOpen, setRailOpen] = useRail()
   const [panelOpen, setPanelOpen] = useState(false)
   const [sheet, setSheet] = useState<'closed' | 'list' | 'task'>('closed')
   const keyboardUp = useKeyboardUp()
@@ -193,7 +213,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [setRailOpen])
 
   // Moving yourself, not by talking, leaves the last words behind with the task they were about.
   const select = (id: number | null) => {
@@ -250,6 +270,7 @@ export default function App() {
   const limit = limitAgent && limitWindow ? { line: limitLine(agents?.[limitAgent]?.title ?? limitAgent, limitWindow), reached: limitWindow.used >= 100 } : undefined
 
   const activeTasks = live.tasks.filter((t) => t.status === 'running' || t.status === 'awaiting_approval' || t.status === 'queued').length
+  const railLabel = railOpen ? 'Hide tasks' : `Show tasks${activeTasks ? `, ${activeTasks} active` : ''}${live.approvals.length ? `, ${live.approvals.length} need${live.approvals.length === 1 ? 's' : ''} you` : ''}${replyElsewhere ? ', a new reply' : ''}`
   const timeline = detail && (
     <TaskDetail detail={detail} streaming={streaming} approvals={selectedApprovals} stop={desktop}
       project={live.projects.find((p) => p.id === detail.project_id)}
@@ -284,14 +305,15 @@ export default function App() {
       {desktop && (
         <aside aria-label="Tasks" className="relative col-start-1 row-span-2 row-start-2 mb-6 min-h-0">
           <button
-            className="absolute top-1/2 -right-10 z-10 -mt-8 flex h-16 w-7 flex-col items-center justify-center gap-1 rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
-            aria-label={railOpen ? 'Hide tasks' : `Show tasks${activeTasks ? `, ${activeTasks} active` : ''}${live.approvals.length ? `, ${live.approvals.length} need${live.approvals.length === 1 ? 's' : ''} you` : ''}${replyElsewhere ? ', a new reply' : ''}`}
-            title={railOpen ? 'Hide tasks' : 'Show tasks'} aria-expanded={railOpen}
+            className={cn(tab, '-right-12')}
+            aria-label={railLabel} title={railLabel} aria-expanded={railOpen}
             onClick={() => setRailOpen(!railOpen)}
           >
-            {/* Closed, it says what the phone's tasks glyph does: how many are working, and whether one needs you
-                or has a reply you didn't hear. */}
-            {!railOpen && activeTasks > 0 && <span className="text-[11px] leading-none font-medium tabular-nums">{activeTasks}</span>}
+            {/* It says what it is, as the phone's tasks glyph does, and closed, how many are working, and whether
+                one needs you or has a reply you didn't hear. */}
+            <ListTodo className="size-4" />
+            <span className="eyebrow [writing-mode:vertical-rl]">Tasks</span>
+            {!railOpen && activeTasks > 0 && <span className="text-xs leading-none font-medium tabular-nums">{activeTasks}</span>}
             <ChevronRight className={cn('size-3.5 transition-transform duration-600 ease-strata', railOpen && 'rotate-180')} />
             {!railOpen && (live.approvals.length > 0 || replyElsewhere) && (
               <span className={cn('absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-background',
@@ -364,11 +386,12 @@ export default function App() {
       {desktop && (
         <aside aria-label="Task" className="relative col-start-3 row-span-2 row-start-2 mb-6">
           <button
-            className="absolute top-1/2 -left-10 -mt-8 grid h-16 w-7 place-items-center rounded-[14px] border bg-background text-muted-foreground transition-colors hover:text-foreground"
+            className={cn(tab, '-left-12')}
             aria-label={panelOpen ? 'Hide task' : 'Show task'} title={panelOpen ? 'Hide task' : 'Show task'} aria-expanded={panelOpen}
             onClick={() => setPanelOpen(!panelOpen)}
           >
             <ChevronLeft className={cn('size-3.5 transition-transform duration-600 ease-strata', panelOpen && 'rotate-180')} />
+            <span className="eyebrow [writing-mode:vertical-rl]">Task</span>
           </button>
           {/* The padding keeps the scrollbar clear of the rounded corners. */}
           <div className={cn('flex h-full w-[min(400px,34vw)] flex-col overflow-hidden rounded-[26px] border bg-card py-5 transition-opacity duration-400 ease-strata',

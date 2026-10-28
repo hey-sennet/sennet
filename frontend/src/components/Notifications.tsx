@@ -86,7 +86,7 @@ export function Notifications() {
     <div className="flex flex-col gap-3 text-sm">
       <label className="flex items-start gap-2">
         {/* Blocked can't be turned on from here, but a subscription made before it was blocked can still be turned off. */}
-        <input type="checkbox" className="mt-1" checked={kinds !== null} disabled={busy || (blocked && kinds === null)}
+        <input type="checkbox" className="mt-0.5" checked={kinds !== null} disabled={busy || (blocked && kinds === null)}
           onChange={(event) => toggle(event.target.checked)} />
         <span>
           Notify this device

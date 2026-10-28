@@ -16,8 +16,7 @@ export function pressing(limits: AgentLimits | undefined): LimitWindow | null {
 /** "4 pm", "tomorrow 9:30 am", "Sun 9 am" or "3 Nov", in this device's time. */
 export function resetTime(at: number, now = Date.now()): string {
   const moment = new Date(Math.round(at / 60) * 60 * 1000)
-  const hours = moment.getHours() % 12 || 12
-  const clock = `${hours}${moment.getMinutes() ? `:${String(moment.getMinutes()).padStart(2, '0')}` : ''} ${moment.getHours() < 12 ? 'am' : 'pm'}`
+  const clock = clockTime(moment)
   const days = Math.round((startOfDay(moment) - startOfDay(new Date(now))) / 86_400_000)
   if (days <= 0) return clock
   if (days === 1) return `tomorrow ${clock}`
@@ -25,7 +24,13 @@ export function resetTime(at: number, now = Date.now()): string {
   return moment.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-function startOfDay(date: Date): number {
+/** "4 pm" or "4:26 pm". */
+export function clockTime(moment: Date): string {
+  const hours = moment.getHours() % 12 || 12
+  return `${hours}${moment.getMinutes() ? `:${String(moment.getMinutes()).padStart(2, '0')}` : ''} ${moment.getHours() < 12 ? 'am' : 'pm'}`
+}
+
+export function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 

@@ -10,6 +10,7 @@ import { tokenCount } from '@/lib/limits'
 import { STATUS_LABELS } from '@/lib/status'
 import { missedAnswers } from '@/lib/missed'
 import { repeatsTitle } from '@/lib/titles'
+import { duration, ranFor, startTime } from '@/lib/timing'
 import { useStreaming, type Streaming } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useVoice } from '@/voice/usePushToTalk'
@@ -110,13 +111,9 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
     <div ref={root}>
       <p className="text-xs text-muted-foreground">
         {project?.name ?? 'Removed project'} · {agents?.[detail.agent]?.title ?? detail.agent}
-        {detail.input_tokens + detail.output_tokens > 0 && (
-          <span title={`${detail.input_tokens.toLocaleString()} input tokens, ${detail.cached_tokens.toLocaleString()} of them from cache; ${detail.output_tokens.toLocaleString()} output`}>
-            {' '}· {tokenCount(detail.input_tokens)} in, {tokenCount(detail.output_tokens)} out
-          </span>
-        )}
       </p>
       <h2 ref={heading} className="mt-1 font-serif text-[26px] leading-[1.2] tracking-[-0.01em] text-balance">{detail.title}</h2>
+      <Timing detail={detail} working={active} />
       {/* One slim row stays at the top as the task scrolls: its state, or its name once the heading has gone
           up past it, and Timeline and Changes. Its top edge reaches up over the scroll's own padding. */}
       <header className={cn('sticky top-0 z-10 mt-1.5 flex h-10 items-center gap-3 bg-card',
@@ -175,6 +172,33 @@ export function TaskDetail({ detail, streaming, project, approvals, stop = true,
         {detail.error && <li className="text-sm text-destructive">{detail.error}</li>}
       </ol>}
     </div>
+  )
+}
+
+/**
+ * When the task started, how long it ran (counting up while it works), and the tokens it used. Its
+ * padding keeps it clear of the sticky row's cover, which reaches 12px above the row (a margin
+ * would collapse into the row's own).
+ */
+function Timing({ detail, working }: { detail: Detail; working: boolean }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!working) return
+    const timer = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(timer)
+  }, [working])
+  // Never before its last change, which a stale `now` (from before it started working again) would be.
+  const ran = ranFor(detail, Math.max(now / 1000, detail.updated_at))
+  return (
+    <p className="mt-1 pb-1.5 text-xs text-muted-foreground tabular-nums">
+      <span title={new Date(detail.created_at * 1000).toLocaleString()}>{startTime(detail.created_at)}</span>
+      {ran > 0 && <> · {duration(ran)}</>}
+      {detail.input_tokens + detail.output_tokens > 0 && (
+        <span title={`${detail.input_tokens.toLocaleString()} input tokens, ${detail.cached_tokens.toLocaleString()} of them from cache; ${detail.output_tokens.toLocaleString()} output`}>
+          {' '}· {tokenCount(detail.input_tokens)} in, {tokenCount(detail.output_tokens)} out
+        </span>
+      )}
+    </p>
   )
 }
 

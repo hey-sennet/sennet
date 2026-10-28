@@ -15,6 +15,7 @@ import { FolderBrowser } from './FolderBrowser'
 import { Limits } from './Limits'
 import { Notifications } from './Notifications'
 import { ModelPicker } from './ModelPicker'
+import { Choice } from './Choice'
 
 const MODES: { value: ApprovalMode | ''; label: string }[] = [
   { value: '', label: 'Default' },
@@ -45,7 +46,6 @@ const ACCESS_HELP: Record<Access, string> = {
 }
 
 // The main screen's shapes: pills for controls, rounded cards for rows.
-const field = 'h-8 rounded-full border border-border bg-background px-3 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
 const card = 'min-w-0 rounded-[22px] border bg-card'
 const AGENT_HELP = 'https://github.com/hey-sennet/sennet/blob/main/docs/troubleshooting.md#agents'
 
@@ -178,7 +178,7 @@ function WakeWord() {
     <Section title="Wake word" hint="On this device only. It starts listening at your first tap on the page." order={4}>
       <label className="flex items-start gap-2 text-sm">
         {/* Turning it on is a tap, so it can start listening at once (voice.ts). */}
-        <input type="checkbox" className="mt-1" data-wake-control checked={wakeEnabled}
+        <input type="checkbox" className="mt-0.5" data-wake-control checked={wakeEnabled}
           onChange={(event) => voice().setWakeEnabled(event.target.checked)} />
         <span>
           Listen for “{wakePhrase}”
@@ -255,64 +255,52 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
           Its files are not touched.
         </ConfirmDialog>
       </div>
-      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        Agent
+      <Setting label="Agent" help="New tasks use it; tasks already started keep theirs.">
         <AgentSelect agents={agents} value={project.agent}
           onChange={(agent) => attempt(() => api.updateProject(project.id, { agent }), 'Could not update the project')} />
-        <span>New tasks use it; tasks already started keep theirs.</span>
-      </label>
+      </Setting>
       {!!agents?.[project.agent]?.models.length && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          Model
+        <Setting label="Model" help="For new tasks here. Each task can change its own.">
           <ModelPicker agent={agents[project.agent]} model={project.model} effort={project.effort}
             onChange={(model, effort) => attempt(() => api.updateProject(project.id, { model, effort }),
               'Could not update the project')} />
-          <span className="basis-full">For new tasks here. Each task can change its own.</span>
-        </div>
+        </Setting>
       )}
-      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        Approvals
-        <select
-          className={field}
-          value={project.approval_mode ?? ''}
-          onChange={(event) => attempt(() => api.updateProject(project.id, { approval_mode: (event.target.value || null) as ApprovalMode | null }),
-            'Could not update the project')}
-        >
-          {MODES.map((m) => (
-            <option key={m.value} value={m.value} disabled={unsupported(m.value)}>
-              {m.value === '' ? `Default (${MODES.find((x) => x.value === defaultMode)?.label})` : m.label}
-              {unsupported(m.value) ? ` (not supported by ${project.agent})` : ''}
-            </option>
-          ))}
-        </select>
-        <span className="basis-full">{MODE_HELP[mode]}</span>
+      <Setting label="Approvals" help={<>
+        {MODE_HELP[mode]}
         {unsupported(project.approval_mode ?? '') && (
-          <span className="basis-full text-warn">{project.agent} doesn't support this mode, so its tasks won't start.</span>
+          <span className="block text-warn">{project.agent} doesn't support this mode, so its tasks won't start.</span>
         )}
-      </label>
-      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        Access
-        <select
-          className={field}
-          value={project.access ?? ''}
-          onChange={(event) => attempt(() => api.updateProject(project.id, { access: (event.target.value || null) as Access | null }),
+      </>}>
+        <Choice label="Approvals" value={project.approval_mode ?? ''}
+          onChange={(value) => attempt(() => api.updateProject(project.id, { approval_mode: (value || null) as ApprovalMode | null }),
             'Could not update the project')}
-        >
-          {ACCESS.map((a) => (
-            <option key={a.value} value={a.value} disabled={noAccess(a.value)}>
-              {a.value === '' ? `Default (${ACCESS.find((x) => x.value === defaultAccess)?.label})` : a.label}
-              {noAccess(a.value) ? ` (not supported by ${project.agent})` : ''}
-            </option>
-          ))}
-        </select>
-        <span className="basis-full">{ACCESS_HELP[access]}</span>
+          options={MODES.map((m) => ({
+            value: m.value,
+            label: m.value === '' ? `Default (${MODES.find((x) => x.value === defaultMode)?.label})` : m.label,
+            note: unsupported(m.value) ? `Not supported by ${project.agent}` : undefined,
+            disabled: unsupported(m.value),
+          }))} />
+      </Setting>
+      <Setting label="Access" help={<>
+        {ACCESS_HELP[access]}
         {access === 'full' && (mode === 'auto' || mode === 'never') && (
-          <span className="basis-full text-warn">Nothing is checked: the agent runs any command and edits any file without asking.</span>
+          <span className="block text-warn">Nothing is checked: the agent runs any command and edits any file without asking.</span>
         )}
-      </label>
+      </>}>
+        <Choice label="Access" value={project.access ?? ''}
+          onChange={(value) => attempt(() => api.updateProject(project.id, { access: (value || null) as Access | null }),
+            'Could not update the project')}
+          options={ACCESS.map((a) => ({
+            value: a.value,
+            label: a.value === '' ? `Default (${ACCESS.find((x) => x.value === defaultAccess)?.label})` : a.label,
+            note: noAccess(a.value) ? `Not supported by ${project.agent}` : undefined,
+            disabled: noAccess(a.value),
+          }))} />
+      </Setting>
       {(capabilities?.project_config || project.project_config) && (
         <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
-          <input type="checkbox" className="mt-0.5" checked={project.project_config}
+          <input type="checkbox" checked={project.project_config}
             onChange={(event) => attempt(() => api.updateProject(project.id, { project_config: event.target.checked }),
               'Could not update the project')} />
           <span>
@@ -323,7 +311,7 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
       )}
       {(project.repo || project.worktrees) && (
         <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
-          <input type="checkbox" className="mt-0.5" checked={project.worktrees}
+          <input type="checkbox" checked={project.worktrees}
             onChange={(event) => attempt(() => api.updateProject(project.id, { worktrees: event.target.checked }),
               'Could not update the project')} />
           <span>
@@ -337,22 +325,32 @@ function ProjectRow({ project, defaultMode, defaultAccess, agents }: {
   )
 }
 
-function AgentSelect({ agents, value, onChange, label = 'Agent' }: {
+/** A project's setting: its name in a column of its own, so each card's menus line up, and what it means below. */
+function Setting({ label, help, children }: { label: string; help?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="mt-2.5 grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <span className="leading-8">{label}</span>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>
+      {help && <div className="col-start-2">{help}</div>}
+    </div>
+  )
+}
+
+function AgentSelect({ agents, value, onChange, label = 'Agent', className }: {
   agents: Record<string, AgentStatus> | null
   value: string
   onChange: (agent: string) => void
   label?: string
+  className?: string
 }) {
   const names = agents ? Object.keys(agents) : [value]
   return (
-    <select className={field} value={value}
-      disabled={!agents} onChange={(event) => onChange(event.target.value)} aria-label={label}>
-      {names.map((name) => {
+    <Choice label={label} value={value} disabled={!agents} onChange={onChange} className={className}
+      options={names.map((name) => {
         const status = agents?.[name]
         const ready = status?.installed && status.logged_in
-        return <option key={name} value={name}>{status?.title ?? name}{status && !ready ? ' (not set up)' : ''}</option>
-      })}
-    </select>
+        return { value: name, label: `${status?.title ?? name}${status && !ready ? ' (not set up)' : ''}` }
+      })} />
   )
 }
 
@@ -376,14 +374,15 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
     }
   }
   return (
-    <form onSubmit={add} className="grid min-w-0 gap-2 sm:grid-cols-[2fr_1fr_auto]">
-      <div className="flex min-w-0 gap-2">
+    <form onSubmit={add} aria-labelledby="add-project" className="mt-3 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+      <h4 id="add-project" className="eyebrow text-muted-foreground sm:col-span-3">Add a project</h4>
+      <div className="flex min-w-0 gap-2 sm:col-span-3">
         <Input className={input} placeholder="/home/you/code/project" value={path} onChange={(e) => setPath(e.target.value)} aria-label="Project directory" />
         <Button type="button" variant="outline" className="h-10 shrink-0 rounded-full px-4" aria-expanded={browsing}
           onClick={() => setBrowsing(!browsing)}>Browse</Button>
       </div>
       {browsing && (
-        <div className="min-w-0 sm:order-1 sm:col-span-3">
+        <div className="min-w-0 sm:col-span-3">
           <FolderBrowser start={path.trim()} onClose={() => setBrowsing(false)} onPick={(picked, folder) => {
             setPath(picked)
             if (!name.trim()) setName(folder)
@@ -392,11 +391,9 @@ function AddProject({ agents }: { agents: Record<string, AgentStatus> | null }) 
         </div>
       )}
       <Input className={input} placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
+      <AgentSelect agents={agents} value={agent ?? ''} onChange={setChosen} label="Agent for the new project"
+        className="h-10 w-full bg-card px-4 text-sm sm:w-44" />
       <Button type="submit" className="h-10 rounded-full px-5" disabled={!path.trim() || !agent}>Add</Button>
-      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:order-2 sm:col-span-3">
-        Agent
-        <AgentSelect agents={agents} value={agent ?? ''} onChange={setChosen} label="Agent for the new project" />
-      </label>
     </form>
   )
 }

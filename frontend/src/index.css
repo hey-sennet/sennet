@@ -141,4 +141,16 @@
   html {
     @apply font-sans;
     }
+  /* Checkboxes in Strata's ink rather than the browser's white square: a rounded box on the card,
+     filled with ink and a dark tick when checked. */
+  input[type="checkbox"] {
+    @apply size-4 shrink-0 cursor-pointer appearance-none rounded-[5px] border border-ring/60 bg-background transition-colors;
+    &:hover { @apply border-foreground/70; }
+    &:focus-visible { @apply ring-2 ring-ring outline-none; }
+    &:checked {
+      @apply border-foreground bg-foreground bg-center bg-no-repeat;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23100f0d' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+    }
+    &:disabled { @apply cursor-default opacity-50; }
+  }
 }

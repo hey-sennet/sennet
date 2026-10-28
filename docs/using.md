@@ -81,6 +81,10 @@ if no project is selected, Sennet says so instead of picking one.
 
 ### The task list
 
+On a computer the list is at the left, behind a tab marked Tasks, with the number of
+tasks at work. It starts open on wide windows; open or close it and that device
+remembers. The selected task's timeline is behind the Task tab on the right.
+
 Tasks that need you and tasks at work come first. Below them, **Earlier** shows the ten
 most recently finished; **Show more** brings older ones.
 
@@ -197,7 +201,10 @@ Sennet mentions it once at 80% and again at 95%. If a request hits the limit, yo
 which one and when it resets, such as "Claude Code's 5-hour limit is reached. It resets
 at 4 pm." Follow up after that time and the task carries on.
 
-Each task shows the tokens it has used, in and out, beside its project.
+An open task says, under its title, when it started, how long it ran and the tokens it
+has used, in and out: "2:14 pm · 3 min · 24k in, 1.2k out". How long counts only its
+turns, from each request to its answer, so a task followed up the next day doesn't show a
+day; while it works, the time counts up.
 
 ## Background work
 

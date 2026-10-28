@@ -1,6 +1,5 @@
 import type { AgentStatus, ModelOption } from '@/lib/api'
-
-const select = 'h-8 rounded-full border border-border bg-background px-3 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50'
+import { Choice } from './Choice'
 
 export type Inherited = { model: string | null; effort: string | null; from: string }
 
@@ -20,7 +19,7 @@ export function describeChoice(agent: AgentStatus | undefined, model: string | n
   return { models, fallback, current, effortFallback }
 }
 
-/** Model and effort as two selects, each with "Default"; choosing a model resets the effort to its default. */
+/** Model and effort as two menus, each with "Default"; choosing a model resets the effort to its default. */
 export function ModelPicker({ agent, model, effort, inherited, onChange }: {
   agent?: AgentStatus
   model: string | null
@@ -32,19 +31,13 @@ export function ModelPicker({ agent, model, effort, inherited, onChange }: {
   const efforts = current?.efforts ?? []
   if (!models.length) return null
   return (
-    <span className="flex flex-wrap items-center gap-2">
-      <select className={select} aria-label="Model" value={model ?? ''}
-        onChange={(event) => onChange(event.target.value || null, null)}>
-        <option value="">Default ({fallback})</option>
-        {models.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
-      </select>
+    <>
+      <Choice label="Model" value={model ?? ''} onChange={(value) => onChange(value || null, null)}
+        options={[{ value: '', label: `Default (${fallback})` }, ...models.map((m) => ({ value: m.id, label: m.title }))]} />
       {efforts.length > 0 && (
-        <select className={select} aria-label="Effort" value={effort ?? ''}
-          onChange={(event) => onChange(model, event.target.value || null)}>
-          <option value="">Default effort{effortFallback ? ` (${effortFallback})` : ''}</option>
-          {efforts.map((e) => <option key={e} value={e}>{e}</option>)}
-        </select>
+        <Choice label="Effort" value={effort ?? ''} onChange={(value) => onChange(model, value || null)} className="w-auto"
+          options={[{ value: '', label: `Default effort${effortFallback ? ` (${effortFallback})` : ''}` }, ...efforts.map((e) => ({ value: e, label: e }))]} />
       )}
-    </span>
+    </>
   )
 }

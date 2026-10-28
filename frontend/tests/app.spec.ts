@@ -106,7 +106,15 @@ test('a task shows the tokens it used, and Settings the agents\' limits', async 
 
   // The fake Codex reports two model responses of 1,000 tokens in and 20 out.
   const timeline = await openTask(page, 'count the tokens')
-  await expect(timeline.getByText('2k in, 40 out')).toBeVisible()
+  // In the header with when it started and how long it ran.
+  await expect(timeline.getByText(/^\d{1,2}(:\d\d)? [ap]m · under a minute · 2k in, 40 out$/)).toBeVisible()
+  // Clear of the sticky row's cover above it, not cut off at the bottom.
+  const { line, cover } = await timeline.getByText(/ · 2k in, 40 out$/).evaluate((el) => {
+    const header = el.closest('p')!.parentElement!.querySelector('header')!
+    return { line: el.getBoundingClientRect().bottom, // the words, not the padding below them
+      cover: header.getBoundingClientRect().top - parseFloat(getComputedStyle(header, '::before').height) }
+  })
+  expect(cover).toBeGreaterThanOrEqual(line)
   await expect(page.getByRole('group', { name: 'Usage limits' })).toHaveCount(0) // not in the task list
   if (info.project.name === 'phone') await page.getByRole('button', { name: 'Close' }).click()
 
@@ -597,12 +605,14 @@ test('add a Claude Code project, and it reports work it left running', async ({ 
   await expect(page.locator('header[data-connection="live"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'Settings' }).click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
   await expect(dialog.getByText('logged in (pro plan)')).toBeVisible()
   await expect(dialog.getByText('2.1.310', { exact: true })).toBeVisible()
   await dialog.getByLabel('Project directory').fill(directory)
   await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByLabel('Agent for the new project').selectOption({ label: 'Claude Code' })
+  await dialog.getByRole('button', { name: /^Agent for the new project: / }).click()
+  await page.getByRole('dialog', { name: 'Agent for the new project' }).getByRole('radio', { name: 'Claude Code' }).click()
+  await expect(dialog.getByRole('button', { name: 'Agent for the new project: Claude Code' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Add' }).click()
   await expect(dialog.getByText(directory)).toBeVisible()
   await expect(dialog.getByText("Load this project's own Claude Code settings.", { exact: false }).last()).toBeVisible()
@@ -700,6 +710,53 @@ test('replies are muted on this device until unmuted, across a reload', async ({
   await page.reload()
   await page.getByRole('button', { name: 'Unmute replies' }).click()
   await expect(page.getByRole('button', { name: 'Mute replies' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('a project\'s settings are styled menus that line up, under a heading for adding one', async ({ page }, info) => {
+  const name = `menus-${info.project.name}`
+  const directory = path.join(home, name)
+  mkdirSync(directory, { recursive: true })
+  expect((await page.request.post('/api/projects', { data: { path: directory, name }, headers: { 'X-Sennet': '1' } })).ok()).toBe(true)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog.getByRole('heading', { name: 'Add a project' })).toBeVisible()
+  await expect(dialog.locator('select')).toHaveCount(0)
+
+  const card = dialog.locator('div', { has: page.getByText(directory, { exact: true }) }).filter({ has: page.getByRole('button', { name: /^Access: / }) }).last()
+  const approvals = card.getByRole('button', { name: /^Approvals: Default/ })
+  const access = card.getByRole('button', { name: /^Access: Default/ })
+  await page.waitForTimeout(800) // the sections settle
+  const [a, b] = [await approvals.boundingBox(), await access.boundingBox()]
+  expect(a!.x).toBeCloseTo(b!.x, 0) // one under the other, the same width
+  expect(a!.width).toBeCloseTo(b!.width, 0)
+  await approvals.click()
+  await page.getByRole('dialog', { name: 'Approvals' }).getByRole('radio', { name: 'Never ask' }).click()
+  await expect(card.getByRole('button', { name: 'Approvals: Never ask' })).toBeVisible()
+  await expect(card.getByText('Nothing is asked. Actions that need more access fail instead.')).toBeVisible()
+
+  if (info.project.name === 'desktop') {
+    // The agent menu sits on the row with the name and Add, not on a line of its own.
+    const [agent, add] = [await dialog.getByRole('button', { name: /^Agent for the new project: / }).boundingBox(),
+      await dialog.getByRole('button', { name: 'Add', exact: true }).boundingBox()]
+    expect(Math.abs(agent!.y + agent!.height / 2 - (add!.y + add!.height / 2))).toBeLessThan(2)
+  }
+  await dialog.getByRole('heading', { name: 'Add a project' }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: `test-results/${info.project.name}-settings-menus.png` })
+})
+
+test('on a wide window the task list starts open until closed, and its tab says what it is', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'the rail is desktop only')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const tab = page.getByRole('button', { name: 'Hide tasks' })
+  await expect(tab).toHaveAttribute('aria-expanded', 'true')
+  await expect(tab).toContainText('Tasks')
+  await page.screenshot({ path: 'test-results/desktop-wide.png' })
+  await tab.click()
+  await page.reload()
+  await expect(page.getByRole('button', { name: /^Show tasks/ })).toHaveAttribute('aria-expanded', 'false')
+  await page.evaluate(() => localStorage.removeItem('sennet.rail'))
 })
 
 test('Settings keeps its title over what scrolls, so nothing passes under the close button', async ({ page }, info) => {
