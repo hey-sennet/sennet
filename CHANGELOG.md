@@ -3,7 +3,7 @@
 Notable changes in each release. Versions follow [semantic versioning](https://semver.org/);
 until 1.0, a minor version may change how things work.
 
-## Unreleased
+## 0.3.0 (2026-10-29)
 
 - What a task changed, in one view: **Changes**, beside its timeline, lists each file it
   changed with lines added and removed, opening to its net diff, and says whether the

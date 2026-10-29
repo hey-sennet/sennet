@@ -26,7 +26,7 @@ under your existing subscription, approve what it wants to do, and hear what it 
 - **From anywhere.** Pair your phone once and reach Sennet over
   [Tailscale](https://tailscale.com) or any HTTPS reverse proxy.
 
-**Status:** 0.2. Codex and Claude Code work today; Gemini CLI is
+**Status:** 0.3. Codex and Claude Code work today; Gemini CLI is
 coming. Linux, and macOS as experimental. English only. See what [might come next](https://github.com/hey-sennet/sennet/issues?q=is%3Aopen+label%3Anext%2Cidea).
 
 ## Quick start
